@@ -1,0 +1,47 @@
+# Окружение и секреты
+.env
+.env.*
+!.env.example
+
+# Зависимости
+node_modules/
+vendor/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Сборка и артефакты
+dist/
+build/
+out/
+*.egg-info/
+target/
+bin/
+obj/
+
+# Логи и временные файлы
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# ОС
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Кэши
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
