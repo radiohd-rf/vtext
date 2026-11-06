@@ -39,6 +39,22 @@ desktop.ini
 .idea/
 *.iml
 
+# Android / Gradle
+.gradle/
+local.properties
+captures/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.jks
+*.keystore
+!debug.keystore
+release/
+app/release/
+
 # Кэши
 .cache/
 .pytest_cache/
