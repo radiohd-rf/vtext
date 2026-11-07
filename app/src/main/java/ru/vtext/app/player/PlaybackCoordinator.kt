@@ -113,7 +113,13 @@ class PlaybackCoordinator(
             )
         }
         saveProgress()
-        if (autoPlay) play()
+        if (autoPlay) {
+            play()
+        } else {
+            book.chapters[safeChapter].segments.getOrNull(safeSegment)?.let { text ->
+                engine.prefetch(text, "$safeChapter:$safeSegment")
+            }
+        }
     }
 
     fun play() {
@@ -248,6 +254,9 @@ class PlaybackCoordinator(
                 it.copy(chapterIndex = chapterIndex, segmentIndex = safeSegment, isFinished = false)
             }
             saveProgress()
+            chapter.segments.getOrNull(safeSegment)?.let { text ->
+                engine.prefetch(text, "$chapterIndex:$safeSegment")
+            }
         }
     }
 
@@ -268,6 +277,23 @@ class PlaybackCoordinator(
         }
         saveProgress()
         engine.speak(text, "$chapterIndex:$segmentIndex")
+        prefetchNext(chapterIndex, segmentIndex)
+    }
+
+    /** Заранее синтезируем следующий фрагмент, чтобы не было паузы после текущего. */
+    private fun prefetchNext(chapterIndex: Int, segmentIndex: Int) {
+        val chapters = _state.value.chapters
+        var chapter = chapterIndex
+        var segment = segmentIndex + 1
+        while (chapter < chapters.size) {
+            val segments = chapters[chapter].segments
+            if (segment < segments.size) {
+                engine.prefetch(segments[segment], "$chapter:$segment")
+                return
+            }
+            chapter += 1
+            segment = 0
+        }
     }
 
     private fun advance() {

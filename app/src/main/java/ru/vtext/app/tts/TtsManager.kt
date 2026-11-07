@@ -257,6 +257,10 @@ class TtsManager(
         _active.value.speak(text, utteranceId)
     }
 
+    override fun prefetch(text: String, utteranceId: String) {
+        _active.value.prefetch(text, utteranceId)
+    }
+
     override fun stop() {
         previewJob?.cancel()
         _active.value.stop()

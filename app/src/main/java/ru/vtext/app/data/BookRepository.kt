@@ -86,6 +86,8 @@ class BookRepository(private val context: Context) {
                 parsers.getValue(meta.format).parse(source, meta.title).chapters
             }
             val book = meta.copy(chapters = chapters)
+            // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
+            writeChapters(dir, book)
             cache[id] = book
             book
         }

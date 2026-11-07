@@ -39,6 +39,10 @@ interface SpeechEngine {
     fun setVolume(volume: Float) {}
     fun setVoice(name: String?)
     fun speak(text: String, utteranceId: String)
+
+    /** Синтезирует следующий фрагмент заранее, пока звучит текущий. */
+    fun prefetch(text: String, utteranceId: String) {}
+
     fun stop()
     fun shutdown()
 }

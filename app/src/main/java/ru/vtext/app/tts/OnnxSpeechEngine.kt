@@ -8,6 +8,7 @@ import android.util.Log
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeInitialize
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeText
 import com.k2fsa.sherpa.onnx.GenerationConfig
+import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
@@ -71,6 +72,19 @@ class OnnxSpeechEngine(
     private var playJob: Job? = null
     private var pending: Pair<String, String>? = null
     private val generateMutex = Mutex()
+    private val prefetchLock = Any()
+    private var prefetchJob: Job? = null
+    @Volatile
+    private var prefetchTargetId: String? = null
+    @Volatile
+    private var prefetchedId: String? = null
+    @Volatile
+    private var prefetchedAudio: GeneratedAudio? = null
+    @Volatile
+    private var pendingPrefetch: Pair<String, String>? = null
+
+    @Volatile
+    private var currentUtteranceId: String? = null
 
     @Volatile
     private var activeTrack: AudioTrack? = null
@@ -89,6 +103,9 @@ class OnnxSpeechEngine(
                 pending = null
                 if (queued != null) {
                     startPlayback(engine, queued.first, queued.second)
+                    startPrefetchIfPossible()
+                } else {
+                    startPrefetchIfPossible()
                 }
             } catch (error: Throwable) {
                 _state.value = EngineState.ERROR
@@ -99,7 +116,11 @@ class OnnxSpeechEngine(
     }
 
     override fun setRate(rate: Float) {
-        this.rate = rate.coerceIn(MIN_RATE, MAX_RATE)
+        val value = rate.coerceIn(MIN_RATE, MAX_RATE)
+        if (this.rate != value) {
+            this.rate = value
+            invalidatePrefetch()
+        }
     }
 
     override fun setVolume(volume: Float) {
@@ -112,18 +133,28 @@ class OnnxSpeechEngine(
 
     /** Качество Supertonic: число шагов генерации (4…10). */
     fun setSupertonicSteps(steps: Int) {
-        this.steps = steps.coerceIn(MIN_STEPS, MAX_STEPS)
+        val value = steps.coerceIn(MIN_STEPS, MAX_STEPS)
+        if (this.steps != value) {
+            this.steps = value
+            invalidatePrefetch()
+        }
     }
 
     override fun setVoice(name: String?) {
         if (model.engine != TtsEngineType.SUPERTONIC) return
         val id = name?.toIntOrNull() ?: 0
-        speaker = id.coerceIn(0, 9)
+        val value = id.coerceIn(0, 9)
+        if (speaker != value) {
+            speaker = value
+            invalidatePrefetch()
+        }
         _selectedVoice.value = speaker.toString()
     }
 
     override fun speak(text: String, utteranceId: String) {
         if (text.isBlank()) return
+        currentUtteranceId = utteranceId
+        discardOtherPrefetch(utteranceId)
         val engine = tts
         if (engine == null) {
             if (_state.value == EngineState.ERROR) {
@@ -136,9 +167,116 @@ class OnnxSpeechEngine(
         startPlayback(engine, text, utteranceId)
     }
 
+    override fun prefetch(text: String, utteranceId: String) {
+        if (text.isBlank()) return
+        if (utteranceId == currentUtteranceId) return
+        synchronized(prefetchLock) {
+            if (prefetchTargetId == utteranceId || prefetchedId == utteranceId) return
+            pendingPrefetch = text to utteranceId
+            prefetchTargetId = utteranceId
+        }
+        startPrefetchIfPossible()
+    }
+
+    private fun startPrefetchIfPossible() {
+        val engine = tts ?: return
+        val request: Pair<String, String>
+        synchronized(prefetchLock) {
+            if (prefetchJob?.isActive == true) return
+            if (prefetchedId != null) return
+            val next = pendingPrefetch ?: return
+            pendingPrefetch = null
+            if (next.second == currentUtteranceId) return
+            prefetchTargetId = next.second
+            request = next
+        }
+        prefetchJob = scope.launch(Dispatchers.IO) {
+            try {
+                // Даём текущему speak первым занять generateMutex.
+                delay(PREFETCH_START_DELAY_MS)
+                val audio = generateMutex.withLock {
+                    engine.generateWithConfig(request.first, generationConfigFor(request.first))
+                }
+                synchronized(prefetchLock) {
+                    if (prefetchTargetId == request.second) {
+                        prefetchedId = request.second
+                        prefetchedAudio = audio
+                        prefetchTargetId = null
+                        Log.i(TAG, "prefetched ${request.second}")
+                    }
+                }
+            } catch (error: Throwable) {
+                if (error !is kotlinx.coroutines.CancellationException) {
+                    Log.w(TAG, "prefetch failed ${request.second}", error)
+                }
+                synchronized(prefetchLock) {
+                    if (prefetchTargetId == request.second) {
+                        prefetchTargetId = null
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun obtainAudio(
+        engine: OfflineTts,
+        text: String,
+        utteranceId: String,
+    ): GeneratedAudio {
+        val running = synchronized(prefetchLock) {
+            if (prefetchTargetId == utteranceId) prefetchJob else null
+        }
+        running?.join()
+        val cached = synchronized(prefetchLock) {
+            if (prefetchedId == utteranceId) {
+                val audio = prefetchedAudio
+                prefetchedId = null
+                prefetchedAudio = null
+                audio
+            } else {
+                null
+            }
+        }
+        if (cached != null) {
+            Log.i(TAG, "prefetch hit $utteranceId")
+            return cached
+        }
+        return generateMutex.withLock {
+            engine.generateWithConfig(text, generationConfigFor(text))
+        }
+    }
+
+    private fun discardOtherPrefetch(utteranceId: String) {
+        synchronized(prefetchLock) {
+            if (prefetchedId != null && prefetchedId != utteranceId) {
+                prefetchedId = null
+                prefetchedAudio = null
+            }
+            if (prefetchTargetId != null && prefetchTargetId != utteranceId) {
+                prefetchJob?.cancel()
+                prefetchJob = null
+                prefetchTargetId = null
+                pendingPrefetch = null
+            }
+        }
+    }
+
+    private fun invalidatePrefetch() {
+        synchronized(prefetchLock) {
+            prefetchJob?.cancel()
+            prefetchJob = null
+            prefetchTargetId = null
+            pendingPrefetch = null
+            prefetchedId = null
+            prefetchedAudio = null
+        }
+    }
+
     override fun stop() {
         val hadPlayback = playJob?.isActive == true || pending != null
+        currentUtteranceId = null
         cancelCurrent()
+        invalidatePrefetch()
         if (hadPlayback) {
             _events.tryEmit(SpeechEvent.Stopped(null))
         }
@@ -147,7 +285,9 @@ class OnnxSpeechEngine(
     override fun shutdown() {
         val engine = tts
         tts = null
+        currentUtteranceId = null
         cancelCurrent()
+        invalidatePrefetch()
         if (engine == null) return
         // Ждём завершения возможного нативного синтеза и только потом освобождаем модель.
         scope.launch(Dispatchers.IO) {
@@ -181,27 +321,10 @@ class OnnxSpeechEngine(
     ) = withContext(Dispatchers.IO) {
         var track: AudioTrack? = null
         try {
-            val generationConfig = if (model.engine == TtsEngineType.SUPERTONIC) {
-                GenerationConfig(
-                    sid = speaker,
-                    numSteps = steps,
-                    speed = rate,
-                    extra = mapOf("lang" to "ru"),
-                )
-            } else {
-                GenerationConfig(
-                    sid = 0,
-                    speed = rate,
-                    phonemeCodepoints = phonemize(text),
-                )
-            }
-
             val startedAt = System.currentTimeMillis()
             // Отменённый корутин-джоб не прерывает нативный generate, поэтому
             // новые вызовы ждут завершения предыдущего: OfflineTts не потокобезопасен.
-            val audio = generateMutex.withLock {
-                engine.generateWithConfig(text, generationConfig)
-            }
+            val audio = obtainAudio(engine, text, utteranceId)
             val synthesizedAt = System.currentTimeMillis()
             if (generation != token) return@withContext
 
@@ -308,6 +431,22 @@ class OnnxSpeechEngine(
         }
     }
 
+    private fun generationConfigFor(text: String): GenerationConfig =
+        if (model.engine == TtsEngineType.SUPERTONIC) {
+            GenerationConfig(
+                sid = speaker,
+                numSteps = steps,
+                speed = rate,
+                extra = mapOf("lang" to "ru"),
+            )
+        } else {
+            GenerationConfig(
+                sid = 0,
+                speed = rate,
+                phonemeCodepoints = phonemize(text),
+            )
+        }
+
     private fun createTts(): OfflineTts {
         val threads = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
         val config = when (model.engine) {
@@ -407,6 +546,7 @@ class OnnxSpeechEngine(
         const val DEFAULT_SAMPLE_RATE = 22_050
         const val DEFAULT_BUFFER_BYTES = 16_384
         const val WRITE_CHUNK_SAMPLES = 4096
+        const val PREFETCH_START_DELAY_MS = 200L
         const val PIPER_VOICE = "ru"
 
         @Volatile

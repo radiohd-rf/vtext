@@ -10,7 +10,7 @@ object TextSegmenter {
     private val sentenceSplit = Regex("(?<=[.!?…])\\s+")
     private val whitespace = Regex("\\s+")
 
-    fun segment(text: String, maxChars: Int = 300): List<String> {
+    fun segment(text: String, maxChars: Int = 100): List<String> {
         val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
         val paragraphs = normalized
             .split(Regex("\\n\\s*\\n+"))

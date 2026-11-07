@@ -67,9 +67,9 @@ class PlaybackSettingsStore(context: Context) {
 
         const val MIN_SUPERTONIC_STEPS = 4
         const val MAX_SUPERTONIC_STEPS = 10
-        const val DEFAULT_SUPERTONIC_STEPS = 5
-        const val FAST_SUPERTONIC_STEPS = 5
-        const val QUALITY_SUPERTONIC_STEPS = 8
+        const val DEFAULT_SUPERTONIC_STEPS = 4
+        const val FAST_SUPERTONIC_STEPS = 4
+        const val QUALITY_SUPERTONIC_STEPS = 6
 
         private const val KEY_SPEED = "speed"
         private const val KEY_PITCH = "pitch"

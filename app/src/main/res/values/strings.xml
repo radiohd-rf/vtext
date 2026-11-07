@@ -45,9 +45,9 @@
     <string name="fragment_pause_value">%1$d мс</string>
     <string name="supertonic_quality_title">Качество Supertonic</string>
     <string name="quality_fast">Быстро</string>
-    <string name="quality_fast_desc">5 шагов · быстрее, меньше нагрев</string>
+    <string name="quality_fast_desc">4 шага · быстрее, меньше нагрев</string>
     <string name="quality_high">Качественно</string>
-    <string name="quality_high_desc">8 шагов · лучше звук, но медленнее</string>
+    <string name="quality_high_desc">6 шагов · лучше звук, но медленнее</string>
     <string name="delete_book">Удалить книгу</string>
     <string name="delete_book_message">Удалить «%1$s» из библиотеки? Прогресс чтения будет потерян.</string>
     <string name="delete">Удалить</string>
