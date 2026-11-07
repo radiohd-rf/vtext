@@ -33,6 +33,10 @@ data class PlayerState(
     val sleepTimerMinutes: Int? = null,
     /** Таймер сна «до конца главы». */
     val sleepUntilChapterEnd: Boolean = false,
+    /** Закладки текущей книги. */
+    val bookmarks: List<ru.vtext.app.data.Bookmark> = emptyList(),
+    /** Голос Silero, действующий для текущей книги. */
+    val sileroVoice: String? = null,
     val engineState: EngineState = EngineState.INITIALIZING,
     val error: String? = null,
     /** Индекс текущего произносимого слова во фрагменте (для подсветки). */
@@ -51,6 +55,9 @@ class PlaybackCoordinator(
     private val progressStore: ProgressStore,
     private val settings: PlaybackSettingsStore,
     private val engine: SpeechEngine,
+    private val bookSettings: ru.vtext.app.data.BookSettingsStore = ru.vtext.app.data.BookSettingsStore(context),
+    private val bookmarkStore: ru.vtext.app.data.BookmarkStore = ru.vtext.app.data.BookmarkStore(context),
+    private val tts: ru.vtext.app.tts.TtsManager? = null,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -110,9 +117,16 @@ class PlaybackCoordinator(
         val safeSegment = segmentIndex.coerceIn(0, (segmentCount - 1).coerceAtLeast(0))
         advanceJob?.cancel()
         engine.stop()
+        val bookSpeed = bookSettings.speed(book.id) ?: settings.speed
+        val bookVoice = bookSettings.voice(book.id)
+        if (bookVoice != null) tts?.applySileroVoice(bookVoice)
+        engine.setRate(bookSpeed)
         _state.update {
             it.copy(
                 bookId = book.id,
+                speed = bookSpeed,
+                sileroVoice = tts?.selectedVoice?.value,
+                bookmarks = bookmarkStore.list(book.id),
                 bookTitle = book.title,
                 author = book.author,
                 chapters = book.chapters,
@@ -201,7 +215,8 @@ class PlaybackCoordinator(
 
     fun setSpeed(speed: Float) {
         val safeSpeed = speed.coerceIn(PlaybackSettingsStore.MIN_SPEED, PlaybackSettingsStore.MAX_SPEED)
-        settings.speed = safeSpeed
+        val bookId = _state.value.bookId
+        if (bookId != null) bookSettings.setSpeed(bookId, safeSpeed) else settings.speed = safeSpeed
         engine.setRate(safeSpeed)
         _state.update { it.copy(speed = safeSpeed) }
     }
@@ -232,6 +247,44 @@ class PlaybackCoordinator(
     }
 
     /** Остановиться, когда закончится текущая глава. */
+    /** Голос Silero для текущей книги. */
+    fun setSileroVoice(voiceId: String) {
+        val bookId = _state.value.bookId
+        if (bookId != null) bookSettings.setVoice(bookId, voiceId)
+        tts?.applySileroVoice(voiceId)
+        _state.update { it.copy(sileroVoice = voiceId) }
+    }
+
+    fun addBookmark() {
+        val current = _state.value
+        val bookId = current.bookId ?: return
+        val text = current.chapters
+            .getOrNull(current.chapterIndex)
+            ?.segments
+            ?.getOrNull(current.segmentIndex)
+            ?: return
+        val label = text.replace(Regex("\\s+"), " ").trim().take(80)
+        val bookmark = ru.vtext.app.data.Bookmark(
+            id = java.util.UUID.randomUUID().toString(),
+            chapterIndex = current.chapterIndex,
+            segmentIndex = current.segmentIndex,
+            label = label,
+            createdAt = System.currentTimeMillis(),
+        )
+        val updated = bookmarkStore.add(bookId, bookmark)
+        _state.update { it.copy(bookmarks = updated) }
+    }
+
+    fun removeBookmark(id: String) {
+        val bookId = _state.value.bookId ?: return
+        val updated = bookmarkStore.remove(bookId, id)
+        _state.update { it.copy(bookmarks = updated) }
+    }
+
+    fun openBookmark(bookmark: ru.vtext.app.data.Bookmark) {
+        goTo(bookmark.chapterIndex, bookmark.segmentIndex)
+    }
+
     fun setSleepUntilChapterEnd() {
         sleepJob?.cancel()
         sleepJob = null

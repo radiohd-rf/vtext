@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.asImageBitmap
@@ -134,6 +139,30 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    }
+                },
+                actions = {
+                    var bookmarksOpen by remember { mutableStateOf(false) }
+                    IconButton(onClick = { bookmarksOpen = true }) {
+                        Icon(
+                            Icons.Filled.BookmarkBorder,
+                            contentDescription = stringResource(R.string.bookmarks),
+                        )
+                    }
+                    if (bookmarksOpen) {
+                        BookmarksDialog(
+                            bookmarks = state.player.bookmarks,
+                            onDismiss = { bookmarksOpen = false },
+                            onAdd = {
+                                viewModel.addBookmark()
+                                bookmarksOpen = false
+                            },
+                            onOpen = { bookmark ->
+                                viewModel.openBookmark(bookmark)
+                                bookmarksOpen = false
+                            },
+                            onDelete = viewModel::removeBookmark,
+                        )
                     }
                 },
             )
@@ -366,20 +395,75 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                SpeedMenu(speed = player.speed, onSelect = viewModel::setSpeed)
-                SleepMenu(
-                    current = player.sleepTimerMinutes,
-                    untilChapterEnd = player.sleepUntilChapterEnd,
-                    onSelect = viewModel::setSleepTimer,
-                    onChapterEnd = viewModel::setSleepUntilChapterEnd,
-                )
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    SpeedMenu(speed = player.speed, onSelect = viewModel::setSpeed)
+                    VoiceMenu(current = player.sileroVoice, onSelect = viewModel::setVoice)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    SleepMenu(
+                        current = player.sleepTimerMinutes,
+                        untilChapterEnd = player.sleepUntilChapterEnd,
+                        onSelect = viewModel::setSleepTimer,
+                        onChapterEnd = viewModel::setSleepUntilChapterEnd,
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun BookmarksDialog(
+    bookmarks: List<ru.vtext.app.data.Bookmark>,
+    onDismiss: () -> Unit,
+    onAdd: () -> Unit,
+    onOpen: (ru.vtext.app.data.Bookmark) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.bookmarks)) },
+        text = {
+            Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                if (bookmarks.isEmpty()) {
+                    Text(stringResource(R.string.bookmarks_empty))
+                } else {
+                    bookmarks.forEach { bookmark ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { onOpen(bookmark) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    text = bookmark.label.ifBlank {
+                                        stringResource(R.string.bookmark_position, bookmark.chapterIndex + 1, bookmark.segmentIndex + 1)
+                                    },
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            IconButton(onClick = { onDelete(bookmark.id) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onAdd) { Text(stringResource(R.string.bookmark_add)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 @Composable
@@ -396,6 +480,28 @@ private fun SpeedMenu(speed: Float, onSelect: (Float) -> Unit) {
                     text = { Text("${formatSpeed(option)}×") },
                     onClick = {
                         onSelect(option)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceMenu(current: String?, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val voice = ru.vtext.app.tts.SileroVoice.fromId(current)
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text("${stringResource(R.string.voice_title)}: ${voice.title}")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ru.vtext.app.tts.SileroVoice.entries.forEach { item ->
+                DropdownMenuItem(
+                    text = { Text(item.title) },
+                    onClick = {
+                        onSelect(item.id)
                         expanded = false
                     },
                 )

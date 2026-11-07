@@ -69,6 +69,16 @@ class BookViewModel(
 
     fun setSleepUntilChapterEnd() = playback.setSleepUntilChapterEnd()
 
+    fun setVoice(voiceId: String) {
+        playback.setSileroVoice(voiceId)
+    }
+
+    fun addBookmark() = playback.addBookmark()
+
+    fun removeBookmark(id: String) = playback.removeBookmark(id)
+
+    fun openBookmark(bookmark: ru.vtext.app.data.Bookmark) = playback.openBookmark(bookmark)
+
     fun dismissError() {
         _state.update { it.copy(error = null) }
         playback.dismissError()

@@ -133,6 +133,11 @@ class TtsManager(
         publish()
     }
 
+    /** Применить голос Silero без предпросмотра (например, при открытии книги). */
+    fun applySileroVoice(id: String) {
+        selectSileroVoice(id)
+    }
+
     /** Импорт модели Silero из локального zip: автоматической загрузки у неё нет. */
     fun importModel(id: String, uri: android.net.Uri) {        val model = NeuralModel.byId(id) ?: return
         if (downloadJob?.isActive == true) return

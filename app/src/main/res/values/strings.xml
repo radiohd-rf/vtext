@@ -87,4 +87,8 @@
     <string name="gender_male">мужской</string>
     <string name="voices_female_title">Женские голоса</string>
     <string name="voices_male_title">Мужские голоса</string>
+    <string name="bookmarks">Закладки</string>
+    <string name="bookmarks_empty">Закладок пока нет</string>
+    <string name="bookmark_add">Добавить закладку</string>
+    <string name="bookmark_position">Глава %1$d, фрагмент %2$d</string>
 </resources>
