@@ -74,6 +74,9 @@
     <string name="silero_model_title">Модель Silero v5</string>
     <string name="silero_import_hint">Silero не скачивается автоматически: импортируйте zip-архив с файлами модели (accentor.ptl, dur.ptl, pitch.ptl, tacotron.ptl, vocoder48.ptl, meta.json).</string>
     <string name="import_model">Импорт</string>
+    <string name="silero_dictionary_title">Словарь произношения</string>
+    <string name="silero_dictionary_hint">Текстовый файл: по строке «слово=произношение», например python=пайтон или замок=з+амок. Знак + задаёт ударение.</string>
+    <string name="silero_dictionary_import">Импорт словаря</string>
     <string name="neural_fallback">Модель ещё не скачана — пока используется системный голос.</string>
     <string name="neural_loading">Загрузка нейроголоса…</string>
     <string name="neural_unavailable">Не удалось загрузить нейроголос. Проверьте модель и попробуйте ещё раз.</string>

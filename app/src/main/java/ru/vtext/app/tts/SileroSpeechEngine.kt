@@ -162,7 +162,7 @@ class SileroSpeechEngine(
 
     private suspend fun play(token: Int, text: String, utteranceId: String) {
         val config = meta ?: return
-        val chunks = SileroText.chunks(SileroText.normalizeForSpeech(text), CHUNK_CHARS)
+        val chunks = SileroText.chunks(SileroText.normalizeForSpeech(text, loadUserTerms()), CHUNK_CHARS)
         if (chunks.isEmpty()) {
             _events.tryEmit(SpeechEvent.Done(utteranceId))
             return
@@ -271,6 +271,12 @@ class SileroSpeechEngine(
     }
 
     // ----- Синтез -----
+
+    /** Словарь произношения читается при каждом фрагменте: правки применяются без перезапуска. */
+    private fun loadUserTerms(): Map<String, String> = runCatching {
+        val file = File(modelDir.parentFile, DICTIONARY_FILE)
+        if (file.isFile) SileroText.parseDictionary(file.readText()) else emptyMap()
+    }.getOrDefault(emptyMap())
 
     private suspend fun synthesize(config: SileroMeta, text: String): FloatArray = synthMutex.withLock {
         withContext(Dispatchers.Default) {
@@ -409,6 +415,7 @@ class SileroSpeechEngine(
     companion object {
         private const val TAG = "vtext-tts"
         private const val META_FILE = "meta.json"
+        const val DICTIONARY_FILE = "silero-dictionary.txt"
         private const val SAMPLE_RATE = 48_000
         private const val MIN_RATE = 0.5f
         private const val MAX_RATE = 3f

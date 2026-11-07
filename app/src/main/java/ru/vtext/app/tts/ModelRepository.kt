@@ -48,8 +48,17 @@ class ModelRepository(context: Context) {
         modelDir(model).deleteRecursively()
     }
 
-    /** Установка модели из локального zip-архива (для Silero, который не скачивается автоматически). */
-    suspend fun importArchive(model: NeuralModel, uri: android.net.Uri, onProgress: (Float) -> Unit) {
+    /** Импорт пользовательского словаря произношения Silero (текст `слово=произношение`). */
+    suspend fun importDictionary(uri: android.net.Uri) {
+        withContext(Dispatchers.IO) {
+            val input = appContext.contentResolver.openInputStream(uri)
+                ?: throw IOException("Не удалось открыть словарь")
+            val target = File(modelsDir, SileroSpeechEngine.DICTIONARY_FILE)
+            input.use { source -> target.outputStream().use { source.copyTo(it) } }
+        }
+    }
+
+    /** Установка модели из локального zip-архива (для Silero, который не скачивается автоматически). */    suspend fun importArchive(model: NeuralModel, uri: android.net.Uri, onProgress: (Float) -> Unit) {
         withContext(Dispatchers.IO) {
             val staging = File(modelDir(model).parentFile, model.id + ".import")
             staging.deleteRecursively()

@@ -528,6 +528,24 @@ private fun LazyListScope.sileroSection(
             onClick = { viewModel.selectSileroVoice(voice.id) },
         )
     }
+    sectionHeader(context.getString(R.string.silero_dictionary_title))
+    item(key = "silero-dictionary") {
+        val dictionaryLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            if (uri != null) viewModel.importSileroDictionary(uri)
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+            Text(
+                text = stringResource(R.string.silero_dictionary_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = { dictionaryLauncher.launch(arrayOf("text/plain", "*/*")) }) {
+                Text(stringResource(R.string.silero_dictionary_import))
+            }
+        }
+    }
 }
 
 @Composable

@@ -94,6 +94,37 @@ class SileroTextTest {
     }
 
     @Test
+    fun updatesPronunciationWithUserDictionary() {
+        val terms = SileroText.parseDictionary(
+            """
+            # комментарий
+            python=пайтон
+            замок=з+амок
+
+            docker=докер
+            """.trimIndent(),
+        )
+        assertEquals(3, terms.size)
+        val result = SileroText.normalizeForSpeech("Python и замок, docker", terms)
+        assertTrue(result.contains("пайтон"))
+        assertTrue(result.contains("з+амок"))
+        assertTrue(result.contains("докер"))
+    }
+
+    @Test
+    fun keepsWordBoundariesInDictionary() {
+        val terms = mapOf("кот" to "код")
+        assertEquals("код и котик", SileroText.applyUserDictionary("кот и котик", terms))
+    }
+
+    @Test
+    fun parsesDictionaryWithBom() {
+        val terms = SileroText.parseDictionary("\uFEFFкнигу=фолиант\npython=пайтон")
+        assertEquals("фолиант", terms["книгу"])
+        assertEquals("пайтон", terms["python"])
+    }
+
+    @Test
     fun splitsLongTextIntoChunks() {
         val text = "Первое предложение. Второе предложение. Третье предложение."
         val chunks = SileroText.chunks(text, 20)

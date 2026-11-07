@@ -1,6 +1,7 @@
 package ru.vtext.app.tts
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -156,8 +157,7 @@ class TtsManager(
     }
 
     /** Импорт модели Silero из локального zip: автоматической загрузки у неё нет. */
-    fun importModel(id: String, uri: android.net.Uri) {
-        val model = NeuralModel.byId(id) ?: return
+    fun importModel(id: String, uri: android.net.Uri) {        val model = NeuralModel.byId(id) ?: return
         if (downloadJob?.isActive == true) return
         downloadJob = scope.launch {
             updateModel(model.id) {
@@ -265,8 +265,19 @@ class TtsManager(
         }
     }
 
-    // ----- SpeechEngine -----
+    /** Импорт словаря произношения Silero (`слово=произношение` в текстовом файле). */
+    fun importSileroDictionary(uri: android.net.Uri) {
+        scope.launch {
+            try {
+                repository.importDictionary(uri)
+                Log.i("vtext-tts", "Словарь Silero обновлён")
+            } catch (error: Throwable) {
+                Log.e("vtext-tts", "Не удалось импортировать словарь", error)
+            }
+        }
+    }
 
+    // ----- SpeechEngine -----
     override fun setRate(rate: Float) {
         this.rate = rate
         systemEngine.setRate(rate)

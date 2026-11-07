@@ -170,6 +170,8 @@ class SettingsViewModel(
 
     fun importModel(id: String, uri: android.net.Uri) = manager.importModel(id, uri)
 
+    fun importSileroDictionary(uri: android.net.Uri) = manager.importSileroDictionary(uri)
+
     fun selectSileroVoice(id: String) {
         playback.pause()
         manager.selectSileroVoice(id)

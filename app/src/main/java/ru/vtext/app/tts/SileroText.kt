@@ -58,8 +58,46 @@ internal object SileroText {
         spellNumber(match.value.toLongOrNull() ?: 0L)
     }
 
-    /** Полная подготовка текста: латиница → кириллица, цифры → слова. */
-    fun normalizeForSpeech(text: String): String = spellNumbers(transliterateLatin(text))
+    /** Полная подготовка текста: пользовательский словарь, латиница → кириллица, цифры → слова. */
+    fun normalizeForSpeech(text: String, userTerms: Map<String, String> = emptyMap()): String =
+        spellNumbers(transliterateLatin(applyUserDictionary(text, userTerms)))
+
+    // ----- Пользовательский словарь -----
+
+    /**
+     * Заменяет слова по словарю пользователя: `python=пайтон`, `замок=з+амок`.
+     * Значение с `+` accentor не трогает, поэтому так можно исправить ударение.
+     */
+    fun applyUserDictionary(text: String, terms: Map<String, String>): String {
+        if (terms.isEmpty()) return text
+        var result = text
+        for ((word, pronunciation) in terms) {
+            if (word.isBlank() || pronunciation.isBlank()) continue
+            val pattern = Regex(
+                "(?<![\\p{L}\\d])" + Regex.escape(word) + "(?![\\p{L}\\d])",
+                RegexOption.IGNORE_CASE,
+            )
+            result = pattern.replace(result, pronunciation)
+        }
+        return result
+    }
+
+    /**
+     * Читает словарь из текстового файла: по строке `слово=произношение`,
+     * `#` — комментарий, пустые строки игнорируются.
+     */
+    fun parseDictionary(text: String): Map<String, String> = buildMap {
+        text.lineSequence().forEach { line ->
+            val trimmed = line.removePrefix("\uFEFF").substringBefore('#').trim().trim('\uFEFF')
+            if (trimmed.isEmpty()) return@forEach
+            val separator = trimmed.indexOf('=')
+            if (separator <= 0) return@forEach
+            val word = trimmed.substring(0, separator).trim().trim('\uFEFF')
+            val value = trimmed.substring(separator + 1).trim().trim('\uFEFF')
+            if (word.isNotEmpty() && value.isNotEmpty()) put(word, value)
+        }
+    }
+
 
     // ----- Латиница -----
 
