@@ -80,6 +80,11 @@ class SileroSpeechEngine(
     @Volatile
     private var pipelineGenerating = false
 
+    /** Текущий фрагмент: нужен, чтобы перезапустить его с текущего куска при смене скорости. */
+    private var playbackContext: PlaybackContext? = null
+    private val chunkLock = Any()
+    private val chunkEnds = mutableListOf<Pair<Long, Int>>()
+
     @Volatile
     private var activeTrack: AudioTrack? = null
 
@@ -137,6 +142,24 @@ class SileroSpeechEngine(
         if (this.rate != value) {
             this.rate = value
             invalidatePrefetch()
+            restartFromCurrentChunk()
+        }
+    }
+
+    /** Смена скорости на ходу: перезапускаем фрагмент с того куска, который звучит сейчас. */
+    private fun restartFromCurrentChunk() {
+        val context = playbackContext ?: return
+        if (playbackJob?.isActive != true) return
+        val position = activeTrack?.playbackHeadPosition?.toLong() ?: return
+        val entry = synchronized(chunkLock) {
+            chunkEnds.firstOrNull { position < it.first }
+        } ?: return
+        val token = ++generation
+        playbackJob?.cancel()
+        pipelineGenerating = true
+        Log.i(TAG, "speed ${"%.2f".format(rate)}: restart at chunk ${entry.second}")
+        playbackJob = ioScope.launch {
+            play(token, context.text, context.utteranceId, startChunk = entry.second)
         }
     }
 
@@ -300,7 +323,7 @@ class SileroSpeechEngine(
 
     // ----- Воспроизведение -----
 
-    private suspend fun play(token: Int, text: String, utteranceId: String) {
+    private suspend fun play(token: Int, text: String, utteranceId: String, startChunk: Int = 0) {
         val config = meta ?: return
         // Режем исходный текст: так у слов сохраняются позиции для подсветки.
         val chunks = SileroText.chunkPlan(text, CHUNK_CHARS)
@@ -309,16 +332,27 @@ class SileroSpeechEngine(
             _events.tryEmit(SpeechEvent.Done(utteranceId))
             return
         }
+        val firstChunk = startChunk.coerceIn(0, chunks.lastIndex)
+        playbackContext = PlaybackContext(text, utteranceId)
+        synchronized(chunkLock) { chunkEnds.clear() }
         val userTerms = loadUserTerms()
         val tracker = SileroText.WordTracker(text)
+        // Пропущенные куски всё равно «прогоняем» через трекер, чтобы подсветка не сбилась.
+        for (index in 0 until firstChunk) {
+            tracker.advance(SileroText.simpleWords(SileroText.normalizeForSpeech(chunks[index].text, userTerms)))
+        }
         val timeline = mutableListOf<TimedWord>()
         val timelineLock = Any()
-        val cached = awaitPrefetch(utteranceId)?.takeIf { it.text == chunks.first().text }
+        val cached = if (firstChunk == 0) {
+            awaitPrefetch(utteranceId)?.takeIf { it.text == chunks.first().text }
+        } else {
+            null
+        }
         if (cached != null) Log.i(TAG, "cache hit $utteranceId")
         synchronized(prefetchLock) {
             if (pendingPrefetch?.utteranceId == utteranceId) pendingPrefetch = null
         }
-        val firstToGenerate = if (cached != null) 1 else 0
+        val firstToGenerate = if (cached != null) 1 else firstChunk
         val audioChannel = kotlinx.coroutines.channels.Channel<Rendered>(capacity = 2)
         var ticker: Job? = null
         var track: AudioTrack? = null
@@ -330,7 +364,7 @@ class SileroSpeechEngine(
                     try {
                         if (cached != null) {
                             val words = withDisplayIndexes(tracker, cached.words)
-                            audioChannel.send(Rendered(cached.audio, chunks.first().pauseMs, words))
+                            audioChannel.send(Rendered(cached.audio, chunks.first().pauseMs, words, 0))
                         }
                         for (index in firstToGenerate until chunks.size) {
                             if (token != generation) break
@@ -339,7 +373,7 @@ class SileroSpeechEngine(
                             if (token != generation) break
                             if (synthesis.audio.isNotEmpty()) {
                                 val words = withDisplayIndexes(tracker, synthesis.words)
-                                audioChannel.send(Rendered(synthesis.audio, chunk.pauseMs, words))
+                                audioChannel.send(Rendered(synthesis.audio, chunk.pauseMs, words, index))
                             }
                             // К концу фрагмента освобождаем CPU под предсинтез следующего.
                             if (chunks.size - 1 - index <= NEAR_END_CHUNKS) onPipelineNearlyFinished()
@@ -373,6 +407,9 @@ class SileroSpeechEngine(
                                     displayIndex = word.displayIndex,
                                 )
                             }
+                        }
+                        synchronized(chunkLock) {
+                            chunkEnds += (written + audio.size) to rendered.chunkIndex
                         }
                         var offset = 0
                         while (offset < audio.size) {
@@ -461,7 +498,14 @@ class SileroSpeechEngine(
 
     // ----- Синтез -----
 
-    private class Rendered(val audio: FloatArray, val pauseMs: Int, val words: List<SileroText.WordTiming>)
+    private class Rendered(
+        val audio: FloatArray,
+        val pauseMs: Int,
+        val words: List<SileroText.WordTiming>,
+        val chunkIndex: Int = 0,
+    )
+
+    private class PlaybackContext(val text: String, val utteranceId: String)
 
     private class PrefetchRequest(val utteranceId: String, val text: String, val chunk: SileroText.Chunk)
 

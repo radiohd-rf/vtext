@@ -1093,6 +1093,10 @@ internal object SileroText {
             word.any { it.isDigit() } || word.any { it in 'A'..'Z' } || word.any { it in 'a'..'z' }
     }
 
+    /** Простой список слов текста — для выравнивания подсветки без синтеза. */
+    fun simpleWords(text: String): List<String> =
+        Regex("[\\p{L}\\p{N}]+").findAll(text).map { it.value }.toList()
+
     private val SPOKEN_WORD = Regex("\\[\\d{1,3}]|[\\p{L}\\p{N}]+")
 
     /**
