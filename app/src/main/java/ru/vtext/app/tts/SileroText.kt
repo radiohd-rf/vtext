@@ -984,42 +984,58 @@ internal object SileroText {
      * поэтому одно исходное слово может «держать» подсветку несколько синтезированных.
      */
     class WordTracker(private val sourceText: String) {
-        private val words = Regex("[\\p{L}\\p{N}]+").findAll(sourceText).map { it.value }.toList()
+        private val words = spokenWordRanges(sourceText).map { sourceText.substring(it) }
         private var cursor = 0
+        private var expansion = 0
+        private var expansionLimit = 1
 
         fun advance(normalized: List<String>): List<Int> {
             if (words.isEmpty()) return normalized.map { 0 }
-            val result = mutableListOf<Int>()
-            for (word in normalized) {
-                var assigned = false
-                while (cursor < words.size) {
-                    val current = words[cursor]
-                    if (similar(current, word)) {
-                        result += cursor
-                        cursor++
-                        assigned = true
-                        break
-                    }
-                    val next = words.getOrNull(cursor + 1)
-                    if (next != null && similar(next, word)) {
-                        // Раскрытие текущего слова закончилось — переходим к следующему.
-                        cursor++
-                        result += cursor
-                        cursor++
-                        assigned = true
-                        break
-                    }
-                    if (isExpandable(current)) {
-                        result += cursor
-                        assigned = true
-                        break
-                    }
-                    cursor++
+            val result = IntArray(normalized.size)
+            var index = 0
+            while (index < normalized.size) {
+                if (cursor >= words.size) {
+                    result[index] = words.lastIndex
+                    index++
+                    continue
                 }
-                if (!assigned) result += (words.size - 1).coerceAtLeast(0)
+                val source = words[cursor]
+                val word = normalized[index]
+                if (similar(source, word)) {
+                    result[index] = cursor
+                    cursor++
+                    expansion = 0
+                    index++
+                    continue
+                }
+                val next = words.getOrNull(cursor + 1)
+                if (next != null && similar(next, word)) {
+                    cursor++
+                    result[index] = cursor
+                    cursor++
+                    expansion = 0
+                    index++
+                    continue
+                }
+                if (expansion == 0) expansionLimit = expectedWordCount(source)
+                if (isExpandable(source) && expansion < expansionLimit) {
+                    result[index] = cursor
+                    expansion++
+                    index++
+                    continue
+                }
+                // Слово источника не звучит (например, вырезанная сноска) — пропускаем.
+                cursor++
+                expansion = 0
             }
-            return result
+            return result.toList()
         }
+
+        private fun expectedWordCount(source: String): Int =
+            spellNumbers(transliterateLatin(source))
+                .split(Regex("[^\\p{L}\\p{N}]+"))
+                .count { it.isNotEmpty() }
+                .coerceAtLeast(1)
 
         private fun similar(source: String, normalized: String): Boolean =
             source.lowercase().replace('ё', 'е') ==
@@ -1028,6 +1044,17 @@ internal object SileroText {
         private fun isExpandable(word: String): Boolean =
             word.any { it.isDigit() } || word.any { it in 'A'..'Z' } || word.any { it in 'a'..'z' }
     }
+
+    private val SPOKEN_WORD = Regex("\\[\\d{1,3}]|[\\p{L}\\p{N}]+")
+
+    /**
+     * Диапазоны «звучащих» слов: числа в квадратных скобках (сноски) пропускаются,
+     * чтобы подсветка не сбивалась на «Talon[8]».
+     */
+    fun spokenWordRanges(text: String): List<IntRange> = SPOKEN_WORD.findAll(text)
+        .filterNot { it.value.startsWith("[") }
+        .map { it.range }
+        .toList()
 
     private const val FRAME_MS = 12.5
 

@@ -208,12 +208,8 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
 
 private fun wordRangeAt(text: String, index: Int?): IntRange? {
     if (index == null || index < 0) return null
-    val words = WORD_REGEX.findAll(text).toList()
-    val match = words.getOrNull(index) ?: return null
-    return match.range
+    return ru.vtext.app.tts.SileroText.spokenWordRanges(text).getOrNull(index)
 }
-
-private val WORD_REGEX = Regex("[\\p{L}\\p{N}]+")
 
 @Composable
 private fun ChapterSelector(state: BookUiState, chapters: List<Chapter>, onSelect: (Int) -> Unit) {

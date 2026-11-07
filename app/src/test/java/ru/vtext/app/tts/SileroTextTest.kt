@@ -270,6 +270,20 @@ class SileroTextTest {
     }
 
     @Test
+    fun doesNotGetStuckOnLatinWordWithFootnote() {
+        // «Talon[8]»: сноска вырезается, латиница транслитерируется в одно слово.
+        val tracker = SileroText.WordTracker("Это Talon[8] и всё остальное")
+        val indexes = tracker.advance(listOf("это", "талон", "и", "всё", "остальное"))
+        assertEquals(listOf(0, 1, 2, 3, 4), indexes)
+    }
+
+    @Test
+    fun spokenWordsSkipFootnotes() {
+        val ranges = SileroText.spokenWordRanges("Talon[8] и мир")
+        assertEquals(listOf("Talon", "и", "мир"), ranges.map { "Talon[8] и мир".substring(it) })
+    }
+
+    @Test
     fun splitsLongTextIntoChunks() {
         val text = "Первое предложение. Второе предложение. Третье предложение."
         val chunks = SileroText.chunks(text, 20)
