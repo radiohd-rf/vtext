@@ -86,7 +86,8 @@
 - Архитектура: MVVM, слои UI → ViewModel → domain → data.
 - TTS: `android.speech.tts.TextToSpeech` за интерфейсом `SpeechEngine` (системный движок — единственный вариант).
 - Файлы: SAF (`OpenMultipleDocuments`), файл **копируется** в приватное хранилище `filesDir/books/<id>/source.<ext>`.
-- Форматы: **TXT + FB2 + EPUB** с самого старта (реализованы парсеры).
+- Форматы: **TXT, FB2, EPUB, PDF, DOCX** (реализованы парсеры). DOCX — ZIP + `word/document.xml`; PDF — PDFBox-Android постранично.
+- Язык: интерфейс и озвучка только на русском; список голосов фильтруется по `locale.language == "ru"`, язык TTS принудительно `ru-RU`.
 - Состояние: `SharedPreferences` для прогресса (`chapter:segment`), кэш разобранных глав в `chapters.json`; `DataStore`/`Room` пока не нужны.
 - Мин. SDK: **24** (Android 7), target/compile SDK 35.
 - Асинхронность: корутины + StateFlow.
@@ -115,6 +116,12 @@
 | 2026-11-07 | Уведомление через `MediaSessionCompat`, тип сервиса `mediaPlayback` | Управление с блокировки/наушников + требования Android 14 к FGS |
 | 2026-11-07 | Голос TTS хранится в `TtsSettingsStore` (`voice_name`) | Простое сохранение выбора между сессиями |
 | 2026-11-07 | Возобновление с начала главы | Предсказуемее для TTS: не начинаем с середины фразы |
+| 2026-11-07 | Скорость хранится в `PlaybackSettingsStore` | Настройка не сбрасывается между запусками; таймер сна намеренно не сохраняется |
+| 2026-11-07 | Конец книги: `isFinished`, кнопка «Начать заново» | Пользователь видит, что книга дочитана, и может перезапустить |
+| 2026-11-07 | PDF через `com.tom-roush:pdfbox-android:2.0.27.0` | Единственный практичный способ извлечь текст PDF офлайн на Android; Apache 2.0 |
+| 2026-11-07 | DOCX своим парсером на ZIP + DOM | Без тяжёлых зависимостей; достаточно `word/document.xml` |
+| 2026-11-07 | Главы PDF = страницы («Страница N») | В PDF нет надёжных глав; страница — естественная единица навигации |
+| 2026-11-07 | Только русский язык и русские голоса | Требование продукта; убирает нерелевантные голоса из настроек |
 
 ## Соглашения
 
@@ -145,11 +152,20 @@
 - Уведомление foreground-сервиса нельзя делать dismissible, пока сервис жив: `setOngoing(true)`, иначе после свайпа остаётся невидимый foreground-сервис.
 - `NotificationManagerCompat.notify` молча ничего не делает без разрешения `POST_NOTIFICATIONS` (Android 13+), но `startForeground` продолжает работать.
 - `MediaSessionCompat` и `android.support.v4.media.*` приходят из `androidx.media:media`.
-- При выборе «системный голос по умолчанию» нужно явно вернуть `engine.voice = defaultVoice`, иначе TTS остаётся на предыдущем голосе.
+- При выборе «системный голос по умолчанию» нужно явно вернуть `engine.voice` на русский голос по умолчанию (предпочтительно офлайн), иначе TTS остаётся на предыдущем голосе.
 - `PendingIntent.getActivity` для уведомления: передаём `bookId`, `MainActivity.onNewIntent` открывает плеер этой книги.
+- PDFBox-Android: перед использованием вызывать `PDFBoxResourceLoader.init(context)`; текстовый экстрактор постранично задаётся `startPage/endPage`, `sortByPosition = true`.
+- PDF-метаданные часто содержат заглушки `untitled`/`anonymous` — их нужно игнорировать и подставлять имя файла.
+- DOCX: стиль заголовка `Heading1` не матчится regex с `\b` (между `g` и `1` нет границы слова) — использовать `(?=\d|\s|$)`.
+- DOCX: DOM с `namespaceAware=false` даёт `nodeName` вида `w:pPr`; в проекте helper `localName()` lowercase-ит имя, поэтому сравнения — `ppr`, `pstyle`, `outlinelvl`.
+- DOCX приходит от пользователя: в XML-парсере запрещены DOCTYPE и внешние сущности (XXE).
+- Список голосов TTS фильтруется только по русскому языку; сохранённый ранее нерусский голос игнорируется и заменяется русским по умолчанию.
+- `adb install` на MIUI может падать с `INSTALL_FAILED_USER_RESTRICTED`; рабочий обход — `adb push` APK в `/data/local/tmp` и `adb shell pm install -r`.
+- На этом смартфоне (Redmi Note 13 Pro, MIUI) DocumentsUI ищет файлы по поиску, но `adb shell input text sample.pdf` вставляет пробел после точки; для автоматизации лучше искать `sample`, а нужную строку выбирать по `bounds` из `uiautomator dump`.
 
 ## Журнал изменений
 
 - **2026-11-06** — созданы `AGENTS.md`, `MEMORY.md`, `.gitignore`, `README.md`; инициализирован git; описано назначение проекта (Android TTS-читалка).
 - **2026-11-07** — сгенерирован Android-проект: Kotlin + Compose, парсеры TXT/FB2/EPUB, TTS-обёртка, библиотека, плеер с подсветкой, скорость и таймер сна. Сборка `assembleDebug` успешна, 11 юнит-тестов проходят.
 - **2026-11-07** — фоновое воспроизведение: `PlaybackCoordinator` в `Application`, `PlaybackService` с foreground-уведомлением, действиями play/pause/next/prev/stop и `MediaSessionCompat`; разрешение `POST_NOTIFICATIONS`; переход в книгу по тапу на уведомление. Добавлены настройки голоса TTS (`TtsSettingsStore`, `SettingsScreen`), удаление книг долгим нажатием с подтверждением, возобновление с начала главы. Сборка и юнит-тесты проходят; на устройстве не проверялось.
+- **2026-11-07** — добавлены форматы PDF (PDFBox-Android) и DOCX (свой ZIP+XML парсер); сохранение скорости в `PlaybackSettingsStore`; обработка конца книги с кнопкой «Начать заново»; озвучка и список голосов ограничены русским языком; тесты DOCX-парсера (13 тестов). Проверено на Redmi Note 13 Pro: импорт TXT/DOCX/PDF, главы, TTS, уведомление и foreground-сервис, конец книги и рестарт, сохранение скорости и голоса, удаление книги.

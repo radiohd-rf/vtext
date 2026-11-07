@@ -13,8 +13,10 @@ import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.BookFormat
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.parser.BookParser
+import ru.vtext.app.domain.parser.DocxParser
 import ru.vtext.app.domain.parser.EpubParser
 import ru.vtext.app.domain.parser.Fb2Parser
+import ru.vtext.app.domain.parser.PdfParser
 import ru.vtext.app.domain.parser.TxtParser
 
 /**
@@ -28,6 +30,8 @@ class BookRepository(private val context: Context) {
         BookFormat.TXT to TxtParser(),
         BookFormat.FB2 to Fb2Parser(),
         BookFormat.EPUB to EpubParser(),
+        BookFormat.PDF to PdfParser(),
+        BookFormat.DOCX to DocxParser(),
     )
     private val cache = mutableMapOf<String, Book>()
 
@@ -41,7 +45,7 @@ class BookRepository(private val context: Context) {
     suspend fun import(uri: Uri): Book = withContext(Dispatchers.IO) {
         val displayName = queryDisplayName(uri) ?: "book.txt"
         val format = detectFormat(displayName, context.contentResolver.getType(uri))
-            ?: throw IllegalArgumentException("Поддерживаются форматы TXT, FB2 и EPUB")
+            ?: throw IllegalArgumentException("Поддерживаются форматы TXT, FB2, EPUB, PDF и DOCX")
 
         val id = UUID.randomUUID().toString()
         val dir = File(root, id).apply { mkdirs() }
@@ -99,8 +103,12 @@ class BookRepository(private val context: Context) {
             extension == "txt" -> BookFormat.TXT
             extension == "fb2" -> BookFormat.FB2
             extension == "epub" -> BookFormat.EPUB
+            extension == "pdf" -> BookFormat.PDF
+            extension == "docx" -> BookFormat.DOCX
             mime == "text/plain" -> BookFormat.TXT
             mime == "application/epub+zip" -> BookFormat.EPUB
+            mime == "application/pdf" -> BookFormat.PDF
+            mime == DOCX_MIME -> BookFormat.DOCX
             mime?.contains("fictionbook") == true -> BookFormat.FB2
             else -> null
         }
@@ -166,5 +174,10 @@ class BookRepository(private val context: Context) {
                 )
             }
         }.getOrNull()
+    }
+
+    private companion object {
+        const val DOCX_MIME =
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     }
 }

@@ -24,8 +24,11 @@
 - Kotlin 2.0.21, AGP 8.7.3, Gradle 8.11.1, JDK 17.
 - Jetpack Compose (BOM 2024.10.01) + Material 3, Navigation Compose, MVVM.
 - minSdk 24, compileSdk/targetSdk 35.
-- Форматы: TXT, FB2, EPUB.
+- Форматы: TXT, FB2, EPUB, PDF, DOCX.
+- Язык озвучивания: только русский; в настройках показываются только русские голоса TTS.
 - TTS: системный `android.speech.tts.TextToSpeech` за интерфейсом `SpeechEngine`.
+- PDF: `com.tom-roush:pdfbox-android` (Apache 2.0), текст извлекается постранично.
+- DOCX: собственный разбор ZIP + `word/document.xml` (заголовки по стилям Heading/Заголовок).
 - Хранение: SAF-импорт с копированием в `filesDir/books/<id>/`.
 
 ## Архитектура
@@ -38,8 +41,8 @@ UI (Compose) → ViewModel (StateFlow) → domain (модели, TextSegmenter, 
 ```
 
 - `domain/model` — `Book`, `Chapter`, `ParsedBook`.
-- `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
-- `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences, выбранный голос в `TtsSettingsStore`.
+- `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `PdfParser`, `DocxParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
+- `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences, выбранный голос в `TtsSettingsStore`, скорость в `PlaybackSettingsStore`.
 - `tts` — `AndroidSpeechEngine` с событиями Started/Done/Error/Stopped и списком системных голосов.
 - `player` — `PlaybackCoordinator` (единый источник правды о воспроизведении, живёт в `Application`) и `PlaybackService` (foreground-сервис, уведомление с управлением, `MediaSessionCompat`).
 - `ui/library` — список книг, импорт, удаление долгим нажатием; `ui/book` — плеер с подсветкой фрагмента, скоростью и таймером сна; `ui/settings` — выбор системного голоса.
@@ -83,7 +86,6 @@ vtext/
 
 ## TODO
 
-- Сохранение настроек скорости/таймера между сессиями.
-- Обработка окончания книги (кнопка «начать заново»).
+- Обработка окончания книги сделана; осталось проверить на разных устройствах.
 - Инструментальные UI-тесты.
-- Проверка фонового воспроизведения на устройстве/эмуляторе (нет подключённого устройства).
+- Проверка PDF/DOCX на больших реальных книгах (производительность и память).

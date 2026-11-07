@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
@@ -263,14 +264,31 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                     modifier = Modifier.size(56.dp),
                     enabled = player.engineState == EngineState.READY,
                 ) {
+                    val playLabel = when {
+                        player.isFinished -> R.string.restart
+                        player.isPlaying -> R.string.pause
+                        else -> R.string.play
+                    }
                     Icon(
-                        imageVector = if (player.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = stringResource(if (player.isPlaying) R.string.pause else R.string.play),
+                        imageVector = when {
+                            player.isFinished -> Icons.Default.Replay
+                            player.isPlaying -> Icons.Default.Pause
+                            else -> Icons.Default.PlayArrow
+                        },
+                        contentDescription = stringResource(playLabel),
                     )
                 }
                 IconButton(onClick = viewModel::next) {
                     Icon(Icons.Default.SkipNext, contentDescription = stringResource(R.string.next))
                 }
+            }
+            if (player.isFinished) {
+                Text(
+                    text = stringResource(R.string.book_finished),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
             if (player.engineState != EngineState.READY) {
                 Text(

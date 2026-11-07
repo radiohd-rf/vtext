@@ -1,6 +1,6 @@
 package ru.vtext.app.domain.model
 
-enum class BookFormat { TXT, FB2, EPUB }
+enum class BookFormat { TXT, FB2, EPUB, PDF, DOCX }
 
 /** Глава книги, разбитая на короткие фрагменты — единицы озвучивания. */
 data class Chapter(

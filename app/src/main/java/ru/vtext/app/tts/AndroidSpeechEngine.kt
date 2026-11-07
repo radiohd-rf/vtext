@@ -62,15 +62,17 @@ class AndroidSpeechEngine(
     override fun setVoice(name: String?) {
         settings.voiceName = name
         val engine = tts ?: return
-        val voice = name?.let { target -> engine.voices?.firstOrNull { it.name == target } }
+        if (name.isNullOrBlank()) {
+            applyDefaultRussianVoice(engine)
+            return
+        }
+        val voice = engine.voices
+            ?.firstOrNull { it.name == name && it.locale.language.equals("ru", ignoreCase = true) }
         if (voice != null) {
             engine.voice = voice
             _selectedVoice.value = voice.name
         } else {
-            // Возврат к системному голосу по умолчанию: явно сбрасываем движок,
-            // иначе он продолжит использовать ранее выбранный голос.
-            engine.defaultVoice?.let { engine.voice = it }
-            _selectedVoice.value = null
+            applyDefaultRussianVoice(engine)
         }
     }
 
@@ -91,15 +93,17 @@ class AndroidSpeechEngine(
     }
 
     private fun applyLanguage(engine: TextToSpeech) {
-        val locale = Locale.getDefault()
-        val result = engine.setLanguage(locale)
+        // Приложение только для русского языка: явно просим русский голос,
+        // не полагаясь на локаль устройства.
+        val result = engine.setLanguage(RUSSIAN)
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            engine.setLanguage(Locale.ENGLISH)
+            engine.setLanguage(Locale.getDefault())
         }
     }
 
     private fun publishVoices(engine: TextToSpeech) {
         val available = engine.voices
+            ?.filter { it.locale.language.equals("ru", ignoreCase = true) }
             ?.map { voice -> voice.toInfo() }
             ?.sortedWith(compareBy({ it.localeTag }, { it.name }))
             ?: emptyList()
@@ -108,13 +112,32 @@ class AndroidSpeechEngine(
 
     private fun applySavedVoice(engine: TextToSpeech) {
         val saved = settings.voiceName
-        val voice = saved?.let { name -> engine.voices?.firstOrNull { it.name == name } }
+        val voice = saved?.let { name ->
+            engine.voices?.firstOrNull {
+                it.name == name && it.locale.language.equals("ru", ignoreCase = true)
+            }
+        }
         if (voice != null) {
             engine.voice = voice
             _selectedVoice.value = voice.name
         } else {
-            _selectedVoice.value = null
+            applyDefaultRussianVoice(engine)
         }
+    }
+
+    /** Голос по умолчанию среди русских: предпочитаем офлайн-голос. */
+    private fun applyDefaultRussianVoice(engine: TextToSpeech) {
+        val russianVoices = engine.voices
+            ?.filter { it.locale.language.equals("ru", ignoreCase = true) }
+            .orEmpty()
+        val voice = russianVoices.firstOrNull { !it.isNetworkConnectionRequired }
+            ?: russianVoices.firstOrNull()
+        if (voice != null) {
+            engine.voice = voice
+        } else {
+            engine.defaultVoice?.let { engine.voice = it }
+        }
+        _selectedVoice.value = null
     }
 
     private fun Voice.toInfo(): VoiceInfo = VoiceInfo(
@@ -145,5 +168,9 @@ class AndroidSpeechEngine(
         override fun onStop(utteranceId: String?, interrupted: Boolean) {
             _events.tryEmit(SpeechEvent.Stopped(utteranceId))
         }
+    }
+
+    private companion object {
+        val RUSSIAN: Locale = Locale("ru", "RU")
     }
 }

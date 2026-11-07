@@ -88,7 +88,16 @@ fun SettingsScreen(onBack: () -> Unit) {
                         modifier = Modifier.padding(20.dp),
                     )
                 }
-                EngineState.READY -> Unit
+                EngineState.READY -> if (state.voices.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.voice_no_russian),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(20.dp),
+                        )
+                    }
+                }
             }
 
             item {

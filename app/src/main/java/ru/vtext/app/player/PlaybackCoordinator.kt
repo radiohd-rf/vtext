@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.data.ProgressStore
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.Chapter
@@ -26,6 +27,7 @@ data class PlayerState(
     val chapterIndex: Int = 0,
     val segmentIndex: Int = 0,
     val isPlaying: Boolean = false,
+    val isFinished: Boolean = false,
     val speed: Float = 1f,
     val sleepTimerMinutes: Int? = null,
     val engineState: EngineState = EngineState.INITIALIZING,
@@ -42,17 +44,21 @@ data class PlayerState(
 class PlaybackCoordinator(
     private val context: Context,
     private val progressStore: ProgressStore,
+    private val settings: PlaybackSettingsStore,
     private val engine: SpeechEngine,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val _state = MutableStateFlow(PlayerState(engineState = engine.state.value))
+    private val _state = MutableStateFlow(
+        PlayerState(engineState = engine.state.value, speed = settings.speed),
+    )
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     private var sleepJob: Job? = null
 
     init {
+        engine.setRate(settings.speed)
         scope.launch {
             engine.state.collect { engineState ->
                 _state.update { it.copy(engineState = engineState) }
@@ -86,6 +92,7 @@ class PlaybackCoordinator(
                 chapterIndex = safeChapter,
                 segmentIndex = safeSegment,
                 isPlaying = false,
+                isFinished = false,
                 error = null,
             )
         }
@@ -94,8 +101,16 @@ class PlaybackCoordinator(
     }
 
     fun play() {
-        val current = _state.value
+        var current = _state.value
         if (current.bookId == null) return
+        if (current.isFinished) {
+            // Книга дочитана: начинаем заново с первого фрагмента.
+            _state.update {
+                it.copy(chapterIndex = 0, segmentIndex = 0, isFinished = false)
+            }
+            saveProgress()
+            current = _state.value
+        }
         var chapterIndex = current.chapterIndex
         var segmentIndex = current.segmentIndex
         while (chapterIndex < current.chapters.size) {
@@ -149,8 +164,10 @@ class PlaybackCoordinator(
     }
 
     fun setSpeed(speed: Float) {
-        engine.setRate(speed)
-        _state.update { it.copy(speed = speed) }
+        val safeSpeed = speed.coerceIn(PlaybackSettingsStore.MIN_SPEED, PlaybackSettingsStore.MAX_SPEED)
+        settings.speed = safeSpeed
+        engine.setRate(safeSpeed)
+        _state.update { it.copy(speed = safeSpeed) }
     }
 
     fun setSleepTimer(minutes: Int?) {
@@ -192,7 +209,9 @@ class PlaybackCoordinator(
         if (current.isPlaying) {
             speakAt(chapterIndex, safeSegment)
         } else {
-            _state.update { it.copy(chapterIndex = chapterIndex, segmentIndex = safeSegment) }
+            _state.update {
+                it.copy(chapterIndex = chapterIndex, segmentIndex = safeSegment, isFinished = false)
+            }
             saveProgress()
         }
     }
@@ -208,6 +227,7 @@ class PlaybackCoordinator(
                 chapterIndex = chapterIndex,
                 segmentIndex = segmentIndex,
                 isPlaying = true,
+                isFinished = false,
             )
         }
         saveProgress()
@@ -227,7 +247,15 @@ class PlaybackCoordinator(
             chapterIndex += 1
             segmentIndex = 0
         }
+        finishBook()
+    }
+
+    /** Книга дочитана до конца: останавливаемся и предлагаем начать заново. */
+    private fun finishBook() {
+        sleepJob?.cancel()
+        sleepJob = null
         pause()
+        _state.update { it.copy(isFinished = true, sleepTimerMinutes = null) }
     }
 
     private fun saveProgress() {

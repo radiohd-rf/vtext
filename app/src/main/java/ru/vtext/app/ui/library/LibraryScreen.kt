@@ -60,6 +60,8 @@ private val bookMimeTypes = arrayOf(
     "text/plain",
     "application/epub+zip",
     "application/x-fictionbook+xml",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/octet-stream",
     "*/*",
 )
