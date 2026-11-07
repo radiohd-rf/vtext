@@ -178,6 +178,9 @@ class OnnxSpeechEngine(
     override fun prefetch(text: String, utteranceId: String) {
         if (text.isBlank()) return
         if (utteranceId == currentUtteranceId) return
+        // Стихотворный фрагмент содержит переносы строк; предсинтез его
+        // «первого куска» через абзацный сегментатор испортил бы текст.
+        if (model.engine == TtsEngineType.SUPERTONIC && text.contains('\n')) return
         // У Supertonic кэшируем только первый внутренний фрагмент: остальные
         // генерируются конвейером во время звучания текущего абзаца.
         val requestText = if (model.engine == TtsEngineType.SUPERTONIC) {
@@ -346,7 +349,12 @@ class OnnxSpeechEngine(
         // Абзац может быть длинным: Supertonic синтезируем по предложениям,
         // чтобы первый звук появился раньше и не было грубых разрывов.
         val chunks = if (model.engine == TtsEngineType.SUPERTONIC) {
-            TextSegmenter.segment(text, INNER_CHUNK_CHARS, INNER_CHUNK_CHARS * 2)
+            if (text.contains('\n')) {
+                // Стихи: сохраняем строки/строфы и не прогоняем через абзацный сегментатор.
+                listOf(text)
+            } else {
+                TextSegmenter.segment(text, INNER_CHUNK_CHARS, INNER_CHUNK_CHARS * 2)
+            }
         } else {
             listOf(text)
         }

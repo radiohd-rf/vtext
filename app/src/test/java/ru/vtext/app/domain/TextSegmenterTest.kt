@@ -3,6 +3,7 @@ package ru.vtext.app.domain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import ru.vtext.app.domain.model.TextPreset
 
 class TextSegmenterTest {
 
@@ -52,5 +53,25 @@ class TextSegmenterTest {
         assertTrue(result.size > 1)
         assertTrue(result.all { it.length <= 20 })
         assertEquals(sentence, result.joinToString(" "))
+    }
+
+    @Test
+    fun poetryPreservesLinesAndStanzas() {
+        val text = "Первая строка\nВторая строка\n\nТретья строка\nЧетвёртая строка"
+
+        val result = TextSegmenter.segmentFor(text, TextPreset.POETRY)
+
+        assertEquals(2, result.size)
+        assertEquals("Первая строка\nВторая строка", result[0])
+        assertEquals("Третья строка\nЧетвёртая строка", result[1])
+    }
+
+    @Test
+    fun bookPresetUsesProseSegmentation() {
+        val text = "Первое предложение. Второе предложение."
+
+        val result = TextSegmenter.segmentFor(text, TextPreset.BOOK)
+
+        assertEquals(listOf(text), result)
     }
 }

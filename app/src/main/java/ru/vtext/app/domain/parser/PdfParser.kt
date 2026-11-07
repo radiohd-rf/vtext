@@ -7,18 +7,24 @@ import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOut
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import ru.vtext.app.domain.TextSegmenter
+import ru.vtext.app.domain.cleanup.CleanupOptions
 import ru.vtext.app.domain.cleanup.ImportTextCleaner
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.model.ParsedBook
+import ru.vtext.app.domain.model.TextPreset
 
 /**
  * Разбор PDF через PDFBox: текст извлекается постранично.
  * Если в PDF есть закладки, главы и подглавы берутся из оглавления;
- * иначе страница остаётся единицей навигации.
+ * иначе пробуем найти заголовки по размеру/жирности шрифта.
  */
 class PdfParser : BookParser {
 
-    override fun parse(file: File, fallbackTitle: String): ParsedBook {
+    override fun parse(
+        file: File,
+        fallbackTitle: String,
+        preset: TextPreset,
+    ): ParsedBook {
         return try {
             PDDocument.load(file).use { document ->
                 val info = document.documentInformation
@@ -35,18 +41,33 @@ class PdfParser : BookParser {
                     runCatching { stripper.getText(document) }.getOrDefault("")
                 }
                 // Убираем номера страниц и повторяющиеся колонтитулы до разбиения на фрагменты.
-                val cleanedPages = ImportTextCleaner.cleanPages(pageTexts).pages
+                val cleanedPages = ImportTextCleaner.cleanPages(
+                    pageTexts,
+                    CleanupOptions(joinHyphenation = preset != TextPreset.POETRY),
+                ).pages
                 val outline = readOutline(document)
                 val fromOutline = if (outline.size >= MIN_OUTLINE_ENTRIES) {
-                    chaptersFromOutline(cleanedPages, outline)
+                    chaptersFromOutline(cleanedPages, outline, preset)
                 } else {
                     emptyList()
                 }
-                val chapters = if (fromOutline.size >= 2) {
-                    fromOutline
-                } else {
-                    chaptersFromHeadings(document, cleanedPages).ifEmpty {
-                        chaptersFromPages(cleanedPages)
+                val chapters = when {
+                    fromOutline.size >= 2 -> fromOutline
+                    preset == TextPreset.POETRY -> {
+                        val fromHeadings = chaptersFromHeadings(document, cleanedPages, preset)
+                        if (fromHeadings.size >= 2) {
+                            fromHeadings
+                        } else {
+                            listOf(
+                                Chapter(
+                                    "Стихи",
+                                    TextSegmenter.segmentFor(cleanedPages.joinToString("\n\n"), preset),
+                                ),
+                            )
+                        }
+                    }
+                    else -> chaptersFromHeadings(document, cleanedPages, preset).ifEmpty {
+                        chaptersFromPages(cleanedPages, preset)
                     }
                 }
                 ParsedBook(title, author, chapters)
@@ -87,6 +108,7 @@ class PdfParser : BookParser {
     private fun chaptersFromOutline(
         pages: List<String>,
         outline: List<OutlineEntry>,
+        preset: TextPreset,
     ): List<Chapter> {
         val chapters = mutableListOf<Chapter>()
         var index = 0
@@ -109,7 +131,7 @@ class PdfParser : BookParser {
             val safeEnd = endPage.coerceAtMost(pages.size)
             if (startPage < safeEnd) {
                 val text = pages.subList(startPage, safeEnd).joinToString("\n\n")
-                val segments = TextSegmenter.segment(text)
+                val segments = TextSegmenter.segmentFor(text, preset)
                 if (segments.isNotEmpty()) {
                     chapters += Chapter(title, segments, depth)
                 }
@@ -119,15 +141,16 @@ class PdfParser : BookParser {
         return chapters
     }
 
-    private fun chaptersFromPages(pages: List<String>): List<Chapter> =
+    private fun chaptersFromPages(pages: List<String>, preset: TextPreset): List<Chapter> =
         pages.mapIndexedNotNull { index, text ->
-            val segments = TextSegmenter.segment(text)
+            val segments = TextSegmenter.segmentFor(text, preset)
             if (segments.isEmpty()) null else Chapter("Страница ${index + 1}", segments)
         }
 
     private fun chaptersFromHeadings(
         document: PDDocument,
         pages: List<String>,
+        preset: TextPreset,
     ): List<Chapter> {
         val extractor = PdfLayoutExtractor()
         runCatching { extractor.getText(document) }
@@ -152,8 +175,9 @@ class PdfParser : BookParser {
                 ?: pages.size
             val safeEnd = endPage.coerceAtMost(pages.size)
             if (startPage < safeEnd) {
-                val segments = TextSegmenter.segment(
+                val segments = TextSegmenter.segmentFor(
                     pages.subList(startPage, safeEnd).joinToString("\n\n"),
+                    preset,
                 )
                 if (segments.isNotEmpty()) {
                     chapters += Chapter(title, segments, depth)

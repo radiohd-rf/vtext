@@ -5,6 +5,15 @@
     <string name="empty_library_title">Библиотека пуста</string>
     <string name="empty_library_hint">Добавьте файл книги в форматах TXT, FB2, EPUB, PDF или DOCX — приложение прочитает его вслух.</string>
     <string name="importing">Импорт книги…</string>
+    <string name="import_type_title">Тип текста</string>
+    <string name="import_type_hint">Подскажет приложению, как искать главы и делить текст на фрагменты.</string>
+    <string name="import_action">Импортировать</string>
+    <string name="preset_auto">Авто</string>
+    <string name="preset_auto_desc">Определить автоматически, как обычную книгу</string>
+    <string name="preset_book">Книга</string>
+    <string name="preset_book_desc">Главы, подглавы и абзацы</string>
+    <string name="preset_poetry">Стихи</string>
+    <string name="preset_poetry_desc">Сохранять строки и строфы, не склеивать предложения</string>
     <string name="back">Назад</string>
     <string name="play">Слушать</string>
     <string name="pause">Пауза</string>

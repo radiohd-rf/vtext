@@ -10,11 +10,16 @@ import org.xml.sax.InputSource
 import ru.vtext.app.domain.TextSegmenter
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.model.ParsedBook
+import ru.vtext.app.domain.model.TextPreset
 
 /** Разбор FB2 (XML). Документ предварительно санитизируется от DOCTYPE и HTML-сущностей. */
 class Fb2Parser : BookParser {
 
-    override fun parse(file: File, fallbackTitle: String): ParsedBook {
+    override fun parse(
+        file: File,
+        fallbackTitle: String,
+        preset: TextPreset,
+    ): ParsedBook {
         val raw = TextDecoder.decode(file.readBytes())
         val xml = XmlSanitizer.sanitize(raw)
 
@@ -37,7 +42,7 @@ class Fb2Parser : BookParser {
             val sections = childElements(body, "section")
             if (sections.isEmpty()) {
                 val text = paragraphsText(body)
-                if (text.isNotBlank()) chapters += Chapter(title, TextSegmenter.segment(text))
+                if (text.isNotBlank()) chapters += Chapter(title, TextSegmenter.segmentFor(text, preset))
             } else {
                 sections.forEachIndexed { index, section ->
                     val sectionTitle = childElements(section, "title")
@@ -47,7 +52,7 @@ class Fb2Parser : BookParser {
                         ?: "Глава ${index + 1}"
                     val text = paragraphsText(section)
                     if (text.isNotBlank()) {
-                        chapters += Chapter(sectionTitle, TextSegmenter.segment(text))
+                        chapters += Chapter(sectionTitle, TextSegmenter.segmentFor(text, preset))
                     }
                 }
             }

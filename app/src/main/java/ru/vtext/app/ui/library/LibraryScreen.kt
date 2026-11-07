@@ -2,7 +2,9 @@ package ru.vtext.app.ui.library
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -55,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 import ru.vtext.app.domain.model.Book
+import ru.vtext.app.domain.model.TextPreset
 
 private val bookMimeTypes = arrayOf(
     "text/plain",
@@ -81,11 +85,16 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<Book?>(null) }
+    var pendingImport by remember { mutableStateOf<List<Uri>?>(null) }
+    var selectedPreset by remember { mutableStateOf(TextPreset.AUTO) }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
-        if (uris.isNotEmpty()) viewModel.import(uris)
+        if (uris.isNotEmpty()) {
+            pendingImport = uris
+            selectedPreset = TextPreset.AUTO
+        }
     }
     val launchPicker: () -> Unit = { picker.launch(bookMimeTypes) }
 
@@ -170,6 +179,74 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
             },
         )
     }
+
+    pendingImport?.let { uris ->
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text(stringResource(R.string.import_type_title)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.import_type_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextPreset.entries.forEach { preset ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedPreset = preset }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = selectedPreset == preset,
+                                onClick = { selectedPreset = preset },
+                            )
+                            Column(Modifier.padding(start = 8.dp)) {
+                                Text(
+                                    text = stringResource(presetTitle(preset)),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    text = stringResource(presetDescription(preset)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.import(uris, selectedPreset)
+                        pendingImport = null
+                    },
+                ) {
+                    Text(stringResource(R.string.import_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImport = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+private fun presetTitle(preset: TextPreset): Int = when (preset) {
+    TextPreset.AUTO -> R.string.preset_auto
+    TextPreset.BOOK -> R.string.preset_book
+    TextPreset.POETRY -> R.string.preset_poetry
+}
+
+private fun presetDescription(preset: TextPreset): Int = when (preset) {
+    TextPreset.AUTO -> R.string.preset_auto_desc
+    TextPreset.BOOK -> R.string.preset_book_desc
+    TextPreset.POETRY -> R.string.preset_poetry_desc
 }
 
 @Composable

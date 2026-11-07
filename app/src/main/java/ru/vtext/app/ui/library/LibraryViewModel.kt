@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import ru.vtext.app.data.BookRepository
 import ru.vtext.app.data.ProgressStore
 import ru.vtext.app.domain.model.Book
+import ru.vtext.app.domain.model.TextPreset
 import ru.vtext.app.player.PlaybackCoordinator
 
 data class LibraryUiState(
@@ -42,14 +43,14 @@ class LibraryViewModel(
         }
     }
 
-    fun import(uris: List<android.net.Uri>) {
+    fun import(uris: List<android.net.Uri>, preset: TextPreset = TextPreset.AUTO) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             _state.update { it.copy(importing = true, error = null) }
             var lastError: String? = null
             for (uri in uris) {
                 try {
-                    repository.import(uri)
+                    repository.import(uri, preset)
                 } catch (error: Exception) {
                     lastError = error.message ?: "Не удалось импортировать книгу"
                 }

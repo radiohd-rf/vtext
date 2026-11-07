@@ -1,5 +1,7 @@
 package ru.vtext.app.domain
 
+import ru.vtext.app.domain.model.TextPreset
+
 /**
  * Режет текст книги на фрагменты для TTS: сначала по абзацам и предложениям,
  * и только очень длинные предложения — по словам. Слова и обычные предложения
@@ -54,6 +56,50 @@ object TextSegmenter {
                         if (buffer.isNotEmpty()) buffer.append(' ')
                         buffer.append(sentence)
                     }
+                }
+            }
+            flush(buffer, result)
+        }
+        return result
+    }
+
+    fun segmentFor(
+        text: String,
+        preset: TextPreset,
+        maxChars: Int = DEFAULT_MAX_CHARS,
+    ): List<String> = if (preset == TextPreset.POETRY) {
+        segmentPoetry(text, maxChars)
+    } else {
+        segment(text, maxChars)
+    }
+
+    /** Стихи: сохраняем переносы строк и строфы, не склеиваем предложения. */
+    fun segmentPoetry(text: String, maxChars: Int = DEFAULT_MAX_CHARS): List<String> {
+        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+        val stanzas = normalized.split(Regex("\\n\\s*\\n+"))
+        val result = ArrayList<String>()
+        for (stanza in stanzas) {
+            val lines = stanza.lines()
+                .map { it.trimEnd() }
+                .dropWhile { it.isBlank() }
+                .dropLastWhile { it.isBlank() }
+            if (lines.isEmpty()) continue
+            val stanzaText = lines.joinToString("\n")
+            if (stanzaText.length <= maxChars) {
+                result += stanzaText
+                continue
+            }
+            val buffer = StringBuilder()
+            for (line in lines) {
+                if (line.length > maxChars) {
+                    flush(buffer, result)
+                    result += splitLongSentence(line, maxChars)
+                } else if (buffer.length + line.length + 1 > maxChars) {
+                    flush(buffer, result)
+                    buffer.append(line)
+                } else {
+                    if (buffer.isNotEmpty()) buffer.append('\n')
+                    buffer.append(line)
                 }
             }
             flush(buffer, result)

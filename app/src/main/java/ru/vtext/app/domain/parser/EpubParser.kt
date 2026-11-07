@@ -12,6 +12,7 @@ import org.xml.sax.InputSource
 import ru.vtext.app.domain.TextSegmenter
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.model.ParsedBook
+import ru.vtext.app.domain.model.TextPreset
 
 /**
  * Разбор EPUB: container.xml → OPF (метаданные + spine) → XHTML-главы.
@@ -19,7 +20,11 @@ import ru.vtext.app.domain.model.ParsedBook
  */
 class EpubParser : BookParser {
 
-    override fun parse(file: File, fallbackTitle: String): ParsedBook {
+    override fun parse(
+        file: File,
+        fallbackTitle: String,
+        preset: TextPreset,
+    ): ParsedBook {
         ZipFile(file).use { zip ->
             val rootPath = readRootFilePath(zip) ?: return ParsedBook(fallbackTitle, null, emptyList())
             val opfEntry = findEntry(zip, rootPath) ?: return ParsedBook(fallbackTitle, null, emptyList())
@@ -63,7 +68,7 @@ class EpubParser : BookParser {
                 }
                 if (text.isBlank()) continue
                 number += 1
-                val segments = TextSegmenter.segment(text)
+                val segments = TextSegmenter.segmentFor(text, preset)
                 if (segments.isNotEmpty()) {
                     chapters += Chapter(chapterTitle ?: "Глава $number", segments)
                 }

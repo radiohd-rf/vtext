@@ -10,6 +10,7 @@ import org.w3c.dom.Node
 import ru.vtext.app.domain.TextSegmenter
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.model.ParsedBook
+import ru.vtext.app.domain.model.TextPreset
 
 /**
  * Разбор DOCX: это ZIP с word/document.xml. Абзацы собираем из w:p,
@@ -22,7 +23,11 @@ class DocxParser : BookParser {
         RegexOption.IGNORE_CASE,
     )
 
-    override fun parse(file: File, fallbackTitle: String): ParsedBook {
+    override fun parse(
+        file: File,
+        fallbackTitle: String,
+        preset: TextPreset,
+    ): ParsedBook {
         ZipFile(file).use { zip ->
             val documentEntry = zip.getEntry("word/document.xml")
                 ?: return ParsedBook(fallbackTitle, null, emptyList())
@@ -60,7 +65,7 @@ class DocxParser : BookParser {
             flush()
 
             val chapters = blocks.map { (chapterTitle, chapterBody) ->
-                Chapter(chapterTitle, TextSegmenter.segment(chapterBody.toString()))
+                Chapter(chapterTitle, TextSegmenter.segmentFor(chapterBody.toString(), preset))
             }.filter { it.segments.isNotEmpty() }
 
             return ParsedBook(title, author, chapters)

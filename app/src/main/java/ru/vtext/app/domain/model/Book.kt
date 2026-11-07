@@ -17,6 +17,7 @@ data class Book(
     val format: BookFormat,
     val addedAt: Long,
     val chapters: List<Chapter> = emptyList(),
+    val preset: TextPreset = TextPreset.AUTO,
 )
 
 /** Результат разбора файла до сохранения в библиотеку. */
