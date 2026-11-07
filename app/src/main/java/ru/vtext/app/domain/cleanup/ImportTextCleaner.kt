@@ -21,6 +21,8 @@ data class CleanupOptions(
     val minLocalRun: Int = 3,
     /** Не трогаем колонтитулы на коротких страницах (титул, вклейки). */
     val minBodyLinesToClean: Int = 5,
+    /** Максимальная длина строки, в которой ищем номер страницы внутри колонтитула. */
+    val maxPageHeaderLength: Int = 80,
 )
 
 data class CleanupResult(
@@ -57,6 +59,8 @@ object ImportTextCleaner {
         val bottomIndices = nonEmptyIndices.map { indices ->
             if (indices.isEmpty()) emptySet() else indices.takeLast(options.edgeLineWindow).toSet()
         }
+        val topExtremeIndices = nonEmptyIndices.map { it.firstOrNull() }
+        val bottomExtremeIndices = nonEmptyIndices.map { it.lastOrNull() }
 
         val topKeys = linesPerPage.mapIndexed { page, lines ->
             topIndices[page].associateWith { normalize(lines[it]) }
@@ -85,12 +89,12 @@ object ImportTextCleaner {
         // на большинстве страниц: иначе можно принять за номер страницы
         // номер главы («1», «2», «III») на первой странице главы.
         val topNumberLines = linesPerPage.mapIndexed { page, lines ->
-            topIndices[page].filter { index ->
+            listOfNotNull(topExtremeIndices[page]).filter { index ->
                 STANDALONE_PAGE_NUMBER.matches(lines[index].trim())
             }.toSet()
         }
         val bottomNumberLines = linesPerPage.mapIndexed { page, lines ->
-            bottomIndices[page].filter { index ->
+            listOfNotNull(bottomExtremeIndices[page]).filter { index ->
                 STANDALONE_PAGE_NUMBER.matches(lines[index].trim())
             }.toSet()
         }
@@ -99,6 +103,32 @@ object ImportTextCleaner {
             topNumberLines.count { it.isNotEmpty() } >= numberThreshold
         val removeBottomNumbers = pages.size >= 3 &&
             bottomNumberLines.count { it.isNotEmpty() } >= numberThreshold
+        // В книгах номер страницы часто стоит в одной строке с колонтитулом:
+        // «8 Оглавление», «Оглавление 9», «14 Грокаем алгоритмы…».
+        // Определяем постоянное смещение «номер в тексте − индекс страницы».
+        val pageNumberOffset = if (options.removePageNumbers && pages.size >= 3) {
+            detectPageNumberOffset(
+                linesPerPage = linesPerPage,
+                topExtremes = topExtremeIndices,
+                bottomExtremes = bottomExtremeIndices,
+                options = options,
+                threshold = numberThreshold,
+            )
+        } else {
+            null
+        }
+        val headerKeysWithPageNumber = if (pageNumberOffset != null) {
+            detectHeaderKeysWithPageNumber(
+                linesPerPage = linesPerPage,
+                topExtremes = topExtremeIndices,
+                bottomExtremes = bottomExtremeIndices,
+                offset = pageNumberOffset,
+                options = options,
+                minPages = options.minLocalRun,
+            )
+        } else {
+            emptySet()
+        }
 
         var removedPageNumbers = 0
         var removedRunningLines = 0
@@ -111,10 +141,20 @@ object ImportTextCleaner {
 
             if (options.removePageNumbers) {
                 for (index in edgeIndices) {
-                    val isLabeled = LABELED_PAGE_NUMBER.matches(lines[index].trim())
+                    val line = lines[index]
+                    val isLabeled = LABELED_PAGE_NUMBER.matches(line.trim())
                     val isTopNumber = removeTopNumbers && index in topNumberLines[page]
                     val isBottomNumber = removeBottomNumbers && index in bottomNumberLines[page]
-                    if (isLabeled || isTopNumber || isBottomNumber) {
+                    val headerKey = if (
+                        pageNumberOffset != null &&
+                        (index == topExtremeIndices[page] || index == bottomExtremeIndices[page])
+                    ) {
+                        pageHeaderKey(line, page, pageNumberOffset, options)
+                    } else {
+                        null
+                    }
+                    val hasHeaderPageNumber = headerKey != null && headerKey in headerKeysWithPageNumber
+                    if (isLabeled || isTopNumber || isBottomNumber || hasHeaderPageNumber) {
                         toRemove += index
                         removedPageNumbers += 1
                     }
@@ -179,8 +219,82 @@ object ImportTextCleaner {
         )
     }
 
-    private fun isRunningLine(
-        key: String,
+    private fun detectPageNumberOffset(
+        linesPerPage: List<List<String>>,
+        topExtremes: List<Int?>,
+        bottomExtremes: List<Int?>,
+        options: CleanupOptions,
+        threshold: Int,
+    ): Int? {
+        val counts = mutableMapOf<Int, Int>()
+        for (page in linesPerPage.indices) {
+            val offsetsOnPage = mutableSetOf<Int>()
+            val edgeIndices = setOfNotNull(topExtremes[page], bottomExtremes[page])
+            for (index in edgeIndices) {
+                val line = linesPerPage[page][index].trim()
+                if (line.length > options.maxPageHeaderLength) continue
+                for (match in NUMBERS.findAll(line)) {
+                    val number = match.value.toIntOrNull() ?: continue
+                    val offset = number - page
+                    // Отсекаем годы и прочие большие числа.
+                    if (offset in -100..100) offsetsOnPage += offset
+                }
+            }
+            for (offset in offsetsOnPage) {
+                counts[offset] = (counts[offset] ?: 0) + 1
+            }
+        }
+        return counts.filterValues { it >= threshold }.maxByOrNull { it.value }?.key
+    }
+
+    /**
+     * Строки вида «8 Оглавление», «Оглавление 9», «14 Грокаем алгоритмы…»:
+     * убираем номер страницы и оставляем текстовый ключ. Удаляем только те ключи,
+     * которые встретились на нескольких страницах, чтобы не задеть обычный текст.
+     */
+    private fun detectHeaderKeysWithPageNumber(
+        linesPerPage: List<List<String>>,
+        topExtremes: List<Int?>,
+        bottomExtremes: List<Int?>,
+        offset: Int,
+        options: CleanupOptions,
+        minPages: Int,
+    ): Set<String> {
+        val counts = mutableMapOf<String, Int>()
+        for (page in linesPerPage.indices) {
+            val keysOnPage = mutableSetOf<String>()
+            val edgeIndices = setOfNotNull(topExtremes[page], bottomExtremes[page])
+            for (index in edgeIndices) {
+                val key = pageHeaderKey(linesPerPage[page][index], page, offset, options) ?: continue
+                if (key.isNotBlank()) keysOnPage += key
+            }
+            for (key in keysOnPage) {
+                counts[key] = (counts[key] ?: 0) + 1
+            }
+        }
+        return counts.filterValues { it >= minPages }.keys
+    }
+
+    private fun pageHeaderKey(
+        line: String,
+        page: Int,
+        offset: Int,
+        options: CleanupOptions,
+    ): String? {
+        val text = line.trim()
+        if (text.length > options.maxPageHeaderLength) return null
+        val pageNumber = page + offset
+        if (pageNumber < 1) return null
+        val hasNumber = NUMBERS.findAll(text).any { match ->
+            match.value.toIntOrNull() == pageNumber
+        }
+        if (!hasNumber) return null
+        val withoutNumber = Regex("(?<!\\d)${Regex.escape(pageNumber.toString())}(?!\\d)")
+            .replace(text, " ")
+        return normalize(withoutNumber).trim('.', ',', '-', '—', '–', '|', ':', ' ')
+    }
+
+    private fun isRunningLine(        key: String,
         page: Int,
         pageCounts: Map<String, Int>,
         globalThreshold: Int,
@@ -221,6 +335,7 @@ object ImportTextCleaner {
     private const val PAGE_BREAK = '\u000C'
 
     private val WHITESPACE = Regex("\\s+")
+    private val NUMBERS = Regex("(?<!\\d)\\d{1,4}(?!\\d)")
     private val TRAILING_SPACES = Regex("[ \\t]+$", RegexOption.MULTILINE)
     private val MANY_BREAKS = Regex("\\n{3,}")
 

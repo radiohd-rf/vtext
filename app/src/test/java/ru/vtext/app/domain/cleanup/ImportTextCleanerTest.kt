@@ -90,6 +90,22 @@ class ImportTextCleanerTest {
     }
 
     @Test
+    fun removesHeaderWithEmbeddedPageNumber() {
+        val pages = (0 until 10).map { page ->
+            val number = page + 1
+            val header = if (page % 2 == 0) "$number Оглавление" else "Оглавление $number"
+            "$header\nСтрока a $number\nСтрока b $number\nСтрока c $number\nСтрока d $number"
+        }
+
+        val result = ImportTextCleaner.cleanPages(pages)
+
+        result.pages.forEach { page ->
+            assertFalse(page.contains("Оглавление"))
+        }
+        assertTrue(result.pages[2].contains("Строка a 3"))
+    }
+
+    @Test
     fun doesNotRemoveSparseChapterNumbers() {
         val pages = (1..10).map { number ->
             if (number == 1 || number == 6) {
