@@ -1,6 +1,7 @@
 package ru.vtext.app.tts
 
 import android.content.Context
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
@@ -35,6 +36,8 @@ class AndroidSpeechEngine(
     @Volatile
     private var ready = false
     private var rate = 1f
+    private var pitch = 1f
+    private var volume = 1f
 
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
@@ -42,6 +45,7 @@ class AndroidSpeechEngine(
             if (status == TextToSpeech.SUCCESS && engine != null) {
                 applyLanguage(engine)
                 engine.setSpeechRate(rate)
+                engine.setPitch(pitch)
                 engine.setOnUtteranceProgressListener(progressListener())
                 ready = true
                 publishVoices(engine)
@@ -57,6 +61,15 @@ class AndroidSpeechEngine(
     override fun setRate(rate: Float) {
         this.rate = rate
         tts?.setSpeechRate(rate)
+    }
+
+    override fun setPitch(pitch: Float) {
+        this.pitch = pitch.coerceIn(MIN_PITCH, MAX_PITCH)
+        tts?.setPitch(this.pitch)
+    }
+
+    override fun setVolume(volume: Float) {
+        this.volume = volume.coerceIn(MIN_VOLUME, MAX_VOLUME)
     }
 
     override fun setVoice(name: String?) {
@@ -79,7 +92,10 @@ class AndroidSpeechEngine(
     override fun speak(text: String, utteranceId: String) {
         if (!ready || text.isBlank()) return
         tts?.setSpeechRate(rate)
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume)
+        }
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
     }
 
     override fun stop() {
@@ -183,5 +199,9 @@ class AndroidSpeechEngine(
 
     private companion object {
         val RUSSIAN: Locale = Locale("ru", "RU")
+        const val MIN_PITCH = 0.5f
+        const val MAX_PITCH = 2f
+        const val MIN_VOLUME = 0f
+        const val MAX_VOLUME = 1f
     }
 }

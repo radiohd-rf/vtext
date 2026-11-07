@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.data.TtsSettingsStore
 
 enum class ModelStatus { NOT_INSTALLED, DOWNLOADING, EXTRACTING, READY, ERROR }
@@ -50,7 +51,7 @@ data class NeuralSettings(
 class TtsManager(
     context: Context,
     private val settings: TtsSettingsStore,
-    initialRate: Float,
+    private val playbackSettings: PlaybackSettingsStore,
 ) : SpeechEngine {
 
     private val appContext = context.applicationContext
@@ -105,10 +106,14 @@ class TtsManager(
     private var neuralEngine: OnnxSpeechEngine? = null
     private var downloadJob: Job? = null
     private var previewJob: Job? = null
-    private var rate = initialRate
+    private var rate = playbackSettings.speed
+    private var volume = playbackSettings.volume
+    private var supertonicSteps = playbackSettings.supertonicSteps
 
     init {
         systemEngine.setRate(rate)
+        systemEngine.setPitch(playbackSettings.pitch)
+        systemEngine.setVolume(volume)
         activate()
     }
 
@@ -222,6 +227,22 @@ class TtsManager(
         neuralEngine?.setRate(rate)
     }
 
+    override fun setPitch(pitch: Float) {
+        // Тон поддерживает только системный TTS; у нейродвижков такого параметра нет.
+        systemEngine.setPitch(pitch)
+    }
+
+    override fun setVolume(volume: Float) {
+        this.volume = volume
+        systemEngine.setVolume(volume)
+        neuralEngine?.setVolume(volume)
+    }
+
+    fun setSupertonicSteps(steps: Int) {
+        supertonicSteps = steps
+        neuralEngine?.setSupertonicSteps(steps)
+    }
+
     override fun setVoice(name: String?) {
         if (_active.value === systemEngine) {
             systemEngine.setVoice(name)
@@ -289,6 +310,8 @@ class TtsManager(
             modelDir = repository.modelDir(model),
             initialRate = rate,
             initialSpeaker = settings.supertonicSpeaker,
+            initialVolume = volume,
+            supertonicSteps = supertonicSteps,
         )
         neuralEngine = engine
         return engine

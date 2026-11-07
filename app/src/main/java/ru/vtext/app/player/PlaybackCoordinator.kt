@@ -29,6 +29,7 @@ data class PlayerState(
     val isPlaying: Boolean = false,
     val isFinished: Boolean = false,
     val speed: Float = 1f,
+    val fragmentPauseMs: Int = 0,
     val sleepTimerMinutes: Int? = null,
     val engineState: EngineState = EngineState.INITIALIZING,
     val error: String? = null,
@@ -51,11 +52,16 @@ class PlaybackCoordinator(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _state = MutableStateFlow(
-        PlayerState(engineState = engine.state.value, speed = settings.speed),
+        PlayerState(
+            engineState = engine.state.value,
+            speed = settings.speed,
+            fragmentPauseMs = settings.fragmentPauseMs,
+        ),
     )
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     private var sleepJob: Job? = null
+    private var advanceJob: Job? = null
 
     init {
         engine.setRate(settings.speed)
@@ -91,6 +97,7 @@ class PlaybackCoordinator(
         val safeChapter = chapterIndex.coerceIn(0, book.chapters.lastIndex)
         val segmentCount = book.chapters[safeChapter].segments.size
         val safeSegment = segmentIndex.coerceIn(0, (segmentCount - 1).coerceAtLeast(0))
+        advanceJob?.cancel()
         engine.stop()
         _state.update {
             it.copy(
@@ -110,6 +117,7 @@ class PlaybackCoordinator(
     }
 
     fun play() {
+        advanceJob?.cancel()
         var current = _state.value
         if (current.bookId == null) return
         if (current.isFinished) {
@@ -135,6 +143,7 @@ class PlaybackCoordinator(
     }
 
     fun pause() {
+        advanceJob?.cancel()
         engine.stop()
         _state.update { it.copy(isPlaying = false) }
         saveProgress()
@@ -179,6 +188,16 @@ class PlaybackCoordinator(
         _state.update { it.copy(speed = safeSpeed) }
     }
 
+    /** Пауза между фрагментами книги, мс. */
+    fun setFragmentPause(pauseMs: Int) {
+        val safePause = pauseMs.coerceIn(
+            PlaybackSettingsStore.MIN_FRAGMENT_PAUSE_MS,
+            PlaybackSettingsStore.MAX_FRAGMENT_PAUSE_MS,
+        )
+        settings.fragmentPauseMs = safePause
+        _state.update { it.copy(fragmentPauseMs = safePause) }
+    }
+
     fun setSleepTimer(minutes: Int?) {
         sleepJob?.cancel()
         sleepJob = null
@@ -195,11 +214,17 @@ class PlaybackCoordinator(
     }
 
     fun stop() {
+        advanceJob?.cancel()
         engine.stop()
         sleepJob?.cancel()
         sleepJob = null
         val speed = _state.value.speed
-        _state.value = PlayerState(engineState = engine.state.value, speed = speed)
+        val fragmentPause = _state.value.fragmentPauseMs
+        _state.value = PlayerState(
+            engineState = engine.state.value,
+            speed = speed,
+            fragmentPauseMs = fragmentPause,
+        )
     }
 
     fun clearIfBook(bookId: String) {
@@ -211,6 +236,7 @@ class PlaybackCoordinator(
     }
 
     private fun goTo(chapterIndex: Int, segmentIndex: Int) {
+        advanceJob?.cancel()
         val current = _state.value
         val chapter = current.chapters.getOrNull(chapterIndex) ?: return
         if (chapter.segments.isEmpty()) return
@@ -226,6 +252,7 @@ class PlaybackCoordinator(
     }
 
     private fun speakAt(chapterIndex: Int, segmentIndex: Int) {
+        advanceJob?.cancel()
         val text = _state.value.chapters
             .getOrNull(chapterIndex)
             ?.segments
@@ -244,6 +271,22 @@ class PlaybackCoordinator(
     }
 
     private fun advance() {
+        val pauseMs = _state.value.fragmentPauseMs
+        if (pauseMs <= 0) {
+            advanceNow()
+            return
+        }
+        advanceJob?.cancel()
+        advanceJob = scope.launch {
+            delay(pauseMs.toLong())
+            advanceJob = null
+            if (_state.value.isPlaying) {
+                advanceNow()
+            }
+        }
+    }
+
+    private fun advanceNow() {
         val current = _state.value
         var chapterIndex = current.chapterIndex
         var segmentIndex = current.segmentIndex + 1

@@ -4,10 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.player.PlaybackCoordinator
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.ModelStatus
@@ -24,27 +27,63 @@ data class SettingsUiState(
     val systemVoices: List<VoiceInfo> = emptyList(),
     val systemSelectedVoice: String? = null,
     val neural: NeuralSettings = NeuralSettings(),
+    val pitch: Float = PlaybackSettingsStore.DEFAULT_PITCH,
+    val volume: Float = PlaybackSettingsStore.DEFAULT_VOLUME,
+    val fragmentPauseMs: Int = PlaybackSettingsStore.DEFAULT_FRAGMENT_PAUSE_MS,
+    val supertonicSteps: Int = PlaybackSettingsStore.DEFAULT_SUPERTONIC_STEPS,
+)
+
+private data class SystemVoicesState(
+    val voices: List<VoiceInfo>,
+    val selected: String?,
+    val engineState: EngineState,
+)
+
+private data class VoiceTuning(
+    val pitch: Float,
+    val volume: Float,
+    val fragmentPauseMs: Int,
+    val supertonicSteps: Int,
 )
 
 class SettingsViewModel(
     private val manager: TtsManager,
     private val playback: PlaybackCoordinator,
+    private val playbackSettings: PlaybackSettingsStore,
 ) : ViewModel() {
 
-    val state: StateFlow<SettingsUiState> = combine(
-        manager.neuralSettings,
+    private val tuning = MutableStateFlow(
+        VoiceTuning(
+            pitch = playbackSettings.pitch,
+            volume = playbackSettings.volume,
+            fragmentPauseMs = playbackSettings.fragmentPauseMs,
+            supertonicSteps = playbackSettings.supertonicSteps,
+        ),
+    )
+
+    private val systemVoices = combine(
         manager.systemEngine.voices,
         manager.systemEngine.selectedVoice,
         manager.systemEngine.state,
+    ) { voices, selected, engineState -> SystemVoicesState(voices, selected, engineState) }
+
+    val state: StateFlow<SettingsUiState> = combine(
+        manager.neuralSettings,
         manager.state,
-    ) { neural, voices, selected, systemState, engineState ->
+        systemVoices,
+        tuning,
+    ) { neural, engineState, system, voiceTuning ->
         SettingsUiState(
             engineType = neural.engineType,
             engineState = engineState,
-            systemEngineState = systemState,
-            systemVoices = voices,
-            systemSelectedVoice = selected,
+            systemEngineState = system.engineState,
+            systemVoices = system.voices,
+            systemSelectedVoice = system.selected,
             neural = neural,
+            pitch = voiceTuning.pitch,
+            volume = voiceTuning.volume,
+            fragmentPauseMs = voiceTuning.fragmentPauseMs,
+            supertonicSteps = voiceTuning.supertonicSteps,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -56,6 +95,10 @@ class SettingsViewModel(
             systemVoices = manager.systemEngine.voices.value,
             systemSelectedVoice = manager.systemEngine.selectedVoice.value,
             neural = manager.neuralSettings.value,
+            pitch = playbackSettings.pitch,
+            volume = playbackSettings.volume,
+            fragmentPauseMs = playbackSettings.fragmentPauseMs,
+            supertonicSteps = playbackSettings.supertonicSteps,
         ),
     )
 
@@ -84,13 +127,56 @@ class SettingsViewModel(
         }
     }
 
+    fun setVolume(value: Float) {
+        val safe = value.coerceIn(PlaybackSettingsStore.MIN_VOLUME, PlaybackSettingsStore.MAX_VOLUME)
+        playbackSettings.volume = safe
+        manager.setVolume(safe)
+        tuning.update { it.copy(volume = safe) }
+    }
+
+    fun setPitch(value: Float) {
+        val safe = value.coerceIn(PlaybackSettingsStore.MIN_PITCH, PlaybackSettingsStore.MAX_PITCH)
+        playbackSettings.pitch = safe
+        manager.setPitch(safe)
+        tuning.update { it.copy(pitch = safe) }
+    }
+
+    fun setFragmentPause(pauseMs: Int) {
+        val safe = pauseMs.coerceIn(
+            PlaybackSettingsStore.MIN_FRAGMENT_PAUSE_MS,
+            PlaybackSettingsStore.MAX_FRAGMENT_PAUSE_MS,
+        )
+        playback.setFragmentPause(safe)
+        tuning.update { it.copy(fragmentPauseMs = safe) }
+    }
+
+    fun setSupertonicSteps(steps: Int) {
+        val safe = steps.coerceIn(
+            PlaybackSettingsStore.MIN_SUPERTONIC_STEPS,
+            PlaybackSettingsStore.MAX_SUPERTONIC_STEPS,
+        )
+        playbackSettings.supertonicSteps = safe
+        manager.setSupertonicSteps(safe)
+        tuning.update { it.copy(supertonicSteps = safe) }
+    }
+
+    /** Проигрывает пример текущего голоса с учётом свежих настроек тембра/громкости. */
+    fun previewCurrentVoice() {
+        playback.pause()
+        manager.previewCurrentVoice()
+    }
+
     fun downloadModel(id: String) = manager.downloadModel(id)
 
     fun cancelDownload() = manager.cancelDownload()
 
     companion object {
-        fun factory(manager: TtsManager, playback: PlaybackCoordinator) = viewModelFactory {
-            initializer { SettingsViewModel(manager, playback) }
+        fun factory(
+            manager: TtsManager,
+            playback: PlaybackCoordinator,
+            playbackSettings: PlaybackSettingsStore,
+        ) = viewModelFactory {
+            initializer { SettingsViewModel(manager, playback, playbackSettings) }
         }
     }
 }

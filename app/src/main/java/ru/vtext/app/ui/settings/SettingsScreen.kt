@@ -21,6 +21,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -36,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
+import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.ModelStatus
 import ru.vtext.app.tts.NeuralModel
@@ -49,7 +51,11 @@ fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val container = (context.applicationContext as VtextApp).container
     val viewModel: SettingsViewModel = viewModel(
-        factory = SettingsViewModel.factory(container.ttsManager, container.playback),
+        factory = SettingsViewModel.factory(
+            container.ttsManager,
+            container.playback,
+            container.playbackSettings,
+        ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val engineTitle = stringResource(R.string.engine_title)
@@ -126,6 +132,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             }
 
+            voiceTuningSection(state, viewModel, context)
+
             when (state.engineType) {
                 TtsEngineType.SYSTEM -> systemVoicesSection(state, viewModel, context)
                 TtsEngineType.PIPER -> piperSection(state, viewModel, context)
@@ -152,6 +160,107 @@ private fun LazyListScope.groupHeader(title: String) {
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp),
+        )
+    }
+}
+
+private fun LazyListScope.voiceTuningSection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    context: Context,
+) {
+    sectionHeader(context.getString(R.string.voice_tuning_title))
+    item {
+        TuningSlider(
+            title = stringResource(R.string.volume),
+            valueText = stringResource(R.string.volume_value, (state.volume * 100).toInt()),
+            value = state.volume,
+            range = PlaybackSettingsStore.MIN_VOLUME..PlaybackSettingsStore.MAX_VOLUME,
+            steps = 19,
+            onValueChange = viewModel::setVolume,
+            onValueChangeFinished = viewModel::previewCurrentVoice,
+        )
+    }
+    item {
+        TuningSlider(
+            title = stringResource(R.string.fragment_pause),
+            valueText = if (state.fragmentPauseMs == 0) {
+                stringResource(R.string.fragment_pause_off)
+            } else {
+                stringResource(R.string.fragment_pause_value, state.fragmentPauseMs)
+            },
+            value = state.fragmentPauseMs.toFloat(),
+            range = PlaybackSettingsStore.MIN_FRAGMENT_PAUSE_MS.toFloat()..
+                PlaybackSettingsStore.MAX_FRAGMENT_PAUSE_MS.toFloat(),
+            steps = 19,
+            onValueChange = { viewModel.setFragmentPause(it.toInt()) },
+        )
+    }
+    if (state.engineType == TtsEngineType.SYSTEM) {
+        item {
+            TuningSlider(
+                title = stringResource(R.string.pitch),
+                valueText = stringResource(R.string.pitch_value, state.pitch),
+                value = state.pitch,
+                range = PlaybackSettingsStore.MIN_PITCH..PlaybackSettingsStore.MAX_PITCH,
+                steps = 14,
+                onValueChange = viewModel::setPitch,
+                onValueChangeFinished = viewModel::previewCurrentVoice,
+            )
+        }
+    }
+    if (state.engineType == TtsEngineType.SUPERTONIC) {
+        groupHeader(context.getString(R.string.supertonic_quality_title))
+        item {
+            SelectableRow(
+                title = stringResource(R.string.quality_fast),
+                subtitle = stringResource(R.string.quality_fast_desc),
+                selected = state.supertonicSteps == PlaybackSettingsStore.FAST_SUPERTONIC_STEPS,
+                onClick = {
+                    viewModel.setSupertonicSteps(PlaybackSettingsStore.FAST_SUPERTONIC_STEPS)
+                    viewModel.previewCurrentVoice()
+                },
+            )
+        }
+        item {
+            SelectableRow(
+                title = stringResource(R.string.quality_high),
+                subtitle = stringResource(R.string.quality_high_desc),
+                selected = state.supertonicSteps == PlaybackSettingsStore.QUALITY_SUPERTONIC_STEPS,
+                onClick = {
+                    viewModel.setSupertonicSteps(PlaybackSettingsStore.QUALITY_SUPERTONIC_STEPS)
+                    viewModel.previewCurrentVoice()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TuningSlider(
+    title: String,
+    valueText: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = range,
+            steps = steps,
+            onValueChangeFinished = onValueChangeFinished,
         )
     }
 }

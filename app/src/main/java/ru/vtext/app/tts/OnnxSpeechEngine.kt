@@ -41,6 +41,8 @@ class OnnxSpeechEngine(
     private val modelDir: File,
     initialRate: Float,
     initialSpeaker: Int,
+    initialVolume: Float = 1f,
+    supertonicSteps: Int = DEFAULT_SUPERTONIC_STEPS,
 ) : SpeechEngine {
 
     private val appContext = context.applicationContext
@@ -63,6 +65,8 @@ class OnnxSpeechEngine(
     private var tts: OfflineTts? = null
     private var rate: Float = initialRate.coerceIn(MIN_RATE, MAX_RATE)
     private var speaker: Int = initialSpeaker.coerceIn(0, 9)
+    private var volume: Float = initialVolume.coerceIn(0f, 1f)
+    private var steps: Int = supertonicSteps.coerceIn(MIN_STEPS, MAX_STEPS)
 
     private var playJob: Job? = null
     private var pending: Pair<String, String>? = null
@@ -96,6 +100,19 @@ class OnnxSpeechEngine(
 
     override fun setRate(rate: Float) {
         this.rate = rate.coerceIn(MIN_RATE, MAX_RATE)
+    }
+
+    override fun setVolume(volume: Float) {
+        this.volume = volume.coerceIn(0f, 1f)
+        try {
+            activeTrack?.setVolume(this.volume)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Качество Supertonic: число шагов генерации (4…10). */
+    fun setSupertonicSteps(steps: Int) {
+        this.steps = steps.coerceIn(MIN_STEPS, MAX_STEPS)
     }
 
     override fun setVoice(name: String?) {
@@ -167,7 +184,7 @@ class OnnxSpeechEngine(
             val generationConfig = if (model.engine == TtsEngineType.SUPERTONIC) {
                 GenerationConfig(
                     sid = speaker,
-                    numSteps = SUPERTONIC_STEPS,
+                    numSteps = steps,
                     speed = rate,
                     extra = mapOf("lang" to "ru"),
                 )
@@ -227,6 +244,7 @@ class OnnxSpeechEngine(
                 .build()
             track = audioTrack
             activeTrack = audioTrack
+            audioTrack.setVolume(volume)
             audioTrack.play()
             _events.tryEmit(SpeechEvent.Started(utteranceId))
 
@@ -251,7 +269,7 @@ class OnnxSpeechEngine(
                 Log.i(
                     TAG,
                     "${model.id} [$utteranceId] -> ${"%.2f".format(written / sampleRate.toFloat())} c, " +
-                        "peak=$peak, synth=${synthesizedAt - startedAt} ms, " +
+                        "peak=$peak, steps=$steps, synth=${synthesizedAt - startedAt} ms, " +
                         "total=${System.currentTimeMillis() - startedAt} ms",
                 )
                 _events.tryEmit(SpeechEvent.Done(utteranceId))
@@ -383,7 +401,9 @@ class OnnxSpeechEngine(
     private companion object {
         const val MIN_RATE = 0.5f
         const val MAX_RATE = 3f
-        const val SUPERTONIC_STEPS = 5
+        const val MIN_STEPS = 4
+        const val MAX_STEPS = 10
+        const val DEFAULT_SUPERTONIC_STEPS = 5
         const val DEFAULT_SAMPLE_RATE = 22_050
         const val DEFAULT_BUFFER_BYTES = 16_384
         const val WRITE_CHUNK_SAMPLES = 4096

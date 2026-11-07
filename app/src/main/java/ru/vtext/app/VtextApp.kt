@@ -27,7 +27,7 @@ class AppContainer(application: Application) {
     val progressStore = ProgressStore(application)
     val ttsSettings = TtsSettingsStore(application)
     val playbackSettings = PlaybackSettingsStore(application)
-    val ttsManager = TtsManager(application, ttsSettings, playbackSettings.speed)
+    val ttsManager = TtsManager(application, ttsSettings, playbackSettings)
     val speechEngine: SpeechEngine = ttsManager
     val playback = PlaybackCoordinator(application, progressStore, playbackSettings, speechEngine)
 }

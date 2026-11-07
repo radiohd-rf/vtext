@@ -35,6 +35,8 @@ interface SpeechEngine {
     val engineChanges: Flow<Unit> get() = emptyFlow()
 
     fun setRate(rate: Float)
+    fun setPitch(pitch: Float) {}
+    fun setVolume(volume: Float) {}
     fun setVoice(name: String?)
     fun speak(text: String, utteranceId: String)
     fun stop()
