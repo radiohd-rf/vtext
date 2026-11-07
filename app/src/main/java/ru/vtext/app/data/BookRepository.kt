@@ -103,9 +103,11 @@ class BookRepository(private val context: Context) {
             val book = meta.copy(
                 chapters = chapters,
                 coverPath = coverFile(dir)?.absolutePath,
+                chapterCount = chapters.size,
             )            // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
             writeChapters(dir, book)
-            if (!useCache && chapters.isNotEmpty()) {
+            // Дописываем meta и для старых книг: библиотеке нужен chapterCount.
+            if (!useCache || meta.chapterCount != chapters.size) {
                 writeMeta(dir, book)
             }
             cache[id] = book
@@ -156,6 +158,7 @@ class BookRepository(private val context: Context) {
             .put("addedAt", book.addedAt)
             .put("segmentVersion", SEGMENT_VERSION)
             .put("preset", book.preset.id)
+            .put("chapterCount", book.chapterCount.coerceAtLeast(book.chapters.size))
         File(dir, "meta.json").writeText(json.toString())
     }
 
@@ -178,6 +181,7 @@ class BookRepository(private val context: Context) {
                 addedAt = json.optLong("addedAt", 0L),
                 preset = TextPreset.fromId(json.optString("preset", TextPreset.AUTO.id)),
                 coverPath = coverFile(dir)?.absolutePath,
+                chapterCount = json.optInt("chapterCount", 0),
             )
         }.getOrNull()
     }

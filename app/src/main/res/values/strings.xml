@@ -91,4 +91,42 @@
     <string name="bookmarks_empty">Закладок пока нет</string>
     <string name="bookmark_add">Добавить закладку</string>
     <string name="bookmark_position">Глава %1$d, фрагмент %2$d</string>
+
+    <!-- Библиотека -->
+    <string name="library_title">Библиотека</string>
+    <plurals name="books_count">
+        <item quantity="one">%1$d книга</item>
+        <item quantity="few">%1$d книги</item>
+        <item quantity="many">%1$d книг</item>
+        <item quantity="other">%1$d книг</item>
+    </plurals>
+    <string name="search_hint">Поиск по названию или автору</string>
+    <string name="clear_search">Очистить поиск</string>
+    <string name="sort_title">Сортировка</string>
+    <string name="sort_recent">Сначала новые</string>
+    <string name="sort_title_az">По названию</string>
+    <string name="sort_author_az">По автору</string>
+    <string name="no_results_title">Ничего не найдено</string>
+    <string name="no_results_hint">По запросу «%1$s» книг нет. Попробуйте другое название или автора.</string>
+    <string name="reset_search">Сбросить поиск</string>
+    <string name="unknown_author">Без автора</string>
+    <string name="supported_formats">TXT · FB2 · EPUB · PDF · DOCX</string>
+    <string name="open_book">Открыть книгу</string>
+
+    <!-- Плеер -->
+    <plurals name="chapters_count">
+        <item quantity="one">%1$d раздел</item>
+        <item quantity="few">%1$d раздела</item>
+        <item quantity="many">%1$d разделов</item>
+        <item quantity="other">%1$d разделов</item>
+    </plurals>
+    <string name="sleep_chip_off">Сон</string>
+    <string name="sleep_chip_minutes">%1$d мин</string>
+    <string name="sleep_chip_chapter">Глава</string>
+
+    <!-- Оформление -->
+    <string name="appearance_title">Оформление</string>
+    <string name="dynamic_color_title">Цвета системы</string>
+    <string name="dynamic_color_desc">Material You: палитра под обои</string>
+    <string name="dynamic_color_unavailable">Доступно на Android 12 и новее</string>
 </resources>

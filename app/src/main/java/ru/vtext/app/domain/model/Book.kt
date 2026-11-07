@@ -19,6 +19,8 @@ data class Book(
     val chapters: List<Chapter> = emptyList(),
     val preset: TextPreset = TextPreset.AUTO,
     val coverPath: String? = null,
+    /** Число глав из meta.json: нужно библиотеке, где сами главы не загружаются. */
+    val chapterCount: Int = 0,
 )
 
 /** Результат разбора файла до сохранения в библиотеку. */

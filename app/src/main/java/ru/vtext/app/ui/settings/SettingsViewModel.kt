@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import ru.vtext.app.data.AppearanceSettingsStore
 import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.player.PlaybackCoordinator
 import ru.vtext.app.tts.EngineState
@@ -30,6 +31,7 @@ data class SettingsUiState(
     val pitch: Float = PlaybackSettingsStore.DEFAULT_PITCH,
     val volume: Float = PlaybackSettingsStore.DEFAULT_VOLUME,
     val fragmentPauseMs: Int = PlaybackSettingsStore.DEFAULT_FRAGMENT_PAUSE_MS,
+    val dynamicColor: Boolean = false,
 )
 
 private data class SystemVoicesState(
@@ -48,6 +50,7 @@ class SettingsViewModel(
     private val manager: TtsManager,
     private val playback: PlaybackCoordinator,
     private val playbackSettings: PlaybackSettingsStore,
+    private val appearance: AppearanceSettingsStore,
 ) : ViewModel() {
 
     private val tuning = MutableStateFlow(
@@ -69,7 +72,8 @@ class SettingsViewModel(
         manager.state,
         systemVoices,
         tuning,
-    ) { neural, engineState, system, voiceTuning ->
+        appearance.dynamicColor,
+    ) { neural, engineState, system, voiceTuning, dynamicColor ->
         SettingsUiState(
             engineType = neural.engineType,
             engineState = engineState,
@@ -80,6 +84,7 @@ class SettingsViewModel(
             pitch = voiceTuning.pitch,
             volume = voiceTuning.volume,
             fragmentPauseMs = voiceTuning.fragmentPauseMs,
+            dynamicColor = dynamicColor,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -94,6 +99,7 @@ class SettingsViewModel(
             pitch = playbackSettings.pitch,
             volume = playbackSettings.volume,
             fragmentPauseMs = playbackSettings.fragmentPauseMs,
+            dynamicColor = appearance.dynamicColor.value,
         ),
     )
 
@@ -148,13 +154,16 @@ class SettingsViewModel(
         manager.previewCurrentVoice()
     }
 
+    fun setDynamicColor(enabled: Boolean) = appearance.setDynamicColor(enabled)
+
     companion object {
         fun factory(
             manager: TtsManager,
             playback: PlaybackCoordinator,
             playbackSettings: PlaybackSettingsStore,
+            appearance: AppearanceSettingsStore,
         ) = viewModelFactory {
-            initializer { SettingsViewModel(manager, playback, playbackSettings) }
+            initializer { SettingsViewModel(manager, playback, playbackSettings, appearance) }
         }
     }
 }

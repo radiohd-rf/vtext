@@ -7,11 +7,13 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -29,10 +31,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Контент под системными панелями: фон страницы продолжается в статус-бар.
+        enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         pendingBookId = intent?.getStringExtra(PlaybackService.EXTRA_BOOK_ID)
+        val appearance = (application as VtextApp).container.appearance
         setContent {
-            VtextTheme {
+            val dynamicColor by appearance.dynamicColor.collectAsStateWithLifecycle()
+            VtextTheme(dynamicColor = dynamicColor) {
                 VtextNavHost(
                     pendingBookId = pendingBookId,
                     onBookConsumed = { pendingBookId = null },

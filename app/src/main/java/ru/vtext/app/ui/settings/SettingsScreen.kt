@@ -1,20 +1,24 @@
 package ru.vtext.app.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -22,17 +26,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -58,6 +67,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             container.ttsManager,
             container.playback,
             container.playbackSettings,
+            container.appearance,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -78,11 +88,19 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
             )
         },
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            sectionHeader(engineTitle)
+        Box(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            LazyColumn(Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
+                appearanceSection(state, viewModel, context)
+                sectionHeader(engineTitle)
             items(TtsEngineType.entries, key = { it.id }) { type ->
                 EngineRow(
                     type = type,
@@ -140,6 +158,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             when (state.engineType) {
                 TtsEngineType.SYSTEM -> systemVoicesSection(state, viewModel, context)
                 TtsEngineType.SILERO -> sileroSection(state, viewModel, context)
+                }
             }
         }
     }
@@ -150,7 +169,7 @@ private fun LazyListScope.sectionHeader(title: String) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 10.dp),
         )
     }
 }
@@ -159,11 +178,77 @@ private fun LazyListScope.groupHeader(title: String) {
     item {
         Text(
             text = title,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp),
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 6.dp),
         )
     }
+}
+
+private fun LazyListScope.appearanceSection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    context: Context,
+) {
+    sectionHeader(context.getString(R.string.appearance_title))
+    item {
+        val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        SettingsCard(selected = false, onClick = null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.dynamic_color_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = if (supported) {
+                            stringResource(R.string.dynamic_color_desc)
+                        } else {
+                            stringResource(R.string.dynamic_color_unavailable)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.dynamicColor && supported,
+                    onCheckedChange = viewModel::setDynamicColor,
+                    enabled = supported,
+                )
+            }
+        }
+    }
+}
+
+/** Карточка настройки: мягкая плашка, тонкая рамка, без тяжёлых теней. */
+@Composable
+private fun SettingsCard(
+    selected: Boolean,
+    onClick: (() -> Unit)?,
+    content: @Composable () -> Unit,
+) {
+    val shape = MaterialTheme.shapes.medium
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = shape,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
+            },
+        ),
+        content = content,
+    )
 }
 
 private fun LazyListScope.voiceTuningSection(
@@ -224,22 +309,24 @@ private fun TuningSlider(
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: (() -> Unit)? = null,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            Text(
-                text = valueText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    SettingsCard(selected = false, onClick = null) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(text = title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(
+                    text = valueText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = range,
+                steps = steps,
+                onValueChangeFinished = onValueChangeFinished,
             )
         }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = range,
-            steps = steps,
-            onValueChangeFinished = onValueChangeFinished,
-        )
     }
 }
 
@@ -311,7 +398,6 @@ private fun LazyListScope.systemVoicesSection(
             selected = state.systemSelectedVoice == null,
             onClick = { viewModel.selectSystemVoice(null) },
         )
-        HorizontalDivider()
     }
 
     items(state.systemVoices, key = { it.name }) { voice ->
@@ -428,55 +514,57 @@ private fun ModelRow(
     importLabel: String? = null,
 ) {
     val ready = item.status == ModelStatus.READY
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = ready, onClick = onSelect)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RadioButton(
-                selected = selected,
-                onClick = { if (ready) onSelect() },
-            )
-            Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(text = item.model.displayName, style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    text = modelSubtitle(item),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (item.status == ModelStatus.ERROR) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+    SettingsCard(selected = selected, onClick = null) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = ready, onClick = onSelect)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = selected,
+                    onClick = { if (ready) onSelect() },
                 )
+                Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                    Text(text = item.model.displayName, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = modelSubtitle(item),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (item.status == ModelStatus.ERROR) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                when (item.status) {
+                    ModelStatus.NOT_INSTALLED -> TextButton(onClick = onDownload) {
+                        Text(importLabel ?: stringResource(R.string.download))
+                    }
+                    ModelStatus.DOWNLOADING -> TextButton(onClick = onCancel) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    ModelStatus.EXTRACTING -> CircularProgressIndicator(Modifier.size(20.dp))
+                    ModelStatus.READY -> if (!selected) TextButton(onClick = onSelect) {
+                        Text(stringResource(R.string.choose))
+                    }
+                    ModelStatus.ERROR -> TextButton(onClick = onDownload) {
+                        Text(importLabel ?: stringResource(R.string.retry))
+                    }
+                }
             }
             when (item.status) {
-                ModelStatus.NOT_INSTALLED -> TextButton(onClick = onDownload) {
-                    Text(importLabel ?: stringResource(R.string.download))
-                }
-                ModelStatus.DOWNLOADING -> TextButton(onClick = onCancel) {
-                    Text(stringResource(R.string.cancel))
-                }
-                ModelStatus.EXTRACTING -> CircularProgressIndicator(Modifier.size(20.dp))
-                ModelStatus.READY -> if (!selected) TextButton(onClick = onSelect) {
-                    Text(stringResource(R.string.choose))
-                }
-                ModelStatus.ERROR -> TextButton(onClick = onDownload) {
-                    Text(importLabel ?: stringResource(R.string.retry))
-                }
+                ModelStatus.DOWNLOADING -> LinearProgressIndicator(
+                    progress = { item.progress },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+                ModelStatus.EXTRACTING -> LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+                else -> Unit
             }
-        }
-        when (item.status) {
-            ModelStatus.DOWNLOADING -> LinearProgressIndicator(
-                progress = { item.progress },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-            )
-            ModelStatus.EXTRACTING -> LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-            )
-            else -> HorizontalDivider()
         }
     }
 }
@@ -506,23 +594,25 @@ private fun SelectableRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Column(Modifier.padding(start = 4.dp)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            subtitle?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    SettingsCard(selected = selected, onClick = null) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(text = title, style = MaterialTheme.typography.bodyLarge)
+                subtitle?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
+            RadioButton(selected = selected, onClick = null)
         }
     }
 }
