@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import android.content.Context
 import android.os.Build
+import kotlin.math.roundToInt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -262,29 +263,32 @@ private fun LazyListScope.voiceTuningSection(
 ) {
     sectionHeader(context.getString(R.string.voice_tuning_title))
     item {
+        val volumePercent = ((state.volume * 10).roundToInt() * 10).coerceIn(10, 100)
         TuningSlider(
             title = stringResource(R.string.volume),
-            valueText = stringResource(R.string.volume_value, (state.volume * 100).toInt()),
-            value = state.volume,
-            range = PlaybackSettingsStore.MIN_VOLUME..PlaybackSettingsStore.MAX_VOLUME,
-            steps = 19,
-            onValueChange = viewModel::setVolume,
+            valueText = stringResource(R.string.percent_value, volumePercent),
+            value = volumePercent.toFloat(),
+            range = 10f..100f,
+            steps = 8,
+            onValueChange = { percent -> viewModel.setVolume(percent / 100f) },
             onValueChangeFinished = viewModel::previewCurrentVoice,
         )
     }
     item {
+        val pausePercent = (
+            state.fragmentPauseMs.toFloat() / PlaybackSettingsStore.MAX_FRAGMENT_PAUSE_MS * 10
+            ).roundToInt().coerceIn(0, 10) * 10
         TuningSlider(
             title = stringResource(R.string.fragment_pause),
-            valueText = if (state.fragmentPauseMs == 0) {
-                stringResource(R.string.fragment_pause_off)
-            } else {
-                stringResource(R.string.fragment_pause_value, state.fragmentPauseMs)
+            valueText = stringResource(R.string.percent_value, pausePercent),
+            value = pausePercent.toFloat(),
+            range = 0f..100f,
+            steps = 9,
+            onValueChange = { percent ->
+                viewModel.setFragmentPause(
+                    (percent / 100f * PlaybackSettingsStore.MAX_FRAGMENT_PAUSE_MS).roundToInt(),
+                )
             },
-            value = state.fragmentPauseMs.toFloat(),
-            range = PlaybackSettingsStore.MIN_FRAGMENT_PAUSE_MS.toFloat()..
-                PlaybackSettingsStore.MAX_FRAGMENT_PAUSE_MS.toFloat(),
-            steps = 19,
-            onValueChange = { viewModel.setFragmentPause(it.toInt()) },
         )
     }
     if (state.engineType == TtsEngineType.SYSTEM) {

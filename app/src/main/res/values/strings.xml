@@ -43,12 +43,10 @@
     <string name="voice_preview_hint">Нажмите на голос, чтобы услышать пример.</string>
     <string name="voice_tuning_title">Настройки голоса</string>
     <string name="volume">Громкость</string>
-    <string name="volume_value">%1$d%%</string>
+    <string name="percent_value">%1$d%%</string>
     <string name="pitch">Тон (системный TTS)</string>
     <string name="pitch_value">%1$.2f</string>
     <string name="fragment_pause">Пауза между фрагментами</string>
-    <string name="fragment_pause_off">Выключена</string>
-    <string name="fragment_pause_value">%1$d мс</string>
     <string name="quality_fast">Быстро</string>
     <string name="quality_fast_desc">3 шага · быстрее, меньше нагрев</string>
     <string name="quality_high">Качественно</string>

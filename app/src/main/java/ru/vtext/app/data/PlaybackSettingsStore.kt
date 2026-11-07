@@ -47,7 +47,7 @@ class PlaybackSettingsStore(context: Context) {
         const val MAX_PITCH = 2f
         const val DEFAULT_PITCH = 1f
 
-        const val MIN_VOLUME = 0f
+        const val MIN_VOLUME = 0.1f
         const val MAX_VOLUME = 1f
         const val DEFAULT_VOLUME = 1f
 
