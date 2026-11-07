@@ -42,7 +42,7 @@ UI (Compose) → ViewModel (StateFlow) → domain (модели, TextSegmenter, 
 ```
 
 - `domain/model` — `Book`, `Chapter`, `ParsedBook`.
-- `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `PdfParser` (главы из PDF-закладок, fallback на страницы), `DocxParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
+- `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `PdfParser` (главы из PDF-закладок, fallback по шрифту, затем по страницам), `DocxParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
 - `domain/cleanup` — `ImportTextCleaner`: номера страниц, повторяющиеся колонтитулы, переносы слов при импорте PDF/TXT.
 - `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences, выбранный голос в `TtsSettingsStore`, скорость в `PlaybackSettingsStore`.
 - `tts` — `AndroidSpeechEngine` (системный), `OnnxSpeechEngine` (Piper/Supertonic на sherpa-onnx), `TtsManager` (выбор движка и загрузка моделей), `ModelRepository` (скачивание/распаковка `.tar.bz2`).

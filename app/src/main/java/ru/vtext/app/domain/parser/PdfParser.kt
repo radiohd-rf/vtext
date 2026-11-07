@@ -37,12 +37,17 @@ class PdfParser : BookParser {
                 // Убираем номера страниц и повторяющиеся колонтитулы до разбиения на фрагменты.
                 val cleanedPages = ImportTextCleaner.cleanPages(pageTexts).pages
                 val outline = readOutline(document)
-                val chapters = if (outline.size >= MIN_OUTLINE_ENTRIES) {
-                    chaptersFromOutline(cleanedPages, outline).ifEmpty {
+                val fromOutline = if (outline.size >= MIN_OUTLINE_ENTRIES) {
+                    chaptersFromOutline(cleanedPages, outline)
+                } else {
+                    emptyList()
+                }
+                val chapters = if (fromOutline.size >= 2) {
+                    fromOutline
+                } else {
+                    chaptersFromHeadings(document, cleanedPages).ifEmpty {
                         chaptersFromPages(cleanedPages)
                     }
-                } else {
-                    chaptersFromPages(cleanedPages)
                 }
                 ParsedBook(title, author, chapters)
             }
@@ -119,6 +124,45 @@ class PdfParser : BookParser {
             val segments = TextSegmenter.segment(text)
             if (segments.isEmpty()) null else Chapter("Страница ${index + 1}", segments)
         }
+
+    private fun chaptersFromHeadings(
+        document: PDDocument,
+        pages: List<String>,
+    ): List<Chapter> {
+        val extractor = PdfLayoutExtractor()
+        runCatching { extractor.getText(document) }
+        val headings = PdfHeadingDetector.detect(extractor.lines, pages.size)
+        if (headings.size < 2) return emptyList()
+
+        val chapters = mutableListOf<Chapter>()
+        var index = 0
+        while (index < headings.size) {
+            val startPage = headings[index].page
+            val samePage = mutableListOf(headings[index])
+            var next = index + 1
+            while (next < headings.size && headings[next].page == startPage) {
+                samePage += headings[next]
+                next += 1
+            }
+            val title = samePage.map { it.text }.distinct().joinToString(" · ")
+            val depth = samePage.minOf { it.depth }
+            val endPage = headings.drop(next)
+                .firstOrNull { it.page > startPage }
+                ?.page
+                ?: pages.size
+            val safeEnd = endPage.coerceAtMost(pages.size)
+            if (startPage < safeEnd) {
+                val segments = TextSegmenter.segment(
+                    pages.subList(startPage, safeEnd).joinToString("\n\n"),
+                )
+                if (segments.isNotEmpty()) {
+                    chapters += Chapter(title, segments, depth)
+                }
+            }
+            index = next
+        }
+        return chapters
+    }
 
     /** PDF-генераторы часто оставляют заглушки вроде «untitled»/«anonymous». */
     private fun cleanMetadata(value: String?, placeholders: Set<String>): String? {
