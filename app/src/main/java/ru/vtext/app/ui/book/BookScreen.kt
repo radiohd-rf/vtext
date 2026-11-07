@@ -59,6 +59,7 @@ import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.Chapter
+import ru.vtext.app.player.PlayerState
 import ru.vtext.app.tts.EngineState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,15 +73,16 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
             bookId = bookId,
             repository = container.repository,
             progressStore = container.progressStore,
-            engine = container.speechEngine,
+            playback = container.playback,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(state.error) {
-        val error = state.error ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(error)
+    val error = state.error ?: state.player.error
+    LaunchedEffect(error) {
+        val message = error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
         viewModel.dismissError()
     }
 
@@ -130,12 +132,13 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
 
 @Composable
 private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewModel) {
-    val chapter = book.chapters.getOrNull(state.chapterIndex) ?: return
+    val player = state.player
+    val chapter = book.chapters.getOrNull(player.chapterIndex) ?: return
     val listState = rememberLazyListState()
 
-    LaunchedEffect(state.chapterIndex, state.segmentIndex) {
+    LaunchedEffect(player.chapterIndex, player.segmentIndex) {
         if (chapter.segments.isNotEmpty()) {
-            listState.animateScrollToItem(state.segmentIndex.coerceIn(0, chapter.segments.lastIndex))
+            listState.animateScrollToItem(player.segmentIndex.coerceIn(0, chapter.segments.lastIndex))
         }
     }
 
@@ -147,7 +150,7 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
         ) {
             itemsIndexed(chapter.segments) { index, segment ->
-                val current = index == state.segmentIndex
+                val current = index == player.segmentIndex
                 val shape = MaterialTheme.shapes.medium
                 Box(
                     modifier = Modifier
@@ -182,17 +185,18 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
 @Composable
 private fun ChapterSelector(state: BookUiState, chapters: List<Chapter>, onSelect: (Int) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val chapterIndex = state.player.chapterIndex
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onSelect(state.chapterIndex - 1) }, enabled = state.chapterIndex > 0) {
+        IconButton(onClick = { onSelect(chapterIndex - 1) }, enabled = chapterIndex > 0) {
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.previous))
         }
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             TextButton(onClick = { expanded = true }) {
                 Text(
-                    text = stringResource(R.string.chapter_of, state.chapterIndex + 1, chapters.size),
+                    text = stringResource(R.string.chapter_of, chapterIndex + 1, chapters.size),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -216,8 +220,8 @@ private fun ChapterSelector(state: BookUiState, chapters: List<Chapter>, onSelec
             }
         }
         IconButton(
-            onClick = { onSelect(state.chapterIndex + 1) },
-            enabled = state.chapterIndex < chapters.lastIndex,
+            onClick = { onSelect(chapterIndex + 1) },
+            enabled = chapterIndex < chapters.lastIndex,
         ) {
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = stringResource(R.string.next))
         }
@@ -226,6 +230,7 @@ private fun ChapterSelector(state: BookUiState, chapters: List<Chapter>, onSelec
 
 @Composable
 private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: BookViewModel) {
+    val player = state.player
     Surface(tonalElevation = 3.dp) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
@@ -233,16 +238,16 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = stringResource(R.string.segment_of, state.segmentIndex + 1, chapter.segments.size),
+                    text = stringResource(R.string.segment_of, player.segmentIndex + 1, chapter.segments.size),
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Text(
-                    text = stringResource(R.string.speed_value, formatSpeed(state.speed)),
+                    text = stringResource(R.string.speed_value, formatSpeed(player.speed)),
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
             Spacer(Modifier.height(4.dp))
-            val progress = if (chapter.segments.isEmpty()) 0f else (state.segmentIndex + 1f) / chapter.segments.size
+            val progress = if (chapter.segments.isEmpty()) 0f else (player.segmentIndex + 1f) / chapter.segments.size
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
             Row(
@@ -256,24 +261,24 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                 FilledIconButton(
                     onClick = viewModel::togglePlay,
                     modifier = Modifier.size(56.dp),
-                    enabled = state.engineState == EngineState.READY,
+                    enabled = player.engineState == EngineState.READY,
                 ) {
                     Icon(
-                        imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = stringResource(if (state.isPlaying) R.string.pause else R.string.play),
+                        imageVector = if (player.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = stringResource(if (player.isPlaying) R.string.pause else R.string.play),
                     )
                 }
                 IconButton(onClick = viewModel::next) {
                     Icon(Icons.Default.SkipNext, contentDescription = stringResource(R.string.next))
                 }
             }
-            if (state.engineState != EngineState.READY) {
+            if (player.engineState != EngineState.READY) {
                 Text(
                     text = stringResource(
-                        if (state.engineState == EngineState.ERROR) R.string.tts_error else R.string.tts_initializing,
+                        if (player.engineState == EngineState.ERROR) R.string.tts_error else R.string.tts_initializing,
                     ),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (state.engineState == EngineState.ERROR) {
+                    color = if (player.engineState == EngineState.ERROR) {
                         MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
@@ -285,8 +290,8 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                SpeedMenu(speed = state.speed, onSelect = viewModel::setSpeed)
-                SleepMenu(current = state.sleepTimerMinutes, onSelect = viewModel::setSleepTimer)
+                SpeedMenu(speed = player.speed, onSelect = viewModel::setSpeed)
+                SleepMenu(current = player.sleepTimerMinutes, onSelect = viewModel::setSleepTimer)
             }
         }
     }

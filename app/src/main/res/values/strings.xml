@@ -10,6 +10,7 @@
     <string name="pause">Пауза</string>
     <string name="previous">Предыдущий фрагмент</string>
     <string name="next">Следующий фрагмент</string>
+    <string name="stop_playback">Остановить</string>
     <string name="chapter_of">Глава %1$d из %2$d</string>
     <string name="segment_of">Фрагмент %1$d из %2$d</string>
     <string name="speed">Скорость</string>
@@ -22,4 +23,16 @@
     <string name="tts_initializing">Подготовка синтеза речи…</string>
     <string name="book_not_found">Книга не найдена</string>
     <string name="loading">Загрузка…</string>
+    <string name="playback_channel">Воспроизведение</string>
+    <string name="playback_channel_description">Управление чтением книги вслух</string>
+    <string name="settings">Настройки</string>
+    <string name="settings_title">Настройки</string>
+    <string name="voice_title">Голос озвучивания</string>
+    <string name="voice_default">Системный голос по умолчанию</string>
+    <string name="voice_network">нужна сеть</string>
+    <string name="voice_unavailable">Голоса недоступны: проверьте системный TTS</string>
+    <string name="delete_book">Удалить книгу</string>
+    <string name="delete_book_message">Удалить «%1$s» из библиотеки? Прогресс чтения будет потерян.</string>
+    <string name="delete">Удалить</string>
+    <string name="cancel">Отмена</string>
 </resources>

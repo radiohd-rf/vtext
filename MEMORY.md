@@ -72,7 +72,9 @@
 - Экран текста с подсветкой текущего фрагмента.
 - Скорость речи (0.5×–3×), таймер сна.
 - Сохранение прогресса чтения и возобновление с последней позиции.
-- Фоновое воспроизведение — foreground service с уведомлением и управлением.
+- Фоновое воспроизведение — foreground service с уведомлением и управлением (реализовано).
+- Выбор системного голоса TTS в настройках.
+- Удаление книг из библиотеки (долгое нажатие).
 
 ## Стек и архитектура
 
@@ -88,12 +90,13 @@
 - Состояние: `SharedPreferences` для прогресса (`chapter:segment`), кэш разобранных глав в `chapters.json`; `DataStore`/`Room` пока не нужны.
 - Мин. SDK: **24** (Android 7), target/compile SDK 35.
 - Асинхронность: корутины + StateFlow.
-- Фон: foreground service — пока TODO (сейчас воспроизведение живёт в ViewModel).
+- Фон: foreground service `PlaybackService` (mediaPlayback) + `MediaSessionCompat`, управление из уведомления, экрана блокировки и наушников.
 
 Принципы:
 - TTS-движок изолирован интерфейсом — можно заменить или замокать.
 - Текст заранее разбивается на предложения/абзацы; очередь фрагментов — единица воспроизведения и возобновления.
 - Полный текст книги не держим в памяти целиком — читаем потоково, если файл большой.
+- Единый источник правды о воспроизведении — `PlaybackCoordinator` в `Application`; сервис и ViewModel только читают его состояние и вызывают методы.
 
 ## Решения
 
@@ -107,7 +110,11 @@
 | 2026-11-07 | Свои парсеры TXT/FB2/EPUB на stdlib | Без внешних зависимостей, полный контроль над разбиением на главы |
 | 2026-11-07 | Прогресс в SharedPreferences (`chapter:segment`) | Просто и достаточно; Room/DataStore избыточны на этом этапе |
 | 2026-11-07 | Разобранные главы кэшируются в `chapters.json` | Быстрое открытие книги без повторного парсинга |
-| 2026-11-07 | Воспроизведение в ViewModel | MVP; foreground service вынесен в TODO |
+| 2026-11-07 | Воспроизведение в ViewModel | MVP; позже заменено на `PlaybackCoordinator` + сервис |
+| 2026-11-07 | `PlaybackCoordinator` в `Application` + `PlaybackService` | Состояние переживает Activity, сервис и UI не дублируют логику |
+| 2026-11-07 | Уведомление через `MediaSessionCompat`, тип сервиса `mediaPlayback` | Управление с блокировки/наушников + требования Android 14 к FGS |
+| 2026-11-07 | Голос TTS хранится в `TtsSettingsStore` (`voice_name`) | Простое сохранение выбора между сессиями |
+| 2026-11-07 | Возобновление с начала главы | Предсказуемее для TTS: не начинаем с середины фразы |
 
 ## Соглашения
 
@@ -134,8 +141,15 @@
 - EPUB: пути в OPF могут быть URL-encoded и с другим регистром — `findEntry` пробует decoded и case-insensitive варианты.
 - EPUB: заголовок главы (`<h1>`) попадает в текст; после извлечения он вырезается, чтобы не дублировать название при озвучке.
 - Gradle на Windows с кириллицей в `%USERPROFILE%`: unit-тесты падают с `Could not find or load main class worker.org.gradle.process.internal.worker.GradleWorkerMain`. Решение — `GRADLE_USER_HOME` на ASCII-путь (junction `G:\gradle-home`).
+- Foreground service на Android 14 требует объявленный `android:foregroundServiceType="mediaPlayback"` и разрешение `FOREGROUND_SERVICE_MEDIA_PLAYBACK`; без этого `startForeground` бросает исключение.
+- Уведомление foreground-сервиса нельзя делать dismissible, пока сервис жив: `setOngoing(true)`, иначе после свайпа остаётся невидимый foreground-сервис.
+- `NotificationManagerCompat.notify` молча ничего не делает без разрешения `POST_NOTIFICATIONS` (Android 13+), но `startForeground` продолжает работать.
+- `MediaSessionCompat` и `android.support.v4.media.*` приходят из `androidx.media:media`.
+- При выборе «системный голос по умолчанию» нужно явно вернуть `engine.voice = defaultVoice`, иначе TTS остаётся на предыдущем голосе.
+- `PendingIntent.getActivity` для уведомления: передаём `bookId`, `MainActivity.onNewIntent` открывает плеер этой книги.
 
 ## Журнал изменений
 
 - **2026-11-06** — созданы `AGENTS.md`, `MEMORY.md`, `.gitignore`, `README.md`; инициализирован git; описано назначение проекта (Android TTS-читалка).
 - **2026-11-07** — сгенерирован Android-проект: Kotlin + Compose, парсеры TXT/FB2/EPUB, TTS-обёртка, библиотека, плеер с подсветкой, скорость и таймер сна. Сборка `assembleDebug` успешна, 11 юнит-тестов проходят.
+- **2026-11-07** — фоновое воспроизведение: `PlaybackCoordinator` в `Application`, `PlaybackService` с foreground-уведомлением, действиями play/pause/next/prev/stop и `MediaSessionCompat`; разрешение `POST_NOTIFICATIONS`; переход в книгу по тапу на уведомление. Добавлены настройки голоса TTS (`TtsSettingsStore`, `SettingsScreen`), удаление книг долгим нажатием с подтверждением, возобновление с начала главы. Сборка и юнит-тесты проходят; на устройстве не проверялось.

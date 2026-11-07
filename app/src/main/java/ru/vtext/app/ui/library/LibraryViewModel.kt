@@ -1,6 +1,5 @@
 package ru.vtext.app.ui.library
 
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
@@ -11,7 +10,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.vtext.app.data.BookRepository
+import ru.vtext.app.data.ProgressStore
 import ru.vtext.app.domain.model.Book
+import ru.vtext.app.player.PlaybackCoordinator
 
 data class LibraryUiState(
     val loading: Boolean = true,
@@ -20,7 +21,11 @@ data class LibraryUiState(
     val error: String? = null,
 )
 
-class LibraryViewModel(private val repository: BookRepository) : ViewModel() {
+class LibraryViewModel(
+    private val repository: BookRepository,
+    private val progressStore: ProgressStore,
+    private val playback: PlaybackCoordinator,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -37,7 +42,7 @@ class LibraryViewModel(private val repository: BookRepository) : ViewModel() {
         }
     }
 
-    fun import(uris: List<Uri>) {
+    fun import(uris: List<android.net.Uri>) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             _state.update { it.copy(importing = true, error = null) }
@@ -56,13 +61,27 @@ class LibraryViewModel(private val repository: BookRepository) : ViewModel() {
         }
     }
 
+    fun delete(book: Book) {
+        viewModelScope.launch {
+            repository.delete(book.id)
+            progressStore.clear(book.id)
+            playback.clearIfBook(book.id)
+            val books = repository.listBooks()
+            _state.update { it.copy(books = books) }
+        }
+    }
+
     fun dismissError() {
         _state.update { it.copy(error = null) }
     }
 
     companion object {
-        fun factory(repository: BookRepository) = viewModelFactory {
-            initializer { LibraryViewModel(repository) }
+        fun factory(
+            repository: BookRepository,
+            progressStore: ProgressStore,
+            playback: PlaybackCoordinator,
+        ) = viewModelFactory {
+            initializer { LibraryViewModel(repository, progressStore, playback) }
         }
     }
 }

@@ -32,14 +32,17 @@
 
 ```
 UI (Compose) → ViewModel (StateFlow) → domain (модели, TextSegmenter, parsers) → data (BookRepository, ProgressStore)
-                                        ↘ tts (SpeechEngine)
+                                        ↘ player (PlaybackCoordinator) → tts (SpeechEngine)
+                                                   ↕
+                                          player (PlaybackService, foreground + MediaSession)
 ```
 
 - `domain/model` — `Book`, `Chapter`, `ParsedBook`.
 - `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
-- `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences.
-- `tts` — `AndroidSpeechEngine` с событиями Started/Done/Error/Stopped.
-- `ui/library` — список книг и импорт; `ui/book` — плеер с подсветкой фрагмента, скоростью и таймером сна.
+- `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences, выбранный голос в `TtsSettingsStore`.
+- `tts` — `AndroidSpeechEngine` с событиями Started/Done/Error/Stopped и списком системных голосов.
+- `player` — `PlaybackCoordinator` (единый источник правды о воспроизведении, живёт в `Application`) и `PlaybackService` (foreground-сервис, уведомление с управлением, `MediaSessionCompat`).
+- `ui/library` — список книг, импорт, удаление долгим нажатием; `ui/book` — плеер с подсветкой фрагмента, скоростью и таймером сна; `ui/settings` — выбор системного голоса.
 
 ## Структура проекта
 
@@ -49,10 +52,11 @@ vtext/
 │   ├── build.gradle.kts
 │   └── src/
 │       ├── main/java/ru/vtext/app/
-│       │   ├── data/
+│       │   ├── data/                  # BookRepository, ProgressStore, TtsSettingsStore
 │       │   ├── domain/{model,parser}/
+│       │   ├── player/                # PlaybackCoordinator, PlaybackService
 │       │   ├── tts/
-│       │   ├── ui/{library,book,theme}/
+│       │   ├── ui/{library,book,settings,theme}/
 │       │   ├── MainActivity.kt
 │       │   └── VtextApp.kt
 │       ├── main/res/
@@ -79,7 +83,7 @@ vtext/
 
 ## TODO
 
-- Foreground service для воспроизведения в фоне и уведомления с управлением.
 - Сохранение настроек скорости/таймера между сессиями.
-- Обработка окончания книги, удаление книг из библиотеки.
+- Обработка окончания книги (кнопка «начать заново»).
 - Инструментальные UI-тесты.
+- Проверка фонового воспроизведения на устройстве/эмуляторе (нет подключённого устройства).

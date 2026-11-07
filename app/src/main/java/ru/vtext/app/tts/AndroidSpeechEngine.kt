@@ -3,6 +3,7 @@ package ru.vtext.app.tts
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,14 +11,24 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import ru.vtext.app.data.TtsSettingsStore
 
-class AndroidSpeechEngine(context: Context) : SpeechEngine {
+class AndroidSpeechEngine(
+    context: Context,
+    private val settings: TtsSettingsStore,
+) : SpeechEngine {
 
     private val _state = MutableStateFlow(EngineState.INITIALIZING)
     override val state: StateFlow<EngineState> = _state.asStateFlow()
 
     private val _events = MutableSharedFlow<SpeechEvent>(extraBufferCapacity = 32)
     override val events: SharedFlow<SpeechEvent> = _events.asSharedFlow()
+
+    private val _voices = MutableStateFlow<List<VoiceInfo>>(emptyList())
+    override val voices: StateFlow<List<VoiceInfo>> = _voices.asStateFlow()
+
+    private val _selectedVoice = MutableStateFlow<String?>(null)
+    override val selectedVoice: StateFlow<String?> = _selectedVoice.asStateFlow()
 
     private var tts: TextToSpeech? = null
 
@@ -29,35 +40,12 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         tts = TextToSpeech(context.applicationContext) { status ->
             val engine = tts
             if (status == TextToSpeech.SUCCESS && engine != null) {
-                val locale = Locale.getDefault()
-                val result = engine.setLanguage(locale)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    engine.setLanguage(Locale.ENGLISH)
-                }
+                applyLanguage(engine)
                 engine.setSpeechRate(rate)
-                engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        utteranceId?.let { _events.tryEmit(SpeechEvent.Started(it)) }
-                    }
-
-                    override fun onDone(utteranceId: String?) {
-                        utteranceId?.let { _events.tryEmit(SpeechEvent.Done(it)) }
-                    }
-
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        _events.tryEmit(SpeechEvent.Error(utteranceId, null))
-                    }
-
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        _events.tryEmit(SpeechEvent.Error(utteranceId, "TTS error $errorCode"))
-                    }
-
-                    override fun onStop(utteranceId: String?, interrupted: Boolean) {
-                        _events.tryEmit(SpeechEvent.Stopped(utteranceId))
-                    }
-                })
+                engine.setOnUtteranceProgressListener(progressListener())
                 ready = true
+                publishVoices(engine)
+                applySavedVoice(engine)
                 _state.value = EngineState.READY
             } else {
                 ready = false
@@ -69,6 +57,21 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
     override fun setRate(rate: Float) {
         this.rate = rate
         tts?.setSpeechRate(rate)
+    }
+
+    override fun setVoice(name: String?) {
+        settings.voiceName = name
+        val engine = tts ?: return
+        val voice = name?.let { target -> engine.voices?.firstOrNull { it.name == target } }
+        if (voice != null) {
+            engine.voice = voice
+            _selectedVoice.value = voice.name
+        } else {
+            // Возврат к системному голосу по умолчанию: явно сбрасываем движок,
+            // иначе он продолжит использовать ранее выбранный голос.
+            engine.defaultVoice?.let { engine.voice = it }
+            _selectedVoice.value = null
+        }
     }
 
     override fun speak(text: String, utteranceId: String) {
@@ -85,5 +88,62 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         ready = false
         tts?.shutdown()
         tts = null
+    }
+
+    private fun applyLanguage(engine: TextToSpeech) {
+        val locale = Locale.getDefault()
+        val result = engine.setLanguage(locale)
+        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+            engine.setLanguage(Locale.ENGLISH)
+        }
+    }
+
+    private fun publishVoices(engine: TextToSpeech) {
+        val available = engine.voices
+            ?.map { voice -> voice.toInfo() }
+            ?.sortedWith(compareBy({ it.localeTag }, { it.name }))
+            ?: emptyList()
+        _voices.value = available
+    }
+
+    private fun applySavedVoice(engine: TextToSpeech) {
+        val saved = settings.voiceName
+        val voice = saved?.let { name -> engine.voices?.firstOrNull { it.name == name } }
+        if (voice != null) {
+            engine.voice = voice
+            _selectedVoice.value = voice.name
+        } else {
+            _selectedVoice.value = null
+        }
+    }
+
+    private fun Voice.toInfo(): VoiceInfo = VoiceInfo(
+        name = name,
+        localeTag = locale.toLanguageTag(),
+        displayName = locale.displayName.replaceFirstChar { it.uppercase() },
+        requiresNetwork = isNetworkConnectionRequired,
+    )
+
+    private fun progressListener() = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            utteranceId?.let { _events.tryEmit(SpeechEvent.Started(it)) }
+        }
+
+        override fun onDone(utteranceId: String?) {
+            utteranceId?.let { _events.tryEmit(SpeechEvent.Done(it)) }
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String?) {
+            _events.tryEmit(SpeechEvent.Error(utteranceId, null))
+        }
+
+        override fun onError(utteranceId: String?, errorCode: Int) {
+            _events.tryEmit(SpeechEvent.Error(utteranceId, "Ошибка синтеза речи ($errorCode)"))
+        }
+
+        override fun onStop(utteranceId: String?, interrupted: Boolean) {
+            _events.tryEmit(SpeechEvent.Stopped(utteranceId))
+        }
     }
 }
