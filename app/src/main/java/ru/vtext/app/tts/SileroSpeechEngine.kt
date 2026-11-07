@@ -186,12 +186,12 @@ class SileroSpeechEngine(
 
     private suspend fun play(token: Int, text: String, utteranceId: String) {
         val config = meta ?: return
-        val chunks = SileroText.chunks(SileroText.normalizeForSpeech(text, loadUserTerms()), CHUNK_CHARS)
+        val chunks = SileroText.chunkPlan(SileroText.normalizeForSpeech(text, loadUserTerms()), CHUNK_CHARS)
         if (chunks.isEmpty()) {
             _events.tryEmit(SpeechEvent.Done(utteranceId))
             return
         }
-        val audioChannel = kotlinx.coroutines.channels.Channel<FloatArray>(capacity = 2)
+        val audioChannel = kotlinx.coroutines.channels.Channel<Rendered>(capacity = 2)
         var track: AudioTrack? = null
         var written = 0L
         var started = false
@@ -201,16 +201,16 @@ class SileroSpeechEngine(
                     try {
                         for (chunk in chunks) {
                             if (token != generation) break
-                            val audio = synthesize(config, chunk)
+                            val audio = synthesize(config, chunk.text)
                             if (token != generation) break
-                            if (audio.isNotEmpty()) audioChannel.send(audio)
+                            if (audio.isNotEmpty()) audioChannel.send(Rendered(audio, chunk.pauseMs))
                         }
                     } finally {
                         audioChannel.close()
                     }
                 }
                 try {
-                    for (audio in audioChannel) {
+                    for (rendered in audioChannel) {
                         if (token != generation) break
                         if (track == null) {
                             track = createTrack().also {
@@ -222,6 +222,7 @@ class SileroSpeechEngine(
                             started = true
                         }
                         val audioTrack = track ?: break
+                        val audio = rendered.audio
                         var offset = 0
                         while (offset < audio.size) {
                             if (token != generation) break
@@ -230,6 +231,18 @@ class SileroSpeechEngine(
                             if (result < 0) break
                             offset += result
                             written += result
+                        }
+                        if (rendered.pauseMs > 0) {
+                            val silence = FloatArray(SAMPLE_RATE * rendered.pauseMs / 1000)
+                            var silent = 0
+                            while (silent < silence.size) {
+                                if (token != generation) break
+                                val count = minOf(WRITE_CHUNK, silence.size - silent)
+                                val result = audioTrack.write(silence, silent, count, AudioTrack.WRITE_BLOCKING)
+                                if (result < 0) break
+                                silent += result
+                                written += result
+                            }
                         }
                     }
                 } finally {
@@ -296,6 +309,8 @@ class SileroSpeechEngine(
 
     // ----- Синтез -----
 
+    private class Rendered(val audio: FloatArray, val pauseMs: Int)
+
     /** Словарь произношения читается при каждом фрагменте: правки применяются без перезапуска. */
     private fun loadUserTerms(): Map<String, String> = runCatching {
         val file = File(modelDir.parentFile, DICTIONARY_FILE)
@@ -334,7 +349,10 @@ class SileroSpeechEngine(
             val speakerTensor = Tensor.fromBlob(longArrayOf(speaker.toLong()), longArrayOf(1))
             val maskTensor = Tensor.fromBlob(FloatArray(length), longArrayOf(1, length.toLong()))
             val typesTensor = Tensor.fromBlob(sequence.types, longArrayOf(1, length.toLong()))
-            val focusTensor = Tensor.fromBlob(LongArray(length), longArrayOf(1, length.toLong()))
+            val focusTensor = Tensor.fromBlob(sequence.focus, longArrayOf(1, length.toLong()))
+            // Эмфаза расширяет лимит длительности первого символа (как в оригинале).
+            val emphasized = sequence.types.isNotEmpty() && sequence.types[0] >= SileroText.EMPHASIS_TYPE_SHIFT
+            val sosCap = if (emphasized) 20f else SOS_CAP
 
             val durations = durModule.forward(
                 IValue.from(textTensor),
@@ -348,7 +366,7 @@ class SileroSpeechEngine(
                 val positive = if (frames < 0f) 0f else frames
                 (positive / rate).roundToLong().coerceAtLeast(0L).toFloat()
             }
-            scaled[0] = minOf(scaled[0], SOS_CAP)
+            scaled[0] = minOf(scaled[0], sosCap)
             scaled[length - 1] = minOf(scaled[length - 1], 7f)
             if (length >= 2) scaled[length - 2] = 13f
             if (length >= 3) scaled[length - 3] = minOf(scaled[length - 3], 13f)

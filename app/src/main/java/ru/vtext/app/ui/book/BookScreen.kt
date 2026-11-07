@@ -165,7 +165,7 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
                         shape = shape,
                     ) {
                         Text(
-                            text = segment,
+                            text = ru.vtext.app.domain.TextMarkup.strip(segment),
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.bodyLarge,
                             color = if (current) {

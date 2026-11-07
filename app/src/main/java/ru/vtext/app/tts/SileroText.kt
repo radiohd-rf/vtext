@@ -51,6 +51,13 @@ internal object SileroText {
     private val QUOTE_OPEN = setOf('"', '«', '\u201c', '\u201e')
     private val QUOTE_CLOSE = setOf('"', '»', '\u201d', '\u2019')
 
+    private val BOLD_RE = Regex("\\*\\*([^*\\n]+)\\*\\*")
+    private val ITALIC_RE = Regex("\\*([^*\\n]+)\\*")
+    private val CAPS_RE = Regex("(?<![\\p{L}])([А-ЯЁ]{3,})(?![\\p{L}])")
+    private val FOCUS_SKIP_CHARS = setOf('.', ',', '!', '?', ';', ':', '…', '–')
+    const val FOCUS_INTENSITY = 3
+    const val EMPHASIS_TYPE_SHIFT = 6L
+
     // ----- Нормализация текста -----
 
     /** Числа записываем словами: Silero выбрасывает все цифры из входа. */
@@ -367,7 +374,18 @@ internal object SileroText {
                 } else {
                     val prediction = predictions.getOrNull(index)
                     index++
-                    if (prediction == null) part else applyPrediction(part, prediction, lookupStress?.invoke(input) ?: -1)
+                    if (prediction == null) {
+                        part
+                    } else {
+                        // Маркеры эмфазы (**…**) не должны сбивать позиции гласных.
+                        val prefix = part.takeWhile { it == '*' }
+                        val suffix = part.takeLastWhile { it == '*' }
+                        val core = part.substring(prefix.length, part.length - suffix.length)
+                        if (core.isEmpty()) part else {
+                            val stressed = applyPrediction(core, prediction, lookupStress?.invoke(input) ?: -1)
+                            prefix + stressed + suffix
+                        }
+                    }
                 }
             }
             builder.append(accentedParts.joinToString("-"))
@@ -434,9 +452,15 @@ internal object SileroText {
     }
 
     /** Разбивает текст на куски по предложениям, чтобы первый звук появился быстрее. */
-    fun chunks(text: String, maxChars: Int): List<String> {
+    fun chunks(text: String, maxChars: Int): List<String> =
+        chunkPlan(text, maxChars).map { it.text }
+
+    /** Кусок синтеза и пауза после него (для многоточий, тире и двоеточий). */
+    data class Chunk(val text: String, val pauseMs: Int)
+
+    fun chunkPlan(text: String, maxChars: Int): List<Chunk> {
         val sentences = SENT_SPLIT_RE.split(text.trim()).filter { it.isNotBlank() }
-        val result = mutableListOf<String>()
+        val parts = mutableListOf<String>()
         val current = StringBuilder()
         for (sentence in sentences) {
             if (current.isEmpty()) {
@@ -444,13 +468,13 @@ internal object SileroText {
             } else if (current.length + 1 + sentence.length <= maxChars) {
                 current.append(' ').append(sentence.trim())
             } else {
-                result += current.toString()
+                parts += current.toString()
                 current.setLength(0)
                 current.append(sentence.trim())
             }
         }
-        if (current.isNotEmpty()) result += current.toString()
-        return result.flatMap { chunk ->
+        if (current.isNotEmpty()) parts += current.toString()
+        return parts.flatMap { chunk ->
             if (chunk.length <= maxChars * 2) {
                 listOf(chunk)
             } else {
@@ -460,16 +484,108 @@ internal object SileroText {
                     acc
                 }
             }
+        }.map { Chunk(it, pauseAfter(it)) }
+    }
+
+    /** Пауза после куска: многоточие и тире заметно длиннее, точка уже учтена моделью. */
+    private fun pauseAfter(text: String): Int {
+        val trimmed = text.trimEnd()
+        return when {
+            trimmed.endsWith("…") || trimmed.endsWith("...") -> 450
+            trimmed.endsWith("—") || trimmed.endsWith("–") -> 250
+            trimmed.endsWith(":") -> 150
+            else -> 0
         }
+    }
+
+    // ----- Эмфаза и логическое ударение -----
+
+    /** Разметка: `**слово**` — эмфаза, `*слово*` — логическое ударение, КАПС — эмфаза. */
+    data class Markup(
+        val text: String,
+        val focus: BooleanArray,
+        val emphasisSentences: Set<Int>,
+    )
+
+    fun parseMarkup(source: String): Markup {
+        val emphasisPositions = mutableListOf<Int>()
+        var text = source
+        var focus = BooleanArray(text.length)
+        // Сначала **жирный** (эмфаза), затем *курсив* (логическое ударение).
+        val bold = replacePairs(text, focus, BOLD_RE, emphasis = true, emphasisPositions)
+        text = bold.first
+        focus = bold.second
+        val italic = replacePairs(text, focus, ITALIC_RE, emphasis = false, emphasisPositions)
+        text = italic.first
+        focus = italic.second
+
+        // КАПС (не короче трёх букв) читаем с нажимом, как это делают книги.
+        for (match in CAPS_RE.findAll(text)) {
+            for (index in match.range) if (index < focus.size) focus[index] = true
+            emphasisPositions += match.range.first
+        }
+
+        val emphasisSentences = emphasisSentenceIndexes(text, emphasisPositions)
+        return Markup(text, focus, emphasisSentences)
+    }
+
+    /** Убирает парные маркеры, помечая их содержимое фокусом (и эмфазой для `**`). */
+    private fun replacePairs(
+        text: String,
+        focus: BooleanArray,
+        regex: Regex,
+        emphasis: Boolean,
+        emphasisPositions: MutableList<Int>,
+    ): Pair<String, BooleanArray> {
+        val matches = regex.findAll(text).toList()
+        if (matches.isEmpty()) return text to focus
+        val out = StringBuilder(text.length)
+        val outFocus = ArrayList<Boolean>(text.length)
+        var cursor = 0
+        for (match in matches) {
+            if (match.range.first < cursor) continue
+            while (cursor < match.range.first) {
+                out.append(text[cursor])
+                outFocus += focus.getOrElse(cursor) { false }
+                cursor++
+            }
+            val contentStart = out.length
+            for (char in match.groupValues[1]) {
+                out.append(char)
+                outFocus += true
+            }
+            if (emphasis && out.length > contentStart) emphasisPositions += contentStart
+            cursor = match.range.last + 1
+        }
+        while (cursor < text.length) {
+            out.append(text[cursor])
+            outFocus += focus.getOrElse(cursor) { false }
+            cursor++
+        }
+        return out.toString() to BooleanArray(outFocus.size) { outFocus[it] }
+    }
+
+    private fun emphasisSentenceIndexes(text: String, positions: List<Int>): Set<Int> {
+        if (positions.isEmpty()) return emptySet()
+        val bounds = mutableListOf<Int>()
+        for (match in SENT_SPLIT_RE.findAll(text)) bounds += match.range.first
+        bounds += text.length
+        val result = mutableSetOf<Int>()
+        for (position in positions) {
+            var index = 0
+            while (index < bounds.size - 1 && position >= bounds[index]) index++
+            result += index
+        }
+        return result
     }
 
     // ----- Токены и типы -----
 
-    data class Sequence(val ids: LongArray, val types: LongArray)
+    data class Sequence(val ids: LongArray, val types: LongArray, val focus: LongArray)
 
     /**
-     * Строит последовательность символов и типы предложений так же, как это делает
-     * `preprocess_tacotron` + `build_type_ids_tokens` в оригинальном пакете.
+     * Строит последовательность символов, типы предложений и маску эмфазы так же,
+     * как `preprocess_tacotron` + `build_type_ids_tokens` + `parse_focus_from_text`.
      */
     fun buildSequence(
         accentedText: String,
@@ -479,20 +595,42 @@ internal object SileroText {
         symbolToId: Map<Char, Int>,
         typeIds: Map<String, Int>,
     ): Sequence {
-        val prepared = prepare(accentedText.replace('\n', ' '), symbols)
-        val chars = sos + prepared + eos
+        val markup = parseMarkup(accentedText.replace('\n', ' '))
+        val allowed = buildSet {
+            for (char in symbols) add(char)
+            add('^')
+        }
+        val prepared = StringBuilder()
+        val preparedFocus = ArrayList<Boolean>()
+        for (index in markup.text.indices) {
+            var char = markup.text[index].lowercaseChar()
+            if (char == '—') char = '–'
+            if (char == '‑') char = '-'
+            if (char !in allowed || char == '^') continue
+            if (char == ' ' && (prepared.isEmpty() || prepared.last() == ' ')) continue
+            prepared.append(char)
+            preparedFocus += markup.focus.getOrElse(index) { false }
+        }
+        while (prepared.isNotEmpty() && prepared.last() == ' ') {
+            prepared.setLength(prepared.length - 1)
+            preparedFocus.removeAt(preparedFocus.size - 1)
+        }
+        val body = prepared.toString()
+        val chars = sos + body + eos
         val ids = LongArray(chars.length) { symbolToId[chars[it]]?.toLong() ?: 0L }
 
-        val types = classifyText(accentedText.replace("+", "")).split("|")
+        val types = classifyText(markup.text.replace("+", "")).split("|")
         val spans = sentenceSpans(chars, sos.length)
         val resolvedTypes = if (types.size == spans.size) types else {
             spans.map { (from, to) -> classifySentence(chars.substring(from, to)) }
         }
         val typeArray = LongArray(ids.size)
+        val focusArray = LongArray(ids.size)
         val offset = if (sos.isEmpty()) 0 else 1
         val perChar = LongArray(ids.size - 2)
         for ((sentenceIndex, span) in spans.withIndex()) {
-            val type = (typeIds[resolvedTypes.getOrNull(sentenceIndex) ?: "st"] ?: 0).toLong()
+            var type = (typeIds[resolvedTypes.getOrNull(sentenceIndex) ?: "st"] ?: 0).toLong()
+            if (sentenceIndex in markup.emphasisSentences) type += EMPHASIS_TYPE_SHIFT
             for (i in (span.first - offset) until (span.second - offset)) {
                 if (i in perChar.indices) perChar[i] = type
             }
@@ -502,7 +640,13 @@ internal object SileroText {
             typeArray[0] = perChar[0]
             typeArray[typeArray.size - 1] = perChar.last()
         }
-        return Sequence(ids, typeArray)
+        for (i in body.indices) {
+            if (!preparedFocus.getOrElse(i) { false }) continue
+            if (body[i] in FOCUS_SKIP_CHARS) continue
+            focusArray[i + offset] = FOCUS_INTENSITY.toLong()
+        }
+        if (focusArray.isNotEmpty() && focusArray.size > 1) focusArray[0] = focusArray[1]
+        return Sequence(ids, typeArray, focusArray)
     }
 
     /** Границы предложений в строке символов: разделитель относится к предыдущему предложению. */

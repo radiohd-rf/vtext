@@ -148,6 +148,35 @@ class SileroTextTest {
     }
 
     @Test
+    fun parsesBoldItalicAndCaps() {
+        val bold = SileroText.parseMarkup("Он сказал **важно** и ушёл.")
+        assertEquals("Он сказал важно и ушёл.", bold.text)
+        assertTrue(bold.emphasisSentences.contains(0))
+
+        val italic = SileroText.parseMarkup("Он сказал *тихо* и ушёл.")
+        assertEquals("Он сказал тихо и ушёл.", italic.text)
+        assertTrue(italic.emphasisSentences.isEmpty())
+
+        val caps = SileroText.parseMarkup("Это КРИК!")
+        assertEquals("Это КРИК!", caps.text)
+        assertTrue(caps.emphasisSentences.contains(0))
+    }
+
+    @Test
+    fun emphasisShiftsSentenceType() {
+        val sequence = SileroText.buildSequence(
+            accentedText = "**Важно** и точка.",
+            sos = "|",
+            eos = "~",
+            symbols = SileroMetaTestData.symbols,
+            symbolToId = SileroMetaTestData.symbolToId,
+            typeIds = mapOf("st" to 0),
+        )
+        assertEquals(SileroText.EMPHASIS_TYPE_SHIFT, sequence.types[1])
+        assertTrue(sequence.focus.any { it > 0 })
+    }
+
+    @Test
     fun splitsLongTextIntoChunks() {
         val text = "Первое предложение. Второе предложение. Третье предложение."
         val chunks = SileroText.chunks(text, 20)

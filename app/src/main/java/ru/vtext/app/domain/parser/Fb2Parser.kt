@@ -136,7 +136,14 @@ class Fb2Parser : BookParser {
         for (i in 0 until children.length) {
             builder.append(textOf(children.item(i)))
         }
-        return builder.toString()
+        // Выделения в FB2: <emphasis> — курсив, <strong> — жирный.
+        val text = builder.toString()
+        if (text.isBlank()) return text
+        return when (node.localName ?: node.nodeName) {
+            "emphasis" -> "*$text*"
+            "strong" -> "**$text**"
+            else -> text
+        }
     }
 
     private fun localName(node: Node): String =
