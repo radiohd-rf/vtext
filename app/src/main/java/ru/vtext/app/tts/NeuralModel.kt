@@ -24,6 +24,7 @@ enum class NeuralModel(
     val approxBytes: Long,
     val rootDir: String,
     private val onnxFile: String? = null,
+    val gender: VoiceGender = VoiceGender.UNKNOWN,
 ) {
     PIPER_IRINA(
         id = "piper-irina",
@@ -33,6 +34,7 @@ enum class NeuralModel(
         approxBytes = 21_149_417L,
         rootDir = "vits-piper-ru_RU-irina-medium-int8",
         onnxFile = "ru_RU-irina-medium.onnx",
+        gender = VoiceGender.FEMALE,
     ),
     PIPER_DENIS(
         id = "piper-denis",
@@ -42,6 +44,7 @@ enum class NeuralModel(
         approxBytes = 21_000_000L,
         rootDir = "vits-piper-ru_RU-denis-medium-int8",
         onnxFile = "ru_RU-denis-medium.onnx",
+        gender = VoiceGender.MALE,
     ),
     PIPER_DMITRI(
         id = "piper-dmitri",
@@ -51,6 +54,7 @@ enum class NeuralModel(
         approxBytes = 21_000_000L,
         rootDir = "vits-piper-ru_RU-dmitri-medium-int8",
         onnxFile = "ru_RU-dmitri-medium.onnx",
+        gender = VoiceGender.MALE,
     ),
     PIPER_RUSLAN(
         id = "piper-ruslan",
@@ -60,6 +64,7 @@ enum class NeuralModel(
         approxBytes = 21_000_000L,
         rootDir = "vits-piper-ru_RU-ruslan-medium-int8",
         onnxFile = "ru_RU-ruslan-medium.onnx",
+        gender = VoiceGender.MALE,
     ),
     SUPERTONIC_3(
         id = "supertonic-3",
@@ -104,5 +109,14 @@ enum class NeuralModel(
 
         fun forEngine(engine: TtsEngineType): List<NeuralModel> =
             entries.filter { it.engine == engine }
+
+        const val SUPERTONIC_SPEAKERS = 10
+
+        /** Supertonic 3: sid 0–4 — женские стили F1–F5, sid 5–9 — мужские M1–M5. */
+        fun supertonicGender(speaker: Int): VoiceGender = when (speaker) {
+            in 0..4 -> VoiceGender.FEMALE
+            in 5..9 -> VoiceGender.MALE
+            else -> VoiceGender.UNKNOWN
+        }
     }
 }

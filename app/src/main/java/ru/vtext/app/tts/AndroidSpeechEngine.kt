@@ -145,7 +145,18 @@ class AndroidSpeechEngine(
         localeTag = locale.toLanguageTag(),
         displayName = locale.displayName.replaceFirstChar { it.uppercase() },
         requiresNetwork = isNetworkConnectionRequired,
+        gender = inferGender(),
     )
+
+    /** Не все движки сообщают пол голоса: используем features и имя как подсказку. */
+    private fun Voice.inferGender(): VoiceGender {
+        val hints = (features.orEmpty() + name).joinToString(" ").lowercase()
+        return when {
+            "female" in hints || "woman" in hints -> VoiceGender.FEMALE
+            "male" in hints || "man" in hints -> VoiceGender.MALE
+            else -> VoiceGender.UNKNOWN
+        }
+    }
 
     private fun progressListener() = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {

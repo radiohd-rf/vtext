@@ -34,6 +34,7 @@
     <string name="voice_network">нужна сеть</string>
     <string name="voice_unavailable">Голоса недоступны: проверьте системный TTS</string>
     <string name="voice_no_russian">Русские голоса не найдены. Установите русский голос в настройках синтеза речи Android.</string>
+    <string name="voice_preview_hint">Нажмите на голос, чтобы услышать пример.</string>
     <string name="delete_book">Удалить книгу</string>
     <string name="delete_book_message">Удалить «%1$s» из библиотеки? Прогресс чтения будет потерян.</string>
     <string name="delete">Удалить</string>
@@ -60,5 +61,11 @@
     <string name="model_downloading">Загрузка %1$d%%</string>
     <string name="model_extracting">Распаковка…</string>
     <string name="model_ready">Готово</string>
-    <string name="speaker_name">Голос %1$d</string>
+    <string name="speaker_female">Женский %1$d</string>
+    <string name="speaker_male">Мужской %1$d</string>
+    <string name="voices_female_title">Женские голоса</string>
+    <string name="voices_male_title">Мужские голоса</string>
+    <string name="voices_other_title">Другие голоса</string>
+    <string name="gender_female">женский</string>
+    <string name="gender_male">мужской</string>
 </resources>

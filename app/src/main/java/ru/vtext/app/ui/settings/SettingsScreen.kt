@@ -41,6 +41,7 @@ import ru.vtext.app.tts.ModelStatus
 import ru.vtext.app.tts.NeuralModel
 import ru.vtext.app.tts.NeuralModelState
 import ru.vtext.app.tts.TtsEngineType
+import ru.vtext.app.tts.VoiceGender
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,7 +49,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val container = (context.applicationContext as VtextApp).container
     val viewModel: SettingsViewModel = viewModel(
-        factory = SettingsViewModel.factory(container.ttsManager),
+        factory = SettingsViewModel.factory(container.ttsManager, container.playback),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val engineTitle = stringResource(R.string.engine_title)
@@ -91,6 +92,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                     )
                 }
             }
+            item {
+                Text(
+                    text = stringResource(R.string.voice_preview_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+            }
             if (state.engineType != TtsEngineType.SYSTEM) {
                 when (state.engineState) {
                     EngineState.INITIALIZING -> if (!state.neural.usingSystemFallback) item {
@@ -132,6 +141,17 @@ private fun LazyListScope.sectionHeader(title: String) {
             text = title,
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        )
+    }
+}
+
+private fun LazyListScope.groupHeader(title: String) {
+    item {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp),
         )
     }
 }
@@ -210,9 +230,18 @@ private fun LazyListScope.systemVoicesSection(
     }
 
     items(state.systemVoices, key = { it.name }) { voice ->
+        val gender = when (voice.gender) {
+            VoiceGender.FEMALE -> stringResource(R.string.gender_female)
+            VoiceGender.MALE -> stringResource(R.string.gender_male)
+            VoiceGender.UNKNOWN -> null
+        }
         SelectableRow(
             title = voice.displayName,
             subtitle = buildString {
+                if (gender != null) {
+                    append(gender)
+                    append(" · ")
+                }
                 append(voice.localeTag)
                 if (voice.requiresNetwork) {
                     append(" · ")
@@ -232,15 +261,43 @@ private fun LazyListScope.piperSection(
 ) {
     sectionHeader(context.getString(R.string.piper_voices_title))
     val piperModels = state.neural.models.filter { it.model.engine == TtsEngineType.PIPER }
-    items(piperModels, key = { it.model.id }) { modelState ->
-        ModelRow(
-            item = modelState,
-            selected = state.neural.piperModelId == modelState.model.id,
-            onSelect = { viewModel.selectPiperModel(modelState.model.id) },
-            onDownload = { viewModel.downloadModel(modelState.model.id) },
-            onCancel = viewModel::cancelDownload,
-        )
+    val female = piperModels.filter { it.model.gender == VoiceGender.FEMALE }
+    val male = piperModels.filter { it.model.gender == VoiceGender.MALE }
+    val other = piperModels.filter { it.model.gender == VoiceGender.UNKNOWN }
+
+    if (female.isNotEmpty()) {
+        groupHeader(context.getString(R.string.voices_female_title))
+        items(female, key = { it.model.id }) { modelState ->
+            PiperModelRow(state, modelState, viewModel)
+        }
     }
+    if (male.isNotEmpty()) {
+        groupHeader(context.getString(R.string.voices_male_title))
+        items(male, key = { it.model.id }) { modelState ->
+            PiperModelRow(state, modelState, viewModel)
+        }
+    }
+    if (other.isNotEmpty()) {
+        groupHeader(context.getString(R.string.voices_other_title))
+        items(other, key = { it.model.id }) { modelState ->
+            PiperModelRow(state, modelState, viewModel)
+        }
+    }
+}
+
+@Composable
+private fun PiperModelRow(
+    state: SettingsUiState,
+    modelState: NeuralModelState,
+    viewModel: SettingsViewModel,
+) {
+    ModelRow(
+        item = modelState,
+        selected = state.neural.piperModelId == modelState.model.id,
+        onSelect = { viewModel.selectPiperModel(modelState.model.id) },
+        onDownload = { viewModel.downloadModel(modelState.model.id) },
+        onCancel = viewModel::cancelDownload,
+    )
 }
 
 private fun LazyListScope.supertonicSection(
@@ -275,9 +332,21 @@ private fun LazyListScope.supertonicSection(
         }
         return
     }
-    items((0..9).toList(), key = { it }) { speaker ->
+    val femaleIds = (0..4).toList()
+    val maleIds = (5..9).toList()
+    groupHeader(context.getString(R.string.voices_female_title))
+    items(femaleIds, key = { "f$it" }) { speaker ->
         SelectableRow(
-            title = context.getString(R.string.speaker_name, speaker + 1),
+            title = context.getString(R.string.speaker_female, speaker + 1),
+            subtitle = null,
+            selected = state.neural.supertonicSpeaker == speaker,
+            onClick = { viewModel.selectSupertonicSpeaker(speaker) },
+        )
+    }
+    groupHeader(context.getString(R.string.voices_male_title))
+    items(maleIds, key = { "m$it" }) { speaker ->
+        SelectableRow(
+            title = context.getString(R.string.speaker_male, speaker - 4),
             subtitle = null,
             selected = state.neural.supertonicSpeaker == speaker,
             onClick = { viewModel.selectSupertonicSpeaker(speaker) },
@@ -348,13 +417,21 @@ private fun ModelRow(
 }
 
 @Composable
-private fun modelSubtitle(item: NeuralModelState): String = when (item.status) {
-    ModelStatus.NOT_INSTALLED, ModelStatus.READY ->
-        stringResource(R.string.model_size_mb, item.model.approxMegabytes)
-    ModelStatus.DOWNLOADING ->
-        stringResource(R.string.model_downloading, (item.progress * 100).toInt())
-    ModelStatus.EXTRACTING -> stringResource(R.string.model_extracting)
-    ModelStatus.ERROR -> item.error ?: stringResource(R.string.model_size_mb, item.model.approxMegabytes)
+private fun modelSubtitle(item: NeuralModelState): String {
+    val base = when (item.status) {
+        ModelStatus.NOT_INSTALLED, ModelStatus.READY ->
+            stringResource(R.string.model_size_mb, item.model.approxMegabytes)
+        ModelStatus.DOWNLOADING ->
+            stringResource(R.string.model_downloading, (item.progress * 100).toInt())
+        ModelStatus.EXTRACTING -> stringResource(R.string.model_extracting)
+        ModelStatus.ERROR -> item.error ?: stringResource(R.string.model_size_mb, item.model.approxMegabytes)
+    }
+    val gender = when (item.model.gender) {
+        VoiceGender.FEMALE -> stringResource(R.string.gender_female)
+        VoiceGender.MALE -> stringResource(R.string.gender_male)
+        VoiceGender.UNKNOWN -> null
+    }
+    return if (gender != null) "$gender · $base" else base
 }
 
 @Composable

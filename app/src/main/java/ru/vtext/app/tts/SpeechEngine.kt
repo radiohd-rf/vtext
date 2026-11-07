@@ -7,11 +7,14 @@ import kotlinx.coroutines.flow.emptyFlow
 
 enum class EngineState { INITIALIZING, READY, ERROR }
 
+enum class VoiceGender { FEMALE, MALE, UNKNOWN }
+
 data class VoiceInfo(
     val name: String,
     val localeTag: String,
     val displayName: String,
     val requiresNetwork: Boolean,
+    val gender: VoiceGender = VoiceGender.UNKNOWN,
 )
 
 sealed interface SpeechEvent {

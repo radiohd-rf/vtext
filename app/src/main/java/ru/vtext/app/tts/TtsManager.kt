@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -103,6 +104,7 @@ class TtsManager(
 
     private var neuralEngine: OnnxSpeechEngine? = null
     private var downloadJob: Job? = null
+    private var previewJob: Job? = null
     private var rate = initialRate
 
     init {
@@ -135,6 +137,24 @@ class TtsManager(
         settings.supertonicSpeaker = safe
         neuralEngine?.setVoice(safe.toString())
         publish()
+    }
+
+    /**
+     * Короткий пример текущего голоса. Если движок ещё загружается (например,
+     * только что выбран другой голос Piper), пример прозвучит после готовности.
+     */
+    fun previewCurrentVoice() {
+        previewJob?.cancel()
+        val engine = _active.value
+        previewJob = scope.launch {
+            if (engine.state.value == EngineState.INITIALIZING) {
+                engine.state.first { it != EngineState.INITIALIZING }
+            }
+            if (engine.state.value == EngineState.READY) {
+                android.util.Log.i("vtext-tts", "voice preview: ${engine.javaClass.simpleName}")
+                engine.speak(PREVIEW_TEXT, PREVIEW_UTTERANCE_ID)
+            }
+        }
     }
 
     fun downloadModel(id: String) {
@@ -209,10 +229,12 @@ class TtsManager(
     }
 
     override fun speak(text: String, utteranceId: String) {
+        previewJob?.cancel()
         _active.value.speak(text, utteranceId)
     }
 
     override fun stop() {
+        previewJob?.cancel()
         _active.value.stop()
     }
 
@@ -239,6 +261,7 @@ class TtsManager(
 
     /** Переключение движка во время воспроизведения: плеер заново озвучит текущий фрагмент. */
     private fun switchActive() {
+        previewJob?.cancel()
         val desired = resolveEngine()
         if (desired === _active.value) {
             publish()
@@ -289,5 +312,10 @@ class TtsManager(
             supertonicSpeaker = settings.supertonicSpeaker,
             usingSystemFallback = _engineType.value != TtsEngineType.SYSTEM && _active.value === systemEngine,
         )
+    }
+
+    private companion object {
+        const val PREVIEW_TEXT = "Привет! Так звучит этот голос. Так будет читаться книга."
+        const val PREVIEW_UTTERANCE_ID = "voice-preview"
     }
 }

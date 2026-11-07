@@ -349,12 +349,23 @@ class OnnxSpeechEngine(
     }
 
     private fun NeuralModel.voices(): List<VoiceInfo> = when (engine) {
-        TtsEngineType.SUPERTONIC -> (0..9).map { index ->
+        TtsEngineType.SUPERTONIC -> (0 until NeuralModel.SUPERTONIC_SPEAKERS).map { index ->
+            val gender = NeuralModel.supertonicGender(index)
+            val number = when (gender) {
+                VoiceGender.FEMALE -> index + 1
+                VoiceGender.MALE -> index - 4
+                VoiceGender.UNKNOWN -> index + 1
+            }
             VoiceInfo(
                 name = index.toString(),
                 localeTag = "ru-RU",
-                displayName = "Голос ${index + 1}",
+                displayName = when (gender) {
+                    VoiceGender.FEMALE -> "Женский $number"
+                    VoiceGender.MALE -> "Мужской $number"
+                    VoiceGender.UNKNOWN -> "Голос $number"
+                },
                 requiresNetwork = false,
+                gender = gender,
             )
         }
         TtsEngineType.PIPER -> listOf(
@@ -363,6 +374,7 @@ class OnnxSpeechEngine(
                 localeTag = "ru-RU",
                 displayName = displayName,
                 requiresNetwork = false,
+                gender = gender,
             ),
         )
         TtsEngineType.SYSTEM -> emptyList()
