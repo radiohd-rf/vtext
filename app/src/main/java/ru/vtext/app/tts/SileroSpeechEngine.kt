@@ -65,6 +65,7 @@ class SileroSpeechEngine(
     private var meta: SileroMeta? = null
 
     private var playbackJob: Job? = null
+    private var pending: Pair<String, String>? = null
     private var generation = 0
 
     @Volatile
@@ -78,6 +79,9 @@ class SileroSpeechEngine(
                 meta = loaded
                 state.value = EngineState.READY
                 Log.i(TAG, "Silero готов: ${loaded.symbols.length} символов, ${loaded.speakers.size} голосов")
+                val queued = pending
+                pending = null
+                if (queued != null) speak(queued.first, queued.second)
             } catch (error: Throwable) {
                 state.value = EngineState.ERROR
                 Log.e(TAG, "Не удалось загрузить Silero", error)
@@ -113,6 +117,14 @@ class SileroSpeechEngine(
 
     override fun speak(text: String, utteranceId: String) {
         if (text.isBlank()) return
+        if (meta == null) {
+            if (state.value == EngineState.ERROR) {
+                _events.tryEmit(SpeechEvent.Error(utteranceId, "Silero не загружен"))
+            } else {
+                pending = text to utteranceId
+            }
+            return
+        }
         playbackJob?.cancel()
         val token = ++generation
         playbackJob = ioScope.launch { play(token, text, utteranceId) }
