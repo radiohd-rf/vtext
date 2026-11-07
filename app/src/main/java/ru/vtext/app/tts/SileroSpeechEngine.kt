@@ -63,6 +63,7 @@ class SileroSpeechEngine(
     private var acoustic: Module? = null
     private var vocoder: Module? = null
     private var meta: SileroMeta? = null
+    private var stressDictionary: SileroStressDictionary? = null
 
     private var playbackJob: Job? = null
     private var pending: Pair<String, String>? = null
@@ -98,6 +99,8 @@ class SileroSpeechEngine(
         pitchPredictor = LiteModuleLoader.load(File(modelDir, "pitch.ptl").absolutePath)
         acoustic = LiteModuleLoader.load(File(modelDir, "tacotron.ptl").absolutePath)
         vocoder = LiteModuleLoader.load(File(modelDir, "vocoder48.ptl").absolutePath)
+        stressDictionary = SileroStressDictionary.open(File(modelDir, STRESS_FILE))
+        Log.i(TAG, "Словарь ударений: ${if (stressDictionary != null) "подключён" else "нет"}")
         return meta
     }
 
@@ -156,6 +159,8 @@ class SileroSpeechEngine(
         pitchPredictor = null
         acoustic = null
         vocoder = null
+        stressDictionary?.close()
+        stressDictionary = null
     }
 
     // ----- Воспроизведение -----
@@ -286,7 +291,10 @@ class SileroSpeechEngine(
             val acousticModule = acoustic ?: return@withContext FloatArray(0)
             val vocoderModule = vocoder ?: return@withContext FloatArray(0)
 
-            val accented = SileroText.accent(text) { words ->
+            val accented = SileroText.accent(
+                text,
+                lookupStress = { word -> stressDictionary?.stressIndex(word) ?: -1 },
+            ) { words ->
                 predictStress(accentorModule, words)
             }
             Log.d(TAG, "Silero текст: $accented")
@@ -415,6 +423,7 @@ class SileroSpeechEngine(
     companion object {
         private const val TAG = "vtext-tts"
         private const val META_FILE = "meta.json"
+        private const val STRESS_FILE = "stress.bin"
         const val DICTIONARY_FILE = "silero-dictionary.txt"
         private const val SAMPLE_RATE = 48_000
         private const val MIN_RATE = 0.5f

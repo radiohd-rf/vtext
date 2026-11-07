@@ -112,6 +112,29 @@ class SileroTextTest {
     }
 
     @Test
+    fun dictionaryStressOverridesNeuralPrediction() {
+        // «главу»: г(0) л(1) а(2) в(3) у(4); словарь ставит ударение на «у».
+        val accented = SileroText.accent(
+            "главу",
+            lookupStress = { 4 },
+        ) { words ->
+            words.map { SileroText.WordPrediction(stressVowel = 0, stressProbability = 0.9f, yoVowel = 0, yoProbability = 0f) }
+        }
+        assertEquals("глав+у", accented)
+    }
+
+    @Test
+    fun fallsBackToNeuralPredictionWithoutDictionary() {
+        val accented = SileroText.accent(
+            "главу",
+            lookupStress = { -1 },
+        ) { words ->
+            words.map { SileroText.WordPrediction(stressVowel = 0, stressProbability = 0.9f, yoVowel = 0, yoProbability = 0f) }
+        }
+        assertEquals("гл+аву", accented)
+    }
+
+    @Test
     fun keepsWordBoundariesInDictionary() {
         val terms = mapOf("кот" to "код")
         assertEquals("код и котик", SileroText.applyUserDictionary("кот и котик", terms))

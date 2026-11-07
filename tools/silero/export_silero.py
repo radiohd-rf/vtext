@@ -24,6 +24,60 @@ import torch
 import torch.package
 
 MODEL_URL = "https://models.silero.ai/models/tts/ru/v5_6_ru.pt"
+# Словарь ударений RUAccent (MIT): 3,19 млн словоформ, ударение помечено «+» перед гласной.
+STRESS_URL = "https://huggingface.co/ruaccent/accentuator/resolve/main/dictionary/accents.json.gz"
+STRESS_FILE = "stress.bin"
+STRESS_MAGIC = b"VSTR"
+STRESS_BLOCK = 64
+FNV_OFFSET = 0xCBF29CE484222325
+FNV_PRIME = 0x100000001B3
+
+
+def fnv1a64(value: str) -> int:
+    """FNV-1a по UTF-8: тот же алгоритм реализован в Kotlin."""
+    result = FNV_OFFSET
+    for byte in value.encode("utf-8"):
+        result ^= byte
+        result = (result * FNV_PRIME) & 0xFFFFFFFFFFFFFFFF
+    return result
+
+
+def build_stress_dictionary(out: str) -> None:
+    """
+    Собирает словарь ударений в компактном виде: отсортированные 64-битные
+    хеши словоформ и номер ударной гласной (символ, перед которым стоит «+»).
+    """
+    import gzip
+    import json
+    import struct
+
+    source = os.path.join(out, "accents.json.gz")
+    if not os.path.isfile(source):
+        print(f"Скачиваем словарь ударений {STRESS_URL}")
+        urllib.request.urlretrieve(STRESS_URL, source)
+    with gzip.open(source, "rt", encoding="utf-8") as handle:
+        data = json.load(handle)
+    print(f"Словоформ в словаре: {len(data)}")
+
+    records = []
+    skipped = 0
+    for word, stressed in data.items():
+        position = stressed.find("+")
+        if position < 0 or position > 254:
+            skipped += 1
+            continue
+        records.append((fnv1a64(word), position))
+    records.sort()
+    print(f"  без ударения/слишком длинные: {skipped}")
+
+    target = os.path.join(out, STRESS_FILE)
+    with open(target, "wb") as handle:
+        handle.write(STRESS_MAGIC)
+        handle.write(struct.pack("<II", 2, len(records)))
+        for hash_value, position in records:
+            handle.write(struct.pack("<Q", hash_value))
+            handle.write(bytes((position,)))
+    print(f"  {STRESS_FILE}: {os.path.getsize(target) // 1048576} МБ ({len(records)} записей)")
 
 
 class Dur(torch.nn.Module):
@@ -79,6 +133,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="build/silero", help="куда сложить результат")
     parser.add_argument("--weights", default=None, help="путь к уже скачанному v5_6_ru.pt")
+    parser.add_argument("--no-stress", action="store_true", help="не включать словарь ударений RUAccent")
     args = parser.parse_args()
 
     torch.set_grad_enabled(False)
@@ -113,9 +168,15 @@ def main() -> None:
     with open(os.path.join(out, "meta.json"), "w", encoding="utf-8") as handle:
         json.dump(meta, handle, ensure_ascii=False, indent=1)
 
-    archive = os.path.join(out, "silero-5-ru.zip")
     files = ["accentor.ptl", "dur.ptl", "pitch.ptl", "tacotron.ptl", "vocoder48.ptl", "meta.json"]
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as bundle:
+    if not args.no_stress:
+        build_stress_dictionary(out)
+        files.append(STRESS_FILE)
+    else:
+        print("Словарь ударений пропущен (--no-stress)")
+
+    archive = os.path.join(out, "silero-5-ru.zip")
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         for name in files:
             bundle.write(os.path.join(out, name), name)
     print(f"Готово: {archive} ({os.path.getsize(archive) // 1048576} МБ)")

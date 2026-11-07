@@ -53,6 +53,8 @@ python tools/silero/export_silero.py            # скачает v5_6_ru.pt и �
 
 Затем: Настройки → **Silero v5** → **Импорт** → выбрать `silero-5-ru.zip`. Файлы распакуются в `filesDir/tts/silero-5-ru`.
 
+В архив также входит словарь ударений **RUAccent** (MIT, © Denis Petrov; текст лицензии — `tools/silero/LICENSE-ruaccent.txt`): 3,19 млн словоформ в компактном виде (27 МБ), точное ударение подставляется раньше нейросети. Собрать архив без него: `python tools/silero/export_silero.py --no-stress`.
+
 Лицензия модели Silero v5 — **CC BY-NC 4.0** (некоммерческое использование).
 
 ### Словарь произношения

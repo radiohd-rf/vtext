@@ -342,9 +342,14 @@ internal object SileroText {
 
     /**
      * Ставит ударения и восстанавливает «ё».
+     * [lookupStress] — точное ударение из словаря (индекс символа) или -1.
      * [predict] возвращает для каждого слова вероятности ударной гласной и «ё».
      */
-    fun accent(text: String, predict: (List<String>) -> List<WordPrediction>): String {
+    fun accent(
+        text: String,
+        lookupStress: ((String) -> Int)? = null,
+        predict: (List<String>) -> List<WordPrediction>,
+    ): String {
         val tokens = splitTokens(text)
         val words = tokens.map { token ->
             token.split('-').map { part -> LATIN_OR_DIGIT.replace(part.lowercase(), "") }
@@ -362,7 +367,7 @@ internal object SileroText {
                 } else {
                     val prediction = predictions.getOrNull(index)
                     index++
-                    if (prediction == null) part else applyPrediction(part, prediction)
+                    if (prediction == null) part else applyPrediction(part, prediction, lookupStress?.invoke(input) ?: -1)
                 }
             }
             builder.append(accentedParts.joinToString("-"))
@@ -384,7 +389,7 @@ internal object SileroText {
         return tokens.filter { it.isNotEmpty() }
     }
 
-    private fun applyPrediction(rawWord: String, prediction: WordPrediction): String {
+    private fun applyPrediction(rawWord: String, prediction: WordPrediction, dictionaryIndex: Int): String {
         val lower = rawWord.lowercase()
         if ('+' in lower) return rawWord
         val vowelPositions = lower.indices.filter { lower[it] in VOWELS }
@@ -401,7 +406,10 @@ internal object SileroText {
         }
 
         var stressed = -1
-        if (prediction.stressProbability > 0.5f && prediction.stressVowel in vowelPositions.indices) {
+        // Словарь ударений точнее нейросети: если слово найдено, берём его вариант.
+        if (dictionaryIndex in lower.indices) {
+            stressed = dictionaryIndex
+        } else if (prediction.stressProbability > 0.5f && prediction.stressVowel in vowelPositions.indices) {
             stressed = vowelPositions[prediction.stressVowel]
         }
         var yoPosition = -1
