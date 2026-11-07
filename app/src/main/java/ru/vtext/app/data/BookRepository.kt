@@ -78,16 +78,23 @@ class BookRepository(private val context: Context) {
             if (!dir.isDirectory) return@run null
             val meta = readMeta(dir) ?: return@run null
             val cachedChapters = readChapters(dir)
-            val chapters = if (cachedChapters != null) {
+            val cachedVersion = readSegmentVersion(dir)
+            val useCache = cachedChapters != null && cachedVersion == SEGMENT_VERSION
+            val chapters = if (useCache) {
                 cachedChapters
             } else {
                 val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") }
                     ?: return@run null
-                parsers.getValue(meta.format).parse(source, meta.title).chapters
+                val parsed = parsers.getValue(meta.format).parse(source, meta.title).chapters
+                // Если повторный разбор не удался, лучше оставить старый кэш.
+                parsed.ifEmpty { cachedChapters ?: emptyList() }
             }
             val book = meta.copy(chapters = chapters)
             // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
             writeChapters(dir, book)
+            if (!useCache && chapters.isNotEmpty()) {
+                writeMeta(dir, book)
+            }
             cache[id] = book
             book
         }
@@ -134,7 +141,14 @@ class BookRepository(private val context: Context) {
             .put("author", book.author)
             .put("format", book.format.name)
             .put("addedAt", book.addedAt)
+            .put("segmentVersion", SEGMENT_VERSION)
         File(dir, "meta.json").writeText(json.toString())
+    }
+
+    private fun readSegmentVersion(dir: File): Int {
+        val file = File(dir, "meta.json")
+        if (!file.isFile) return 0
+        return runCatching { JSONObject(file.readText()).optInt("segmentVersion", 0) }.getOrDefault(0)
     }
 
     private fun readMeta(dir: File): Book? {
@@ -181,5 +195,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        const val SEGMENT_VERSION = 3
     }
 }

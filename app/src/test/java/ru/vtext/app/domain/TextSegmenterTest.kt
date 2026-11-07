@@ -20,7 +20,7 @@ class TextSegmenterTest {
 
     @Test
     fun respectsMaxLengthForLongText() {
-        val text = (1..50).joinToString(" ") { "Предложение номер $it." }
+        val text = (1..50).joinToString(" ") { "Короткое предложение $it." }
         val result = TextSegmenter.segment(text, maxChars = 80)
         assertTrue(result.isNotEmpty())
         assertTrue(result.all { it.length <= 80 })
@@ -29,8 +29,28 @@ class TextSegmenterTest {
     }
 
     @Test
-    fun cutsOverlongSentenceWithoutSpaces() {
-        val result = TextSegmenter.segment("а".repeat(25), maxChars = 10)
-        assertEquals(listOf("а".repeat(10), "а".repeat(10), "а".repeat(5)), result)
+    fun doesNotSplitWordWithoutSpaces() {
+        val word = "а".repeat(25)
+        val result = TextSegmenter.segment(word, maxChars = 10)
+
+        assertEquals(listOf(word), result)
+    }
+
+    @Test
+    fun keepsLongSentenceWholeBelowHardLimit() {
+        val sentence = (1..10).joinToString(" ") { "слово" } + "."
+        val result = TextSegmenter.segment(sentence, maxChars = 20, hardMaxChars = 100)
+
+        assertEquals(listOf(sentence), result)
+    }
+
+    @Test
+    fun splitsVeryLongSentenceByWords() {
+        val sentence = (1..40).joinToString(" ") { "слово" } + "."
+        val result = TextSegmenter.segment(sentence, maxChars = 20, hardMaxChars = 40)
+
+        assertTrue(result.size > 1)
+        assertTrue(result.all { it.length <= 20 })
+        assertEquals(sentence, result.joinToString(" "))
     }
 }

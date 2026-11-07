@@ -16,9 +16,12 @@ import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import ru.vtext.app.domain.TextSegmenter
 
 /**
  * Локальный нейросетевой синтез через sherpa-onnx (Piper или Supertonic 3).
@@ -85,6 +89,9 @@ class OnnxSpeechEngine(
 
     @Volatile
     private var currentUtteranceId: String? = null
+
+    @Volatile
+    private var pipelineGenerating = false
 
     @Volatile
     private var activeTrack: AudioTrack? = null
@@ -154,6 +161,7 @@ class OnnxSpeechEngine(
     override fun speak(text: String, utteranceId: String) {
         if (text.isBlank()) return
         currentUtteranceId = utteranceId
+        pipelineGenerating = true
         discardOtherPrefetch(utteranceId)
         val engine = tts
         if (engine == null) {
@@ -170,12 +178,22 @@ class OnnxSpeechEngine(
     override fun prefetch(text: String, utteranceId: String) {
         if (text.isBlank()) return
         if (utteranceId == currentUtteranceId) return
+        // У Supertonic кэшируем только первый внутренний фрагмент: остальные
+        // генерируются конвейером во время звучания текущего абзаца.
+        val requestText = if (model.engine == TtsEngineType.SUPERTONIC) {
+            TextSegmenter.segment(text, INNER_CHUNK_CHARS, INNER_CHUNK_CHARS * 2)
+                .firstOrNull() ?: text
+        } else {
+            text
+        }
         synchronized(prefetchLock) {
             if (prefetchTargetId == utteranceId || prefetchedId == utteranceId) return
-            pendingPrefetch = text to utteranceId
+            pendingPrefetch = requestText to utteranceId
             prefetchTargetId = utteranceId
         }
-        startPrefetchIfPossible()
+        if (!pipelineGenerating) {
+            startPrefetchIfPossible()
+        }
     }
 
     private fun startPrefetchIfPossible() {
@@ -191,6 +209,7 @@ class OnnxSpeechEngine(
             request = next
         }
         prefetchJob = scope.launch(Dispatchers.IO) {
+            val startedAt = System.currentTimeMillis()
             try {
                 // Даём текущему speak первым занять generateMutex.
                 delay(PREFETCH_START_DELAY_MS)
@@ -202,7 +221,10 @@ class OnnxSpeechEngine(
                         prefetchedId = request.second
                         prefetchedAudio = audio
                         prefetchTargetId = null
-                        Log.i(TAG, "prefetched ${request.second}")
+                        Log.i(
+                            TAG,
+                            "prefetched ${request.second} in ${System.currentTimeMillis() - startedAt} ms",
+                        )
                     }
                 }
             } catch (error: Throwable) {
@@ -275,6 +297,7 @@ class OnnxSpeechEngine(
     override fun stop() {
         val hadPlayback = playJob?.isActive == true || pending != null
         currentUtteranceId = null
+        pipelineGenerating = false
         cancelCurrent()
         invalidatePrefetch()
         if (hadPlayback) {
@@ -286,6 +309,7 @@ class OnnxSpeechEngine(
         val engine = tts
         tts = null
         currentUtteranceId = null
+        pipelineGenerating = false
         cancelCurrent()
         invalidatePrefetch()
         if (engine == null) return
@@ -319,6 +343,138 @@ class OnnxSpeechEngine(
         utteranceId: String,
         token: Int,
     ) = withContext(Dispatchers.IO) {
+        // Абзац может быть длинным: Supertonic синтезируем по предложениям,
+        // чтобы первый звук появился раньше и не было грубых разрывов.
+        val chunks = if (model.engine == TtsEngineType.SUPERTONIC) {
+            TextSegmenter.segment(text, INNER_CHUNK_CHARS, INNER_CHUNK_CHARS * 2)
+        } else {
+            listOf(text)
+        }
+        if (chunks.size > 1) {
+            playChunked(engine, chunks, utteranceId, token)
+        } else {
+            playSingle(engine, text, utteranceId, token)
+        }
+    }
+
+    private suspend fun playChunked(
+        engine: OfflineTts,
+        chunks: List<String>,
+        utteranceId: String,
+        token: Int,
+    ) {
+        var track: AudioTrack? = null
+        try {
+            val sampleRate = engine.sampleRate().takeIf { it > 0 } ?: DEFAULT_SAMPLE_RATE
+            val startedAt = System.currentTimeMillis()
+            val prefetchForFirst = synchronized(prefetchLock) {
+                if (prefetchTargetId == utteranceId) prefetchJob else null
+            }
+            prefetchForFirst?.join()
+            var next: Deferred<GeneratedAudio>? = null
+            var firstCached = takeCachedAudio(utteranceId)
+            var started = false
+            var writtenTotal = 0L
+            var peak = 0f
+
+            coroutineScope {
+                for ((index, chunk) in chunks.withIndex()) {
+                    val audio = if (index == 0 && firstCached != null) {
+                        firstCached.also { firstCached = null }
+                    } else {
+                        next?.await() ?: generateMutex.withLock {
+                            engine.generateWithConfig(chunk, generationConfigFor(chunk))
+                        }
+                    }
+                    if (generation != token) return@coroutineScope
+
+                    if (index + 1 < chunks.size) {
+                        val nextChunk = chunks[index + 1]
+                        next = async(Dispatchers.IO) {
+                            generateMutex.withLock {
+                                engine.generateWithConfig(nextChunk, generationConfigFor(nextChunk))
+                            }
+                        }
+                    } else {
+                        // Последний внутренний фрагмент уже готов: пока он звучит,
+                        // готовим первый фрагмент следующего абзаца.
+                        onPipelineGenerated()
+                    }
+
+                    val samples = audio.samples
+                    if (samples.isEmpty()) continue
+                    for (sample in samples) {
+                        val value = kotlin.math.abs(sample)
+                        if (value > peak) peak = value
+                    }
+
+                    if (track == null) {
+                        val audioTrack = createTrack(sampleRate)
+                        track = audioTrack
+                        activeTrack = audioTrack
+                        audioTrack.setVolume(volume)
+                        audioTrack.play()
+                        started = true
+                        Log.i(TAG, "start $utteranceId (${chunks.size} chunks)")
+                        _events.tryEmit(SpeechEvent.Started(utteranceId))
+                    }
+                    val audioTrack = track ?: break
+                    var written = 0
+                    while (written < samples.size) {
+                        if (generation != token) return@coroutineScope
+                        val count = minOf(WRITE_CHUNK_SAMPLES, samples.size - written)
+                        val n = try {
+                            audioTrack.write(samples, written, count, AudioTrack.WRITE_BLOCKING)
+                        } catch (_: Throwable) {
+                            -1
+                        }
+                        if (n < 0) break
+                        written += n
+                    }
+                    writtenTotal += written
+                }
+            }
+
+            onPipelineGenerated()
+            if (generation != token) return
+            if (!started) {
+                _events.tryEmit(SpeechEvent.Done(utteranceId))
+                return
+            }
+            val audioTrack = track ?: return
+            while (generation == token && audioTrack.playbackHeadPosition.toLong() < writtenTotal) {
+                delay(20)
+            }
+            if (generation == token) {
+                Log.i(
+                    TAG,
+                    "${model.id} [$utteranceId] -> ${"%.2f".format(writtenTotal / sampleRate.toFloat())} c, " +
+                        "peak=$peak, steps=$steps, chunks=${chunks.size}, " +
+                        "total=${System.currentTimeMillis() - startedAt} ms",
+                )
+                _events.tryEmit(SpeechEvent.Done(utteranceId))
+            }
+        } catch (error: Throwable) {
+            if (generation == token) {
+                Log.e(TAG, "Ошибка синтеза ${model.id} [$utteranceId]", error)
+                _events.tryEmit(SpeechEvent.Error(utteranceId, error.message ?: "Ошибка синтеза речи"))
+            }
+        } finally {
+            stopPipelineGeneration()
+            if (activeTrack === track) activeTrack = null
+            try {
+                track?.release()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private suspend fun playSingle(
+        engine: OfflineTts,
+        text: String,
+        utteranceId: String,
+        token: Int,
+    ) {
         var track: AudioTrack? = null
         try {
             val startedAt = System.currentTimeMillis()
@@ -326,7 +482,8 @@ class OnnxSpeechEngine(
             // новые вызовы ждут завершения предыдущего: OfflineTts не потокобезопасен.
             val audio = obtainAudio(engine, text, utteranceId)
             val synthesizedAt = System.currentTimeMillis()
-            if (generation != token) return@withContext
+            onPipelineGenerated()
+            if (generation != token) return
 
             val samples = audio.samples
             val sampleRate = audio.sampleRate.takeIf { it > 0 }
@@ -335,7 +492,7 @@ class OnnxSpeechEngine(
             if (samples.isEmpty()) {
                 Log.w(TAG, "${model.id}: пустой результат")
                 _events.tryEmit(SpeechEvent.Done(utteranceId))
-                return@withContext
+                return
             }
             var peak = 0f
             for (sample in samples) {
@@ -343,37 +500,17 @@ class OnnxSpeechEngine(
                 if (value > peak) peak = value
             }
 
-            val minBuffer = AudioTrack.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_FLOAT,
-            )
-            val audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build(),
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build(),
-                )
-                .setBufferSizeInBytes(if (minBuffer > 0) minBuffer * 2 else DEFAULT_BUFFER_BYTES)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
+            val audioTrack = createTrack(sampleRate)
             track = audioTrack
             activeTrack = audioTrack
             audioTrack.setVolume(volume)
             audioTrack.play()
+            Log.i(TAG, "start $utteranceId (single)")
             _events.tryEmit(SpeechEvent.Started(utteranceId))
 
             var written = 0
             while (written < samples.size) {
-                if (generation != token) return@withContext
+                if (generation != token) return
                 val chunk = minOf(WRITE_CHUNK_SAMPLES, samples.size - written)
                 val count = try {
                     audioTrack.write(samples, written, chunk, AudioTrack.WRITE_BLOCKING)
@@ -384,7 +521,7 @@ class OnnxSpeechEngine(
                 written += count
             }
 
-            if (generation != token) return@withContext
+            if (generation != token) return
             while (generation == token && audioTrack.playbackHeadPosition.toLong() < written) {
                 delay(20)
             }
@@ -403,6 +540,7 @@ class OnnxSpeechEngine(
                 _events.tryEmit(SpeechEvent.Error(utteranceId, error.message ?: "Ошибка синтеза речи"))
             }
         } finally {
+            stopPipelineGeneration()
             if (activeTrack === track) {
                 activeTrack = null
             }
@@ -412,6 +550,31 @@ class OnnxSpeechEngine(
                 // Трек уже освобождён из stop().
             }
         }
+    }
+
+    private fun createTrack(sampleRate: Int): AudioTrack {
+        val minBuffer = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_FLOAT,
+        )
+        return AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build(),
+            )
+            .setBufferSizeInBytes(if (minBuffer > 0) minBuffer * 2 else DEFAULT_BUFFER_BYTES)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
     }
 
     private fun releaseTrack() {
@@ -428,6 +591,26 @@ class OnnxSpeechEngine(
         try {
             track.release()
         } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopPipelineGeneration() {
+        pipelineGenerating = false
+    }
+
+    private fun onPipelineGenerated() {
+        pipelineGenerating = false
+        startPrefetchIfPossible()
+    }
+
+    private fun takeCachedAudio(utteranceId: String): GeneratedAudio? = synchronized(prefetchLock) {
+        if (prefetchedId == utteranceId) {
+            val audio = prefetchedAudio
+            prefetchedId = null
+            prefetchedAudio = null
+            audio
+        } else {
+            null
         }
     }
 
@@ -540,13 +723,14 @@ class OnnxSpeechEngine(
     private companion object {
         const val MIN_RATE = 0.5f
         const val MAX_RATE = 3f
-        const val MIN_STEPS = 4
+        const val MIN_STEPS = 3
         const val MAX_STEPS = 10
-        const val DEFAULT_SUPERTONIC_STEPS = 5
+        const val DEFAULT_SUPERTONIC_STEPS = 3
         const val DEFAULT_SAMPLE_RATE = 22_050
         const val DEFAULT_BUFFER_BYTES = 16_384
         const val WRITE_CHUNK_SAMPLES = 4096
         const val PREFETCH_START_DELAY_MS = 200L
+        const val INNER_CHUNK_CHARS = 160
         const val PIPER_VOICE = "ru"
 
         @Volatile
