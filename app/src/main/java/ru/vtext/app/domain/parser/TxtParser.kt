@@ -2,6 +2,7 @@ package ru.vtext.app.domain.parser
 
 import java.io.File
 import ru.vtext.app.domain.TextSegmenter
+import ru.vtext.app.domain.cleanup.ImportTextCleaner
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.model.ParsedBook
 
@@ -14,9 +15,12 @@ class TxtParser : BookParser {
     )
 
     override fun parse(file: File, fallbackTitle: String): ParsedBook {
-        val text = TextDecoder.decode(file.readBytes())
+        val raw = TextDecoder.decode(file.readBytes())
             .replace("\r\n", "\n")
             .replace('\r', '\n')
+        // Для TXT страницы определяются по form feed; если их нет,
+        // очистка сводится к номерам страниц и переносам слов.
+        val text = ImportTextCleaner.cleanText(raw).text()
 
         val blocks = mutableListOf<Pair<String, StringBuilder>>()
         var currentTitle = "Текст"

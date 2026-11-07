@@ -4,6 +4,7 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import ru.vtext.app.domain.TextSegmenter
+import ru.vtext.app.domain.cleanup.ImportTextCleaner
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.model.ParsedBook
 
@@ -20,18 +21,23 @@ class PdfParser : BookParser {
                 val title = cleanMetadata(info?.title, TITLE_PLACEHOLDERS) ?: fallbackTitle
                 val author = cleanMetadata(info?.author, AUTHOR_PLACEHOLDERS)
 
-                val chapters = mutableListOf<Chapter>()
                 val pageCount = document.numberOfPages
-                for (page in 1..pageCount) {
+                val pageTexts = (1..pageCount).map { page ->
                     val stripper = PDFTextStripper().apply {
                         startPage = page
                         endPage = page
                         sortByPosition = true
                     }
-                    val text = runCatching { stripper.getText(document) }.getOrDefault("")
+                    runCatching { stripper.getText(document) }.getOrDefault("")
+                }
+                // Убираем номера страниц и повторяющиеся колонтитулы до разбиения на фрагменты.
+                val cleanedPages = ImportTextCleaner.cleanPages(pageTexts).pages
+                val chapters = cleanedPages.mapIndexedNotNull { index, text ->
                     val segments = TextSegmenter.segment(text)
-                    if (segments.isNotEmpty()) {
-                        chapters += Chapter("Страница $page", segments)
+                    if (segments.isEmpty()) {
+                        null
+                    } else {
+                        Chapter("Страница ${index + 1}", segments)
                     }
                 }
                 ParsedBook(title, author, chapters)

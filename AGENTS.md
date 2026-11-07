@@ -43,6 +43,7 @@ UI (Compose) → ViewModel (StateFlow) → domain (модели, TextSegmenter, 
 
 - `domain/model` — `Book`, `Chapter`, `ParsedBook`.
 - `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `PdfParser`, `DocxParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
+- `domain/cleanup` — `ImportTextCleaner`: номера страниц, повторяющиеся колонтитулы, переносы слов при импорте PDF/TXT.
 - `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences, выбранный голос в `TtsSettingsStore`, скорость в `PlaybackSettingsStore`.
 - `tts` — `AndroidSpeechEngine` (системный), `OnnxSpeechEngine` (Piper/Supertonic на sherpa-onnx), `TtsManager` (выбор движка и загрузка моделей), `ModelRepository` (скачивание/распаковка `.tar.bz2`).
 - `player` — `PlaybackCoordinator` (единый источник правды о воспроизведении, живёт в `Application`) и `PlaybackService` (foreground-сервис, уведомление с управлением, `MediaSessionCompat`).
@@ -58,7 +59,7 @@ vtext/
 │   └── src/
 │       ├── main/java/ru/vtext/app/
 │       │   ├── data/                  # BookRepository, ProgressStore, TtsSettingsStore
-│       │   ├── domain/{model,parser}/
+│       │   ├── domain/{model,parser,cleanup}/
 │       │   ├── player/                # PlaybackCoordinator, PlaybackService
 │       │   ├── tts/
 │       │   ├── ui/{library,book,settings,theme}/
