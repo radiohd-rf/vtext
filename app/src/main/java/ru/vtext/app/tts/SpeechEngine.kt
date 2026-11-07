@@ -22,6 +22,9 @@ sealed interface SpeechEvent {
     data class Done(val utteranceId: String) : SpeechEvent
     data class Error(val utteranceId: String?, val message: String?) : SpeechEvent
     data class Stopped(val utteranceId: String?) : SpeechEvent
+
+    /** Текущее слово фрагмента (порядковый номер слова в тексте) для подсветки. */
+    data class Word(val utteranceId: String, val index: Int) : SpeechEvent
 }
 
 /** Изоляция платформенного TTS: движок можно заменить или замокать в тестах. */

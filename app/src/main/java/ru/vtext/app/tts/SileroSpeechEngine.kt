@@ -198,12 +198,12 @@ class SileroSpeechEngine(
         prefetchJob = ioScope.launch {
             try {
                 synchronized(prefetchLock) { activePrefetchId = request.utteranceId }
-                val audio = synthesize(config, request.text)
-                if (audio.isEmpty()) return@launch
+                val synthesis = synthesize(config, request.text)
+                if (synthesis.audio.isEmpty()) return@launch
                 synchronized(prefetchLock) {
-                    prefetched = Prefetched(request.utteranceId, request.text, audio)
+                    prefetched = Prefetched(request.utteranceId, request.text, synthesis.audio, synthesis.words)
                 }
-                Log.i(TAG, "prefetch ${request.utteranceId}: ${"%.2f".format(audio.size / SAMPLE_RATE.toFloat())} c")
+                Log.i(TAG, "prefetch ${request.utteranceId}: ${"%.2f".format(synthesis.audio.size / SAMPLE_RATE.toFloat())} c")
             } catch (cancel: kotlinx.coroutines.CancellationException) {
                 throw cancel
             } catch (error: Throwable) {
@@ -302,12 +302,17 @@ class SileroSpeechEngine(
 
     private suspend fun play(token: Int, text: String, utteranceId: String) {
         val config = meta ?: return
-        val chunks = SileroText.chunkPlan(SileroText.normalizeForSpeech(text, loadUserTerms()), CHUNK_CHARS)
+        // Режем исходный текст: так у слов сохраняются позиции для подсветки.
+        val chunks = SileroText.chunkPlan(text, CHUNK_CHARS)
         if (chunks.isEmpty()) {
             onPipelineFinished()
             _events.tryEmit(SpeechEvent.Done(utteranceId))
             return
         }
+        val userTerms = loadUserTerms()
+        val tracker = SileroText.WordTracker(text)
+        val timeline = mutableListOf<TimedWord>()
+        val timelineLock = Any()
         val cached = awaitPrefetch(utteranceId)?.takeIf { it.text == chunks.first().text }
         if (cached != null) Log.i(TAG, "cache hit $utteranceId")
         synchronized(prefetchLock) {
@@ -315,6 +320,7 @@ class SileroSpeechEngine(
         }
         val firstToGenerate = if (cached != null) 1 else 0
         val audioChannel = kotlinx.coroutines.channels.Channel<Rendered>(capacity = 2)
+        var ticker: Job? = null
         var track: AudioTrack? = null
         var written = 0L
         var started = false
@@ -323,14 +329,18 @@ class SileroSpeechEngine(
                 val producer = launch(Dispatchers.Default) {
                     try {
                         if (cached != null) {
-                            audioChannel.send(Rendered(cached.audio, chunks.first().pauseMs))
+                            val words = withDisplayIndexes(tracker, cached.words)
+                            audioChannel.send(Rendered(cached.audio, chunks.first().pauseMs, words))
                         }
                         for (index in firstToGenerate until chunks.size) {
                             if (token != generation) break
                             val chunk = chunks[index]
-                            val audio = synthesize(config, chunk.text)
+                            val synthesis = synthesize(config, SileroText.normalizeForSpeech(chunk.text, userTerms))
                             if (token != generation) break
-                            if (audio.isNotEmpty()) audioChannel.send(Rendered(audio, chunk.pauseMs))
+                            if (synthesis.audio.isNotEmpty()) {
+                                val words = withDisplayIndexes(tracker, synthesis.words)
+                                audioChannel.send(Rendered(synthesis.audio, chunk.pauseMs, words))
+                            }
                             // К концу фрагмента освобождаем CPU под предсинтез следующего.
                             if (chunks.size - 1 - index <= NEAR_END_CHUNKS) onPipelineNearlyFinished()
                         }
@@ -350,9 +360,20 @@ class SileroSpeechEngine(
                             }
                             _events.tryEmit(SpeechEvent.Started(utteranceId))
                             started = true
+                            ticker = ioScope.launch { wordTicker(token, utteranceId, timeline, timelineLock) }
                         }
                         val audioTrack = track ?: break
                         val audio = rendered.audio
+                        synchronized(timelineLock) {
+                            val chunkStartMs = written * 1000L / SAMPLE_RATE
+                            rendered.words.forEach { word ->
+                                timeline += TimedWord(
+                                    startSample = (chunkStartMs + word.startMs) * SAMPLE_RATE / 1000,
+                                    endSample = (chunkStartMs + word.endMs) * SAMPLE_RATE / 1000,
+                                    displayIndex = word.displayIndex,
+                                )
+                            }
+                        }
                         var offset = 0
                         while (offset < audio.size) {
                             if (token != generation) break
@@ -398,6 +419,7 @@ class SileroSpeechEngine(
             Log.e(TAG, "Silero: ошибка синтеза", error)
             _events.tryEmit(SpeechEvent.Error(utteranceId, error.message ?: "Ошибка синтеза"))
         } finally {
+            ticker?.cancel()
             if (track != null) {
                 if (started && token == generation) {
                     runCatching { track.stop() }
@@ -439,11 +461,52 @@ class SileroSpeechEngine(
 
     // ----- Синтез -----
 
-    private class Rendered(val audio: FloatArray, val pauseMs: Int)
+    private class Rendered(val audio: FloatArray, val pauseMs: Int, val words: List<SileroText.WordTiming>)
 
     private class PrefetchRequest(val utteranceId: String, val text: String, val chunk: SileroText.Chunk)
 
-    private class Prefetched(val utteranceId: String, val text: String, val audio: FloatArray)
+    private class Prefetched(
+        val utteranceId: String,
+        val text: String,
+        val audio: FloatArray,
+        val words: List<SileroText.WordTiming>,
+    )
+
+    private class Synthesis(val audio: FloatArray, val words: List<SileroText.WordTiming>)
+
+    private class TimedWord(val startSample: Long, val endSample: Long, val displayIndex: Int)
+
+    /** Сопоставляет слова синтеза с исходным текстом для подсветки. */
+    private fun withDisplayIndexes(
+        tracker: SileroText.WordTracker,
+        words: List<SileroText.WordTiming>,
+    ): List<SileroText.WordTiming> {
+        if (words.isEmpty()) return words
+        val indexes = tracker.advance(words.map { it.text })
+        return words.mapIndexed { index, word -> word.copy(displayIndex = indexes.getOrElse(index) { -1 }) }
+    }
+
+    /** Раз в ~60 мс сообщаем, какое слово звучит. */
+    private suspend fun wordTicker(
+        token: Int,
+        utteranceId: String,
+        timeline: List<TimedWord>,
+        lock: Any,
+    ) {
+        var lastIndex = -1
+        while (token == generation) {
+            val position = activeTrack?.playbackHeadPosition?.toLong() ?: 0L
+            val current = synchronized(lock) {
+                timeline.lastOrNull { position >= it.startSample && position < it.endSample }
+                    ?: timeline.lastOrNull { position >= it.endSample }
+            }
+            if (current != null && current.displayIndex >= 0 && current.displayIndex != lastIndex) {
+                lastIndex = current.displayIndex
+                _events.tryEmit(SpeechEvent.Word(utteranceId, current.displayIndex))
+            }
+            kotlinx.coroutines.delay(WORD_TICK_MS)
+        }
+    }
 
     /** Словарь произношения читается при каждом фрагменте: правки применяются без перезапуска. */
     private fun loadUserTerms(): Map<String, String> = runCatching {
@@ -451,13 +514,13 @@ class SileroSpeechEngine(
         if (file.isFile) SileroText.parseDictionary(file.readText()) else emptyMap()
     }.getOrDefault(emptyMap())
 
-    private suspend fun synthesize(config: SileroMeta, text: String): FloatArray = synthMutex.withLock {
+    private suspend fun synthesize(config: SileroMeta, text: String): Synthesis = synthMutex.withLock {
         withContext(Dispatchers.Default) {
-            val accentorModule = accentor ?: return@withContext FloatArray(0)
-            val durModule = durationPredictor ?: return@withContext FloatArray(0)
-            val pitchModule = pitchPredictor ?: return@withContext FloatArray(0)
-            val acousticModule = acoustic ?: return@withContext FloatArray(0)
-            val vocoderModule = vocoder ?: return@withContext FloatArray(0)
+            val accentorModule = accentor ?: return@withContext Synthesis(FloatArray(0), emptyList())
+            val durModule = durationPredictor ?: return@withContext Synthesis(FloatArray(0), emptyList())
+            val pitchModule = pitchPredictor ?: return@withContext Synthesis(FloatArray(0), emptyList())
+            val acousticModule = acoustic ?: return@withContext Synthesis(FloatArray(0), emptyList())
+            val vocoderModule = vocoder ?: return@withContext Synthesis(FloatArray(0), emptyList())
 
             val homosolved = homosolver?.solve(text) ?: text
             val accented = SileroText.accent(
@@ -477,7 +540,7 @@ class SileroSpeechEngine(
                 typeIds = config.typeIds,
             )
             val length = sequence.ids.size
-            if (length < 3) return@withContext FloatArray(0)
+            if (length < 3) return@withContext Synthesis(FloatArray(0), emptyList())
 
             val textTensor = Tensor.fromBlob(sequence.ids, longArrayOf(1, length.toLong()))
             val speakerTensor = Tensor.fromBlob(longArrayOf(speaker.toLong()), longArrayOf(1))
@@ -538,7 +601,8 @@ class SileroSpeechEngine(
                 IValue.from(pitchTensor),
             ).toTensor()
             val audio = vocoderModule.forward(IValue.from(mel)).toTensor()
-            audio.dataAsFloatArray
+            val words = SileroText.wordTimings(sequence.ids, scaled, config.idToSymbol)
+            Synthesis(audio.dataAsFloatArray, words)
         }
     }
 
@@ -621,6 +685,7 @@ class SileroSpeechEngine(
         private const val BUFFER_BYTES = 32_768
         private const val WRITE_CHUNK = 4096
         private const val NEAR_END_CHUNKS = 3
+        private const val WORD_TICK_MS = 60L
         const val DEFAULT_VOICE = "xenia"
     }
 }

@@ -33,6 +33,8 @@ data class PlayerState(
     val sleepTimerMinutes: Int? = null,
     val engineState: EngineState = EngineState.INITIALIZING,
     val error: String? = null,
+    /** Индекс текущего произносимого слова во фрагменте (для подсветки). */
+    val currentWord: Int? = null,
 ) {
     val chapter: Chapter? get() = chapters.getOrNull(chapterIndex)
     val segmentCount: Int get() = chapter?.segments?.size ?: 0
@@ -77,6 +79,13 @@ class PlaybackCoordinator(
                     is SpeechEvent.Error -> _state.update {
                         it.copy(isPlaying = false, error = event.message ?: "Ошибка синтеза речи")
                     }
+                    is SpeechEvent.Word -> {
+                        val state = _state.value
+                        val currentId = "${state.chapterIndex}:${state.segmentIndex}"
+                        if (event.utteranceId == currentId && state.currentWord != event.index) {
+                            _state.update { it.copy(currentWord = event.index) }
+                        }
+                    }
                     is SpeechEvent.Started, is SpeechEvent.Stopped -> Unit
                 }
             }
@@ -110,6 +119,7 @@ class PlaybackCoordinator(
                 isPlaying = false,
                 isFinished = false,
                 error = null,
+                currentWord = null,
             )
         }
         saveProgress()
@@ -273,6 +283,7 @@ class PlaybackCoordinator(
                 segmentIndex = segmentIndex,
                 isPlaying = true,
                 isFinished = false,
+                currentWord = null,
             )
         }
         saveProgress()

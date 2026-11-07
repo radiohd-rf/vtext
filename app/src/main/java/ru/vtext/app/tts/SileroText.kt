@@ -939,6 +939,98 @@ internal object SileroText {
         return result
     }
 
+    // ----- Тайминги слов для подсветки -----
+
+    /** Слово на таймлайне: границы в миллисекундах от начала куска. */
+    data class WordTiming(val text: String, val startMs: Int, val endMs: Int, val displayIndex: Int = -1)
+
+    /**
+     * Разбивает последовательность символов на слова и считает их длительность.
+     * [durations] — длительности символов в кадрах по 12.5 мс (как у модели).
+     */
+    fun wordTimings(ids: LongArray, durations: FloatArray, idToSymbol: Map<Int, Char>): List<WordTiming> {
+        val result = mutableListOf<WordTiming>()
+        var frame = 0.0
+        var wordStart = -1.0
+        val text = StringBuilder()
+        for (index in 1 until ids.size - 1) {
+            val symbol = idToSymbol[ids[index].toInt()]
+            if (symbol == '+') {
+                // Знак ударения не разрывает слово.
+                frame += durations[index]
+                continue
+            }
+            if (symbol != null && symbol.isLetter()) {
+                if (wordStart < 0) {
+                    wordStart = frame
+                    text.setLength(0)
+                }
+                text.append(symbol)
+            } else if (wordStart >= 0) {
+                result += WordTiming(text.toString(), (wordStart * FRAME_MS).toInt(), (frame * FRAME_MS).toInt())
+                wordStart = -1.0
+            }
+            frame += durations[index]
+        }
+        if (wordStart >= 0) {
+            result += WordTiming(text.toString(), (wordStart * FRAME_MS).toInt(), (frame * FRAME_MS).toInt())
+        }
+        return result
+    }
+
+    /**
+     * Сопоставляет слова синтезированного текста со словами исходного фрагмента.
+     * Числа и латиница раскрываются в несколько слов («1805» → «тысяча восемьсот пять»),
+     * поэтому одно исходное слово может «держать» подсветку несколько синтезированных.
+     */
+    class WordTracker(private val sourceText: String) {
+        private val words = Regex("[\\p{L}\\p{N}]+").findAll(sourceText).map { it.value }.toList()
+        private var cursor = 0
+
+        fun advance(normalized: List<String>): List<Int> {
+            if (words.isEmpty()) return normalized.map { 0 }
+            val result = mutableListOf<Int>()
+            for (word in normalized) {
+                var assigned = false
+                while (cursor < words.size) {
+                    val current = words[cursor]
+                    if (similar(current, word)) {
+                        result += cursor
+                        cursor++
+                        assigned = true
+                        break
+                    }
+                    val next = words.getOrNull(cursor + 1)
+                    if (next != null && similar(next, word)) {
+                        // Раскрытие текущего слова закончилось — переходим к следующему.
+                        cursor++
+                        result += cursor
+                        cursor++
+                        assigned = true
+                        break
+                    }
+                    if (isExpandable(current)) {
+                        result += cursor
+                        assigned = true
+                        break
+                    }
+                    cursor++
+                }
+                if (!assigned) result += (words.size - 1).coerceAtLeast(0)
+            }
+            return result
+        }
+
+        private fun similar(source: String, normalized: String): Boolean =
+            source.lowercase().replace('ё', 'е') ==
+                normalized.lowercase().replace("+", "").replace('ё', 'е')
+
+        private fun isExpandable(word: String): Boolean =
+            word.any { it.isDigit() } || word.any { it in 'A'..'Z' } || word.any { it in 'a'..'z' }
+    }
+
+    private const val FRAME_MS = 12.5
+
     // ----- Токены и типы -----
 
     data class Sequence(val ids: LongArray, val types: LongArray, val focus: LongArray)

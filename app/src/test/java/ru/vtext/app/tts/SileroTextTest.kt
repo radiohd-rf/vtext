@@ -249,6 +249,27 @@ class SileroTextTest {
     }
 
     @Test
+    fun computesWordTimingsFromDurations() {
+        val ids = longArrayOf(2, 11, 12, 46, 13, 1)
+        val durations = floatArrayOf(0f, 2f, 2f, 1f, 2f, 0f)
+        val words = SileroText.wordTimings(ids, durations, SileroMetaTestData.symbolToId.entries
+            .associate { (char, id) -> id to char })
+        assertEquals(2, words.size)
+        assertEquals("аб", words[0].text)
+        assertEquals(0, words[0].startMs)
+        assertEquals(50, words[0].endMs)
+        assertEquals("в", words[1].text)
+        assertEquals(62, words[1].startMs)
+    }
+
+    @Test
+    fun mapsSynthesizedWordsToSourceWords() {
+        val tracker = SileroText.WordTracker("в 1805 году было много событий")
+        val indexes = tracker.advance(listOf("в", "тысяча", "восемьсот", "пятом", "году", "было"))
+        assertEquals(listOf(0, 1, 1, 1, 2, 3), indexes)
+    }
+
+    @Test
     fun splitsLongTextIntoChunks() {
         val text = "Первое предложение. Второе предложение. Третье предложение."
         val chunks = SileroText.chunks(text, 20)

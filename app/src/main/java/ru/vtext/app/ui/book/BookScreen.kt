@@ -164,8 +164,31 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
                         color = if (current) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         shape = shape,
                     ) {
+                        val displayText = ru.vtext.app.domain.TextMarkup.strip(segment)
+                        val wordRange = if (current) {
+                            remember(displayText, player.currentWord) {
+                                wordRangeAt(displayText, player.currentWord)
+                            }
+                        } else {
+                            null
+                        }
+                        val styled = remember(displayText, wordRange) {
+                            androidx.compose.ui.text.buildAnnotatedString {
+                                append(displayText)
+                                if (wordRange != null) {
+                                    addStyle(
+                                        androidx.compose.ui.text.SpanStyle(
+                                            background = androidx.compose.ui.graphics.Color(0x33000000),
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        ),
+                                        wordRange.first,
+                                        wordRange.last + 1,
+                                    )
+                                }
+                            }
+                        }
                         Text(
-                            text = ru.vtext.app.domain.TextMarkup.strip(segment),
+                            text = styled,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.bodyLarge,
                             color = if (current) {
@@ -182,6 +205,15 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
         PlayerControls(state = state, chapter = chapter, viewModel = viewModel)
     }
 }
+
+private fun wordRangeAt(text: String, index: Int?): IntRange? {
+    if (index == null || index < 0) return null
+    val words = WORD_REGEX.findAll(text).toList()
+    val match = words.getOrNull(index) ?: return null
+    return match.range
+}
+
+private val WORD_REGEX = Regex("[\\p{L}\\p{N}]+")
 
 @Composable
 private fun ChapterSelector(state: BookUiState, chapters: List<Chapter>, onSelect: (Int) -> Unit) {
