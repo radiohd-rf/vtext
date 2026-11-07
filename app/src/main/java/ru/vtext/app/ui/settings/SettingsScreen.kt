@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -98,7 +99,10 @@ fun SettingsScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.TopCenter,
         ) {
-            LazyColumn(Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
+            LazyColumn(
+                Modifier.fillMaxHeight().widthIn(max = 760.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+            ) {
                 appearanceSection(state, viewModel, context)
                 sectionHeader(engineTitle)
             items(TtsEngineType.entries, key = { it.id }) { type ->
@@ -491,14 +495,16 @@ private fun LazyListScope.sileroSection(
         ) { uri ->
             if (uri != null) viewModel.importSileroDictionary(uri)
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-            Text(
-                text = stringResource(R.string.silero_dictionary_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = { dictionaryLauncher.launch(arrayOf("text/plain", "*/*")) }) {
-                Text(stringResource(R.string.silero_dictionary_import))
+        SettingsCard(selected = false, onClick = null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text(
+                    text = stringResource(R.string.silero_dictionary_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = { dictionaryLauncher.launch(arrayOf("text/plain", "*/*")) }) {
+                    Text(stringResource(R.string.silero_dictionary_import))
+                }
             }
         }
     }

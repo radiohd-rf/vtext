@@ -26,8 +26,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
@@ -167,13 +169,16 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = launchPicker,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text(stringResource(R.string.add_book)) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            )
+            // На пустой библиотеке кнопка уже есть в центре — FAB не дублируем.
+            if (state.books.isNotEmpty()) {
+                ExtendedFloatingActionButton(
+                    onClick = launchPicker,
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text(stringResource(R.string.add_book)) },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -194,7 +199,6 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
                         onAdd = launchPicker,
                     )
                     state.visibleBooks.isEmpty() -> NoResults(
-                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
                         query = state.query,
                         onReset = { viewModel.setQuery("") },
                     )
@@ -470,7 +474,7 @@ private fun BookCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (position?.started == true && book.chapterCount > 0) {
+        if (position != null && position.chapter > 0 && book.chapterCount > 0) {
             Spacer(Modifier.height(8.dp))
             ChapterProgress(chapterIndex = position.chapter, total = book.chapterCount)
         }
@@ -556,8 +560,15 @@ private fun EmptyLibrary(modifier: Modifier = Modifier, onAdd: () -> Unit) {
 }
 
 @Composable
-private fun NoResults(modifier: Modifier = Modifier, query: String, onReset: () -> Unit) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+private fun NoResults(query: String, onReset: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(56.dp))
         Text(
             text = stringResource(R.string.no_results_title),
             style = MaterialTheme.typography.headlineSmall,
@@ -574,6 +585,7 @@ private fun NoResults(modifier: Modifier = Modifier, query: String, onReset: () 
         TextButton(onClick = onReset) {
             Text(stringResource(R.string.reset_search))
         }
+        Spacer(Modifier.height(24.dp))
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -29,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
@@ -61,6 +64,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -79,6 +83,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -189,30 +194,63 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
         if (!visible) listState.animateScrollToItem(target)
     }
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
-        BookHeader(
-            book = book,
-            player = player,
-            chapter = chapter,
-            onClickChapter = { chapterSheet = true },
-        )
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            itemsIndexed(chapter.segments) { index, segment ->
-                SegmentRow(
-                    segment = segment,
-                    current = index == player.segmentIndex,
-                    currentWord = if (index == player.segmentIndex) player.currentWord else null,
-                    onClick = { viewModel.selectSegment(index) },
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 840.dp
+        val sidebarWidth = (maxWidth * 0.38f).coerceIn(320.dp, 420.dp)
+        if (wide) {
+            // Планшет/ландшафт: текст слева, карточка и плеер — справа.
+            Row(Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    SegmentList(
+                        segments = chapter.segments,
+                        player = player,
+                        onSelect = viewModel::selectSegment,
+                        listState = listState,
+                        horizontalPadding = 32.dp,
+                        modifier = Modifier.widthIn(max = 720.dp).fillMaxHeight(),
+                    )
+                }
+                VerticalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
                 )
+                Column(
+                    modifier = Modifier
+                        .width(sidebarWidth)
+                        .fillMaxHeight(),
+                ) {
+                    Spacer(Modifier.height(6.dp))
+                    BookHeader(
+                        book = book,
+                        player = player,
+                        chapter = chapter,
+                        onClickChapter = { chapterSheet = true },
+                    )
+                    Spacer(Modifier.weight(1f))
+                    PlayerControls(state = state, chapter = chapter, viewModel = viewModel)
+                }
             }
-        }
-        PlayerControls(state = state, chapter = chapter, viewModel = viewModel)
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                Column(Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
+                    BookHeader(
+                        book = book,
+                        player = player,
+                        chapter = chapter,
+                        onClickChapter = { chapterSheet = true },
+                    )
+                    SegmentList(
+                        segments = chapter.segments,
+                        player = player,
+                        onSelect = viewModel::selectSegment,
+                        listState = listState,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    )
+                    PlayerControls(state = state, chapter = chapter, viewModel = viewModel)
+                }
+            }
         }
     }
 
@@ -226,6 +264,37 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
                 chapterSheet = false
             },
         )
+    }
+}
+
+@Composable
+private fun SegmentList(
+    segments: List<String>,
+    player: PlayerState,
+    onSelect: (Int) -> Unit,
+    listState: LazyListState,
+    modifier: Modifier = Modifier,
+    horizontalPadding: Dp = 20.dp,
+) {
+    LazyColumn(
+        state = listState,
+        modifier = modifier,
+        contentPadding = PaddingValues(
+            start = horizontalPadding,
+            end = horizontalPadding,
+            top = 10.dp,
+            bottom = 12.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        itemsIndexed(segments) { index, segment ->
+            SegmentRow(
+                segment = segment,
+                current = index == player.segmentIndex,
+                currentWord = if (index == player.segmentIndex) player.currentWord else null,
+                onClick = { onSelect(index) },
+            )
+        }
     }
 }
 
@@ -620,16 +689,32 @@ private fun BookmarksDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.bookmarks)) },
         text = {
-            Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 if (bookmarks.isEmpty()) {
-                    Text(stringResource(R.string.bookmarks_empty))
+                    Text(
+                        text = stringResource(R.string.bookmarks_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
                 } else {
                     bookmarks.forEach { bookmark ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(
-                                onClick = { onOpen(bookmark) },
-                                modifier = Modifier.weight(1f),
-                            ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable { onOpen(bookmark) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.Bookmark,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
                                 Text(
                                     text = bookmark.label.ifBlank {
                                         stringResource(
@@ -638,9 +723,21 @@ private fun BookmarksDialog(
                                             bookmark.segmentIndex + 1,
                                         )
                                     },
+                                    style = MaterialTheme.typography.bodyLarge,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                if (bookmark.label.isNotBlank()) {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.bookmark_position,
+                                            bookmark.chapterIndex + 1,
+                                            bookmark.segmentIndex + 1,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             IconButton(onClick = { onDelete(bookmark.id) }) {
                                 Icon(
