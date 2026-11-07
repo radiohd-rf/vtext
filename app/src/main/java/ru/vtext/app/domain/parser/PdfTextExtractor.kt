@@ -28,15 +28,67 @@ class PdfTextExtractor(
     override fun writeString(text: String, textPositions: List<TextPosition>) {
         val visible = textPositions.filterNot { isSymbolFont(it.font?.name) }
         if (visible.isEmpty()) return
+        val withoutMarkers = removeFootnoteMarkers(visible)
+        if (withoutMarkers.isEmpty()) return
         val cleaned = if (tracker.disabled) {
-            visibleText(visible)
+            visibleText(withoutMarkers)
         } else {
-            visibleTextWithEmphasis(visible, tracker)
+            visibleTextWithEmphasis(withoutMarkers, tracker)
         }
         if (cleaned.isBlank()) return
         super.writeString(cleaned)
     }
+
+    /** Убирает верхние индексы-номера сносок, оставляя остальной текст строки. */
+    private fun removeFootnoteMarkers(positions: List<TextPosition>): List<TextPosition> {
+        if (positions.size < 2) return positions
+        val sizes = FloatArray(positions.size) { positions[it].fontSizeInPt }
+        val ys = FloatArray(positions.size) { positions[it].yDirAdj }
+        val mask = superscriptMask(sizes, ys)
+        if (mask.none { it }) return positions
+        val keep = BooleanArray(positions.size) { true }
+        var index = 0
+        while (index < positions.size) {
+            if (!mask[index]) {
+                index++
+                continue
+            }
+            var end = index
+            while (end < positions.size && mask[end]) end++
+            val run = positions.subList(index, end)
+            val marker = run.joinToString("") { it.unicode ?: "" }
+            val markerLike = marker.isNotEmpty() && marker.length <= 3 &&
+                marker.all { it.isDigit() || it.isLetter() || it == '*' || it == '†' || it == '‡' }
+            if (markerLike) {
+                for (position in index until end) keep[position] = false
+            }
+            index = end
+        }
+        return positions.filterIndexed { position, _ -> keep[position] }
+    }
 }
+
+/** Верхний индекс: заметно мельче основного текста строки и приподнят над базовой линией. */
+internal fun superscriptMask(sizes: FloatArray, yPositions: FloatArray): BooleanArray {
+    if (sizes.isEmpty() || sizes.size != yPositions.size) return BooleanArray(sizes.size)
+    val bodySize = median(sizes)
+    if (bodySize <= 0f) return BooleanArray(sizes.size)
+    val baseline = median(yPositions)
+    return BooleanArray(sizes.size) { index ->
+        val size = sizes[index]
+        size > 0.1f && size <= bodySize * SUPERSCRIPT_SIZE_RATIO &&
+            yPositions[index] < baseline - bodySize * SUPERSCRIPT_RAISE_RATIO
+    }
+}
+
+private fun median(values: FloatArray): Float {
+    val sorted = values.sorted()
+    val middle = sorted.size / 2
+    return if (sorted.size % 2 == 0) (sorted[middle - 1] + sorted[middle]) / 2f else sorted[middle]
+}
+
+private const val SUPERSCRIPT_SIZE_RATIO = 0.8f
+private const val SUPERSCRIPT_RAISE_RATIO = 0.15f
 
 internal fun isSymbolFont(name: String?): Boolean {
     val value = name?.lowercase().orEmpty()

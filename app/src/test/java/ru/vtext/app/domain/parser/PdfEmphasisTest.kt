@@ -25,6 +25,24 @@ class PdfEmphasisTest {
     }
 
     @Test
+    fun detectsSuperscriptMarkers() {
+        // Основной текст 12 pt, базовая линия 700; цифра 8 pt и поднята на 720 (выше по оси PDFBox).
+        val sizes = floatArrayOf(12f, 12f, 12f, 8f, 12f)
+        val ys = floatArrayOf(700f, 700f, 700f, 696f, 700f)
+        val mask = superscriptMask(sizes, ys)
+        assertEquals(listOf(false, false, false, true, false), mask.toList())
+    }
+
+    @Test
+    fun keepsSmallTextOnItsOwnLine() {
+        // Мелкая строка (подпись/сноска) без подъёма — не верхний индекс.
+        val sizes = floatArrayOf(8f, 8f, 8f)
+        val ys = floatArrayOf(700f, 700f, 700f)
+        val mask = superscriptMask(sizes, ys)
+        assertEquals(listOf(false, false, false), mask.toList())
+    }
+
+    @Test
     fun disablesEmphasisForMostlyBoldText() {
         val tracker = PdfStyleTracker()
         emphasizedText(chars("а".repeat(5000), 2), tracker)

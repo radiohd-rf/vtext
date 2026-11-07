@@ -22,6 +22,7 @@ class SampleBooksParsingTest {
             val text = parsed.chapters.joinToString("\n") { it.segments.joinToString("\n") }
             assertTrue("слишком короткий текст: ${text.length}", text.length > 200)
             assertTrue("нет разметки эмфазы", text.contains("*"))
+            assertFalse("номер сноски <sup> не должен читаться", text.contains("оде1"))
             assertFalse(
                 "тело сносок не должно читаться",
                 text.contains("не должен читаться вместе с одой"),

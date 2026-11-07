@@ -8,6 +8,8 @@ object HtmlText {
     private val altAttribute = Regex("""(?is)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')""")
     private val lineBreak = Regex("(?i)<br\\s*/?>")
     private val noteref = Regex("(?is)<a\\b[^>]*epub:type\\s*=\\s*[\"']noteref[\"'][^>]*>.*?</a>")
+    private val footnoteBlock = Regex("(?is)<aside\\b[^>]*epub:type\\s*=\\s*[\"'](?:footnote|endnote|rearnote)[\"'][^>]*>.*?</aside>")
+    private val superscript = Regex("(?is)<sup\\b[^>]*>.*?</sup>")
     private val boldTag = Regex("(?is)<(b|strong)\\b[^>]*>(.*?)</\\1>")
     private val italicTag = Regex("(?is)<(i|em|cite)\\b[^>]*>(.*?)</\\1>")
     private val blockEnd = Regex("(?i)</(p|div|h[1-6]|li|tr|blockquote|section|article)>")
@@ -24,6 +26,8 @@ object HtmlText {
         }
         // Выделения автора сохраняем разметкой: Silero читает их с нажимом.
         text = noteref.replace(text, " ")
+        text = footnoteBlock.replace(text, " ")
+        text = superscript.replace(text, " ")
         text = boldTag.replace(text) { match -> "**${match.groupValues[2]}**" }
         text = italicTag.replace(text) { match -> "*${match.groupValues[2]}*" }
         text = lineBreak.replace(text, "\n")

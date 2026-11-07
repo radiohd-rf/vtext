@@ -131,6 +131,10 @@ class Fb2Parser : BookParser {
         if (node.nodeType == Node.TEXT_NODE || node.nodeType == Node.CDATA_SECTION_NODE) {
             return node.nodeValue ?: ""
         }
+        val name = (node.localName ?: node.nodeName).lowercase()
+        // Номер сноски в тексте не читаем: <sup>1</sup>, <a type="note">…</a>.
+        if (name == "sup") return ""
+        if (name == "a" && (node as? Element)?.getAttribute("type")?.lowercase() == "note") return ""
         val builder = StringBuilder()
         val children = node.childNodes
         for (i in 0 until children.length) {
@@ -139,7 +143,7 @@ class Fb2Parser : BookParser {
         // Выделения в FB2: <emphasis> — курсив, <strong> — жирный.
         val text = builder.toString()
         if (text.isBlank()) return text
-        return when (node.localName ?: node.nodeName) {
+        return when (name) {
             "emphasis" -> "*$text*"
             "strong" -> "**$text**"
             else -> text
