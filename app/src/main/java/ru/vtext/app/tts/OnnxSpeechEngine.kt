@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -64,6 +66,7 @@ class OnnxSpeechEngine(
 
     private var playJob: Job? = null
     private var pending: Pair<String, String>? = null
+    private val generateMutex = Mutex()
 
     @Volatile
     private var activeTrack: AudioTrack? = null
@@ -127,12 +130,11 @@ class OnnxSpeechEngine(
     override fun shutdown() {
         val engine = tts
         tts = null
-        val job = cancelCurrent()
-        if (job == null) {
-            engine?.release()
-        } else {
-            // Отпускаем модель только когда фоновый синтез гарантированно завершился.
-            job.invokeOnCompletion { engine?.release() }
+        cancelCurrent()
+        if (engine == null) return
+        // Ждём завершения возможного нативного синтеза и только потом освобождаем модель.
+        scope.launch(Dispatchers.IO) {
+            generateMutex.withLock { engine.release() }
         }
     }
 
@@ -145,14 +147,13 @@ class OnnxSpeechEngine(
     }
 
     /** Останавливает текущий синтез и воспроизведение, не трогая загруженную модель. */
-    private fun cancelCurrent(): Job? {
+    private fun cancelCurrent() {
         generation += 1
         pending = null
         val job = playJob
         playJob = null
         releaseTrack()
         job?.cancel()
-        return job
     }
 
     private suspend fun playAudio(
@@ -179,7 +180,11 @@ class OnnxSpeechEngine(
             }
 
             val startedAt = System.currentTimeMillis()
-            val audio = engine.generateWithConfig(text, generationConfig)
+            // Отменённый корутин-джоб не прерывает нативный generate, поэтому
+            // новые вызовы ждут завершения предыдущего: OfflineTts не потокобезопасен.
+            val audio = generateMutex.withLock {
+                engine.generateWithConfig(text, generationConfig)
+            }
             val synthesizedAt = System.currentTimeMillis()
             if (generation != token) return@withContext
 
