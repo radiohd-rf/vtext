@@ -69,6 +69,11 @@
     <string name="engine_piper_desc">Нейросетевой, ~21 МБ, быстрый</string>
     <string name="engine_supertonic">Supertonic 3</string>
     <string name="engine_supertonic_desc">Нейросетевой, ~123 МБ, выразительнее</string>
+    <string name="engine_silero">Silero v5</string>
+    <string name="engine_silero_desc">Нейросетевой, ~103 МБ, автоударения, 5 голосов</string>
+    <string name="silero_model_title">Модель Silero v5</string>
+    <string name="silero_import_hint">Silero не скачивается автоматически: импортируйте zip-архив с файлами модели (accentor.ptl, dur.ptl, pitch.ptl, tacotron.ptl, vocoder48.ptl, meta.json).</string>
+    <string name="import_model">Импорт</string>
     <string name="neural_fallback">Модель ещё не скачана — пока используется системный голос.</string>
     <string name="neural_loading">Загрузка нейроголоса…</string>
     <string name="neural_unavailable">Не удалось загрузить нейроголос. Проверьте модель и попробуйте ещё раз.</string>

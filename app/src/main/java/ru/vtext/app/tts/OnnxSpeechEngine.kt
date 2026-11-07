@@ -671,6 +671,7 @@ class OnnxSpeechEngine(
                 )
             }
             TtsEngineType.SYSTEM -> error("Системный TTS не использует sherpa-onnx")
+            TtsEngineType.SILERO -> error("Silero использует PyTorch Lite")
         }
         return OfflineTts(null, config)
     }
@@ -726,6 +727,7 @@ class OnnxSpeechEngine(
             ),
         )
         TtsEngineType.SYSTEM -> emptyList()
+        TtsEngineType.SILERO -> emptyList()
     }
 
     private companion object {

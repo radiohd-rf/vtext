@@ -48,6 +48,57 @@ class ModelRepository(context: Context) {
         modelDir(model).deleteRecursively()
     }
 
+    /** Установка модели из локального zip-архива (для Silero, который не скачивается автоматически). */
+    suspend fun importArchive(model: NeuralModel, uri: android.net.Uri, onProgress: (Float) -> Unit) {
+        withContext(Dispatchers.IO) {
+            val staging = File(modelDir(model).parentFile, model.id + ".import")
+            staging.deleteRecursively()
+            staging.mkdirs()
+            val root = staging.canonicalFile
+            try {
+                val resolver = appContext.contentResolver
+                val input = resolver.openInputStream(uri) ?: throw IOException("Не удалось открыть архив")
+                var entries = 0
+                java.util.zip.ZipInputStream(java.io.BufferedInputStream(input)).use { zip ->
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val entry = zip.nextEntry ?: break
+                        val name = entry.name.replace('\\', '/')
+                        if (entry.isDirectory || name.endsWith("/")) {
+                            zip.closeEntry()
+                            continue
+                        }
+                        val relative = name.substringAfter('/', missingDelimiterValue = name)
+                        val output = File(staging, relative)
+                        if (!output.canonicalPath.startsWith(root.path + File.separator)) {
+                            throw IOException("Некорректный путь в архиве модели")
+                        }
+                        output.parentFile?.mkdirs()
+                        output.outputStream().use { zip.copyTo(it) }
+                        zip.closeEntry()
+                        entries++
+                        onProgress((entries % 100) / 100f)
+                    }
+                }
+                if (entries == 0) throw IOException("Архив пуст")
+                val target = modelDir(model)
+                target.deleteRecursively()
+                if (!staging.renameTo(target)) {
+                    staging.copyRecursively(target, overwrite = true)
+                    staging.deleteRecursively()
+                }
+                if (!isInstalled(model)) {
+                    target.deleteRecursively()
+                    throw IOException("В архиве нет файлов модели")
+                }
+                onProgress(1f)
+            } catch (error: Throwable) {
+                staging.deleteRecursively()
+                throw error
+            }
+        }
+    }
+
     private suspend fun downloadArchive(model: NeuralModel, target: File, onProgress: (Float) -> Unit) {
         val connection = (URL(model.url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000

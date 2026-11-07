@@ -43,11 +43,22 @@ class TtsSettingsStore(context: Context) {
             prefs.edit().putInt(KEY_SUPERTONIC_SPEAKER, value).apply()
         }
 
+    /** Выбранный голос Silero v5. */
+    var sileroVoice: String
+        get() = prefs.getString(KEY_SILERO_VOICE, null)
+            ?.let { ru.vtext.app.tts.SileroVoice.fromId(it) }
+            ?.id
+            ?: ru.vtext.app.tts.SileroVoice.XENIA.id
+        set(value) {
+            prefs.edit().putString(KEY_SILERO_VOICE, value).apply()
+        }
+
     private companion object {
         const val KEY_VOICE = "voice_name"
         const val KEY_ENGINE = "engine_type"
         const val KEY_PIPER_MODEL = "piper_model"
         const val KEY_SUPERTONIC_SPEAKER = "supertonic_speaker"
+        const val KEY_SILERO_VOICE = "silero_voice"
         const val SUPER_TONIC_SPEAKERS = 10
     }
 }

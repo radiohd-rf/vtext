@@ -168,6 +168,16 @@ class SettingsViewModel(
 
     fun downloadModel(id: String) = manager.downloadModel(id)
 
+    fun importModel(id: String, uri: android.net.Uri) = manager.importModel(id, uri)
+
+    fun selectSileroVoice(id: String) {
+        playback.pause()
+        manager.selectSileroVoice(id)
+        if (manager.neuralSettings.value.stateOf(NeuralModel.DEFAULT_SILERO)?.status == ModelStatus.READY) {
+            manager.previewCurrentVoice()
+        }
+    }
+
     fun cancelDownload() = manager.cancelDownload()
 
     companion object {

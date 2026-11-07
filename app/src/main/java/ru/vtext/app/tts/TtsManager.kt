@@ -37,6 +37,7 @@ data class NeuralSettings(
     val models: List<NeuralModelState> = emptyList(),
     val piperModelId: String = NeuralModel.DEFAULT_PIPER.id,
     val supertonicSpeaker: Int = 0,
+    val sileroVoice: String = SileroSpeechEngine.DEFAULT_VOICE,
     val usingSystemFallback: Boolean = false,
 ) {
     fun stateOf(model: NeuralModel): NeuralModelState? = models.firstOrNull { it.model == model }
@@ -79,6 +80,7 @@ class TtsManager(
             models = _models.value,
             piperModelId = settings.piperModelId,
             supertonicSpeaker = settings.supertonicSpeaker,
+            sileroVoice = settings.sileroVoice,
         ),
     )
     val neuralSettings: StateFlow<NeuralSettings> = _neuralSettings.asStateFlow()
@@ -103,7 +105,7 @@ class TtsManager(
         .flatMapLatest { it.selectedVoice }
         .stateIn(scope, SharingStarted.Eagerly, _active.value.selectedVoice.value)
 
-    private var neuralEngine: OnnxSpeechEngine? = null
+    private var neuralEngine: SpeechEngine? = null
     private var downloadJob: Job? = null
     private var previewJob: Job? = null
     private var rate = playbackSettings.speed
@@ -142,6 +144,50 @@ class TtsManager(
         settings.supertonicSpeaker = safe
         neuralEngine?.setVoice(safe.toString())
         publish()
+    }
+
+    fun selectSileroVoice(id: String) {
+        val voice = SileroVoice.fromId(id)
+        settings.sileroVoice = voice.id
+        if (settings.engineType == TtsEngineType.SILERO) {
+            neuralEngine?.setVoice(voice.id)
+        }
+        publish()
+    }
+
+    /** Импорт модели Silero из локального zip: автоматической загрузки у неё нет. */
+    fun importModel(id: String, uri: android.net.Uri) {
+        val model = NeuralModel.byId(id) ?: return
+        if (downloadJob?.isActive == true) return
+        downloadJob = scope.launch {
+            updateModel(model.id) {
+                it.copy(status = ModelStatus.EXTRACTING, progress = 0f, error = null)
+            }
+            try {
+                repository.importArchive(model, uri) { progress ->
+                    updateModel(model.id) {
+                        it.copy(status = ModelStatus.EXTRACTING, progress = progress)
+                    }
+                }
+                updateModel(model.id) {
+                    it.copy(status = ModelStatus.READY, progress = 1f, error = null)
+                }
+                switchActive()
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                updateModel(model.id) {
+                    it.copy(status = ModelStatus.NOT_INSTALLED, progress = 0f, error = null)
+                }
+                throw cancel
+            } catch (error: Throwable) {
+                updateModel(model.id) {
+                    it.copy(
+                        status = ModelStatus.ERROR,
+                        progress = 0f,
+                        error = error.message ?: "Не удалось импортировать модель",
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -240,7 +286,7 @@ class TtsManager(
 
     fun setSupertonicSteps(steps: Int) {
         supertonicSteps = steps
-        neuralEngine?.setSupertonicSteps(steps)
+        (neuralEngine as? OnnxSpeechEngine)?.setSupertonicSteps(steps)
     }
 
     override fun setVoice(name: String?) {
@@ -279,6 +325,7 @@ class TtsManager(
         TtsEngineType.SYSTEM -> null
         TtsEngineType.PIPER -> NeuralModel.byId(settings.piperModelId) ?: NeuralModel.DEFAULT_PIPER
         TtsEngineType.SUPERTONIC -> NeuralModel.DEFAULT_SUPERTONIC
+        TtsEngineType.SILERO -> NeuralModel.DEFAULT_SILERO
     }
 
     private fun activate() {
@@ -306,17 +353,31 @@ class TtsManager(
         val model = selectedNeuralModel() ?: return useSystemEngine()
         if (!repository.isInstalled(model)) return useSystemEngine()
         val current = neuralEngine
-        if (current != null && current.model == model) return current
+        if (current != null && (current as? OnnxSpeechEngine)?.model == model) return current
+        if (current != null && model.engine == TtsEngineType.SILERO &&
+            current is SileroSpeechEngine && current.modelDir == repository.modelDir(model)
+        ) {
+            return current
+        }
         current?.shutdown()
-        val engine = OnnxSpeechEngine(
-            context = appContext,
-            model = model,
-            modelDir = repository.modelDir(model),
-            initialRate = rate,
-            initialSpeaker = settings.supertonicSpeaker,
-            initialVolume = volume,
-            supertonicSteps = supertonicSteps,
-        )
+        val engine: SpeechEngine = if (model.engine == TtsEngineType.SILERO) {
+            SileroSpeechEngine(
+                modelDir = repository.modelDir(model),
+                initialRate = rate,
+                initialVoice = settings.sileroVoice,
+                initialVolume = volume,
+            )
+        } else {
+            OnnxSpeechEngine(
+                context = appContext,
+                model = model,
+                modelDir = repository.modelDir(model),
+                initialRate = rate,
+                initialSpeaker = settings.supertonicSpeaker,
+                initialVolume = volume,
+                supertonicSteps = supertonicSteps,
+            )
+        }
         neuralEngine = engine
         return engine
     }
@@ -340,6 +401,7 @@ class TtsManager(
             models = _models.value,
             piperModelId = settings.piperModelId,
             supertonicSpeaker = settings.supertonicSpeaker,
+            sileroVoice = settings.sileroVoice,
             usingSystemFallback = _engineType.value != TtsEngineType.SYSTEM && _active.value === systemEngine,
         )
     }

@@ -26,8 +26,8 @@
 - minSdk 24, compileSdk/targetSdk 35.
 - Форматы: TXT, FB2, EPUB, PDF, DOCX.
 - Язык озвучивания: только русский; в настройках показываются только русские голоса TTS.
-- TTS: системный `android.speech.tts.TextToSpeech` за интерфейсом `SpeechEngine`, плюс локальные нейродвижки Piper и Supertonic 3 через `sherpa-onnx`.
-- Нейро-TTS: `com.k2-fsa: sherpa-onnx 2.0.1` (AAR в `app/libs/`), `piper-phonemize 1.5.9` (AAR) для espeak-фонем Piper; модели скачиваются в приложении.
+- TTS: системный `android.speech.tts.TextToSpeech` за интерфейсом `SpeechEngine`, плюс локальные нейродвижки Piper, Supertonic 3 (через `sherpa-onnx`) и Silero v5 (через PyTorch Lite).
+- Нейро-TTS: `com.k2-fsa: sherpa-onnx 2.0.1` (AAR в `app/libs/`), `piper-phonemize 1.5.9` (AAR) для espeak-фонем Piper; `org.pytorch:pytorch_android_lite 2.1.0` для Silero. Модели Piper/Supertonic скачиваются в приложении, Silero импортируется zip-архивом (`.ptl` собираются `tools/silero/export_silero.py`).
 - PDF: `com.tom-roush:pdfbox-android` (Apache 2.0), текст извлекается постранично.
 - DOCX: собственный разбор ZIP + `word/document.xml` (заголовки по стилям Heading/Заголовок).
 - Хранение: SAF-импорт с копированием в `filesDir/books/<id>/`.
@@ -45,9 +45,9 @@ UI (Compose) → ViewModel (StateFlow) → domain (модели, TextSegmenter, 
 - `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `PdfParser` (главы из PDF-закладок, fallback по шрифту, затем по страницам; фильтрация символьных шрифтов), `DocxParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
 - `domain/cleanup` — `ImportTextCleaner`: номера страниц, повторяющиеся колонтитулы, переносы слов при импорте PDF/TXT.
 - `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences, выбранный голос в `TtsSettingsStore`, скорость в `PlaybackSettingsStore`.
-- `tts` — `AndroidSpeechEngine` (системный), `OnnxSpeechEngine` (Piper/Supertonic на sherpa-onnx), `TtsManager` (выбор движка и загрузка моделей), `ModelRepository` (скачивание/распаковка `.tar.bz2`).
+- `tts` — `AndroidSpeechEngine` (системный), `OnnxSpeechEngine` (Piper/Supertonic на sherpa-onnx), `SileroSpeechEngine` + `SileroText` (Silero v5 на PyTorch Lite), `TtsManager` (выбор движка и загрузка моделей), `ModelRepository` (скачивание/распаковка `.tar.bz2`, импорт zip).
 - `player` — `PlaybackCoordinator` (единый источник правды о воспроизведении, живёт в `Application`) и `PlaybackService` (foreground-сервис, уведомление с управлением, `MediaSessionCompat`).
-- `ui/library` — список книг с обложками, импорт с выбором пресета «Авто/Книга/Стихи», удаление долгим нажатием; `ui/book` — плеер с подсветкой фрагмента, скоростью и таймером сна; `ui/settings` — выбор движка, загрузка моделей, голоса с разделением по полу и предпросмотром, громкость, тон, пауза и качество Supertonic.
+- `ui/library` — список книг с обложками, импорт с выбором пресета «Авто/Книга/Стихи», удаление долгим нажатием; `ui/book` — плеер с подсветкой фрагмента, скоростью и таймером сна; `ui/settings` — выбор движка, загрузка/импорт моделей, голоса с разделением по полу и предпросмотром, громкость, тон, пауза и качество Supertonic.
 
 ## Структура проекта
 

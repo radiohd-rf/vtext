@@ -46,6 +46,10 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        jniLibs {
+            // libc++_shared.so приходит и из libtorch, и из других AAR.
+            pickFirsts += "**/libc++_shared.so"
+        }
     }
 }
 
@@ -62,6 +66,8 @@ dependencies {
     implementation(files("libs/sherpa-onnx-2.0.1.aar"))
     // Фронтенд piper-phonemize (espeak-ng) для моделей Piper без лексикона.
     implementation(files("libs/piper-phonemize-v1.5.9.aar"))
+    // TorchScript Lite для Silero v5 (Piper/Supertonic его не используют).
+    implementation("org.pytorch:pytorch_android_lite:2.1.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
 
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))

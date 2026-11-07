@@ -5,6 +5,7 @@ enum class TtsEngineType(val id: String) {
     SYSTEM("system"),
     PIPER("piper"),
     SUPERTONIC("supertonic"),
+    SILERO("silero"),
     ;
 
     companion object {
@@ -74,6 +75,14 @@ enum class NeuralModel(
         approxBytes = 128_774_318L,
         rootDir = "sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
     ),
+    SILERO_5(
+        id = "silero-5-ru",
+        engine = TtsEngineType.SILERO,
+        displayName = "Silero v5",
+        url = "",
+        approxBytes = 103_000_000L,
+        rootDir = "silero-5-ru",
+    ),
     ;
 
     val approxMegabytes: Int get() = ((approxBytes + 1_048_575L) / 1_048_576L).toInt()
@@ -96,6 +105,14 @@ enum class NeuralModel(
                 "unicode_indexer.bin",
                 "voice.bin",
             )
+            TtsEngineType.SILERO -> listOf(
+                "accentor.ptl",
+                "dur.ptl",
+                "pitch.ptl",
+                "tacotron.ptl",
+                "vocoder48.ptl",
+                "meta.json",
+            )
             TtsEngineType.SYSTEM -> emptyList()
         }
 
@@ -104,6 +121,7 @@ enum class NeuralModel(
     companion object {
         val DEFAULT_PIPER: NeuralModel = PIPER_IRINA
         val DEFAULT_SUPERTONIC: NeuralModel = SUPERTONIC_3
+        val DEFAULT_SILERO: NeuralModel = SILERO_5
 
         fun byId(id: String?): NeuralModel? = entries.firstOrNull { it.id == id }
 

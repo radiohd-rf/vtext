@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.vtext.app.R
@@ -42,6 +44,7 @@ import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.ModelStatus
 import ru.vtext.app.tts.NeuralModel
 import ru.vtext.app.tts.NeuralModelState
+import ru.vtext.app.tts.SileroVoice
 import ru.vtext.app.tts.TtsEngineType
 import ru.vtext.app.tts.VoiceGender
 
@@ -138,6 +141,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 TtsEngineType.SYSTEM -> systemVoicesSection(state, viewModel, context)
                 TtsEngineType.PIPER -> piperSection(state, viewModel, context)
                 TtsEngineType.SUPERTONIC -> supertonicSection(state, viewModel, context)
+                TtsEngineType.SILERO -> sileroSection(state, viewModel, context)
             }
         }
     }
@@ -275,11 +279,13 @@ private fun EngineRow(
         TtsEngineType.SYSTEM -> stringResource(R.string.engine_system)
         TtsEngineType.PIPER -> stringResource(R.string.engine_piper)
         TtsEngineType.SUPERTONIC -> stringResource(R.string.engine_supertonic)
+        TtsEngineType.SILERO -> stringResource(R.string.engine_silero)
     }
     val subtitle = when (type) {
         TtsEngineType.SYSTEM -> stringResource(R.string.engine_system_desc)
         TtsEngineType.PIPER -> stringResource(R.string.engine_piper_desc)
         TtsEngineType.SUPERTONIC -> stringResource(R.string.engine_supertonic_desc)
+        TtsEngineType.SILERO -> stringResource(R.string.engine_silero_desc)
     }
     SelectableRow(
         title = title,
@@ -463,6 +469,67 @@ private fun LazyListScope.supertonicSection(
     }
 }
 
+private fun LazyListScope.sileroSection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    context: Context,
+) {
+    val model = NeuralModel.DEFAULT_SILERO
+    val modelState = state.neural.stateOf(model)
+    sectionHeader(context.getString(R.string.silero_model_title))
+    if (modelState != null) {
+        item(key = modelState.model.id) {
+            val launcher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument(),
+            ) { uri ->
+                if (uri != null) viewModel.importModel(modelState.model.id, uri)
+            }
+            ModelRow(
+                item = modelState,
+                selected = state.engineType == TtsEngineType.SILERO,
+                onSelect = { viewModel.selectEngine(TtsEngineType.SILERO) },
+                onDownload = { launcher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                onCancel = viewModel::cancelDownload,
+                importLabel = stringResource(R.string.import_model),
+            )
+        }
+    }
+
+    if (modelState?.status != ModelStatus.READY) {
+        item {
+            Text(
+                text = context.getString(R.string.silero_import_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(20.dp),
+            )
+        }
+        return
+    }
+
+    sectionHeader(context.getString(R.string.voice_title))
+    val female = SileroVoice.entries.filter { it.gender == VoiceGender.FEMALE }
+    val male = SileroVoice.entries.filter { it.gender == VoiceGender.MALE }
+    groupHeader(context.getString(R.string.voices_female_title))
+    items(female, key = { "sf-${it.id}" }) { voice ->
+        SelectableRow(
+            title = voice.title,
+            subtitle = null,
+            selected = state.neural.sileroVoice == voice.id,
+            onClick = { viewModel.selectSileroVoice(voice.id) },
+        )
+    }
+    groupHeader(context.getString(R.string.voices_male_title))
+    items(male, key = { "sm-${it.id}" }) { voice ->
+        SelectableRow(
+            title = voice.title,
+            subtitle = null,
+            selected = state.neural.sileroVoice == voice.id,
+            onClick = { viewModel.selectSileroVoice(voice.id) },
+        )
+    }
+}
+
 @Composable
 private fun ModelRow(
     item: NeuralModelState,
@@ -470,6 +537,7 @@ private fun ModelRow(
     onSelect: () -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
+    importLabel: String? = null,
 ) {
     val ready = item.status == ModelStatus.READY
     Column {
@@ -498,7 +566,7 @@ private fun ModelRow(
             }
             when (item.status) {
                 ModelStatus.NOT_INSTALLED -> TextButton(onClick = onDownload) {
-                    Text(stringResource(R.string.download))
+                    Text(importLabel ?: stringResource(R.string.download))
                 }
                 ModelStatus.DOWNLOADING -> TextButton(onClick = onCancel) {
                     Text(stringResource(R.string.cancel))
@@ -508,7 +576,7 @@ private fun ModelRow(
                     Text(stringResource(R.string.choose))
                 }
                 ModelStatus.ERROR -> TextButton(onClick = onDownload) {
-                    Text(stringResource(R.string.retry))
+                    Text(importLabel ?: stringResource(R.string.retry))
                 }
             }
         }

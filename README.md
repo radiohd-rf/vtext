@@ -19,18 +19,18 @@ UX-референс — плеер Яндекс Книг, но только дл
 - Обработка конца книги: сообщение «Книга дочитана» и запуск заново.
 - Фоновое воспроизведение: foreground-сервис, уведомление с play/pause/перемоткой, управление с экрана блокировки и наушников.
 - Выбор русского голоса TTS в настройках (только русские голоса).
-- Локальные нейросетевые движки **Piper** (4 русских голоса) и **Supertonic 3** (10 голосов) — модели скачиваются в приложении.
+- Локальные нейросетевые движки **Piper** (4 русских голоса), **Supertonic 3** (10 голосов) и **Silero v5** (5 голосов, автоударения и «ё»). Модели Piper/Supertonic скачиваются в приложении, Silero импортируется zip-архивом (см. `tools/silero/`).
 - Разделение нейроголосов на мужские и женские, прослушивание короткого примера при выборе голоса.
 - Настройки звучания: громкость, тон (системный TTS), пауза между фрагментами, качество Supertonic.
 - Удаление книги долгим нажатием в библиотеке.
 
 ## Статус
 
-Собирается, 31 юнит-тест проходят. Проверено на смартфоне (Redmi Note 13 Pro): импорт TXT/DOCX/PDF, разбор глав, фоновое воспроизведение с уведомлением, конец книги, сохранение скорости и выбранного голоса, удаление книги, скачивание моделей и синтез Piper/Supertonic, переключение движков и предпросмотр голосов, очистка PDF от колонтитулов и номеров страниц, главы из PDF-закладок и по шрифту, пресеты импорта, обложки и alt-текст.
+Собирается, 47 юнит-тестов проходят. Проверено на смартфоне (Redmi Note 13 Pro): импорт TXT/DOCX/PDF, разбор глав, фоновое воспроизведение с уведомлением, конец книги, сохранение скорости и выбранного голоса, удаление книги, скачивание моделей и синтез Piper/Supertonic, синтез Silero v5 и воспроизведение книги, переключение движков и предпросмотр голосов, очистка PDF от колонтитулов и номеров страниц, главы из PDF-закладок и по шрифту, пресеты импорта, обложки и alt-текст.
 
 ## Стек
 
-Kotlin 2.0.21 · Jetpack Compose (Material 3) · Navigation Compose · MVVM · Android TTS · sherpa-onnx (Piper, Supertonic 3) · piper-phonemize · PDFBox-Android · minSdk 24 / targetSdk 35.
+Kotlin 2.0.21 · Jetpack Compose (Material 3) · Navigation Compose · MVVM · Android TTS · sherpa-onnx (Piper, Supertonic 3) · PyTorch Lite (Silero v5) · piper-phonemize · PDFBox-Android · minSdk 24 / targetSdk 35.
 
 ## Сборка
 
@@ -42,6 +42,19 @@ Kotlin 2.0.21 · Jetpack Compose (Material 3) · Navigation Compose · MVVM · A
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
+## Silero v5
+
+Модель Silero не скачивается приложением: PyTorch-пакет нужно один раз сконвертировать в `.ptl` и импортировать в настройках.
+
+```powershell
+python -m pip install torch
+python tools/silero/export_silero.py            # скачает v5_6_ru.pt и соберёт build/silero/silero-5-ru.zip
+```
+
+Затем: Настройки → **Silero v5** → **Импорт** → выбрать `silero-5-ru.zip`. Файлы распакуются в `filesDir/tts/silero-5-ru`.
+
+Лицензия модели Silero v5 — **CC BY-NC 4.0** (некоммерческое использование).
+
 ## Структура
 
 ```
@@ -49,7 +62,7 @@ app/src/main/java/ru/vtext/app/
 ├── data/        # библиотека книг, прогресс, настройки TTS
 ├── domain/      # модели, сегментация текста, парсеры TXT/FB2/EPUB/PDF/DOCX
 ├── player/      # координатор воспроизведения и foreground-сервис
-├── tts/         # системный TTS, OnnxSpeechEngine (Piper/Supertonic), TtsManager, загрузка моделей
+├── tts/         # системный TTS, OnnxSpeechEngine (Piper/Supertonic), SileroSpeechEngine, TtsManager, загрузка моделей
 ├── ui/          # экраны библиотеки, плеера и настроек, тема
 ├── MainActivity.kt
 └── VtextApp.kt
