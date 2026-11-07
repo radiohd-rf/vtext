@@ -58,6 +58,19 @@ internal object SileroText {
     const val FOCUS_INTENSITY = 3
     const val EMPHASIS_TYPE_SHIFT = 6L
 
+    private val BREAK_TAG = Regex("(?is)<break\\b[^>]*>")
+    private val ANY_TAG = Regex("(?s)<[^>]+>")
+    private val TIME_ATTR = Regex("(?i)time\\s*=\\s*\"([0-9.]+)\\s*(ms|s)?\"")
+    private val STRENGTH_ATTR = Regex("(?i)strength\\s*=\\s*\"([a-z-]+)\"")
+    private val STRENGTH_MS = mapOf(
+        "x-weak" to 75,
+        "weak" to 75,
+        "medium" to 150,
+        "strong" to 300,
+        "x-strong" to 1000,
+    )
+    private const val LINE_PAUSE_MS = 220
+
     // ----- Нормализация текста -----
 
     /** Числа записываем словами: Silero выбрасывает все цифры из входа. */
@@ -67,7 +80,11 @@ internal object SileroText {
 
     /** Полная подготовка текста: пользовательский словарь, латиница → кириллица, цифры → слова. */
     fun normalizeForSpeech(text: String, userTerms: Map<String, String> = emptyMap()): String =
-        spellNumbers(transliterateLatin(applyUserDictionary(text, userTerms)))
+        spellNumbers(transliterateLatin(applyUserDictionary(stripFootnotes(text), userTerms)))
+
+    /** Сноски вида «[12]» не читаем: в книгах это ссылки, а не текст. */
+    fun stripFootnotes(text: String): String =
+        GLUED_NUMBER_RE.replace(FOOTNOTE_RE.replace(text, ""), "")
 
     // ----- Пользовательский словарь -----
 
@@ -108,7 +125,11 @@ internal object SileroText {
 
     // ----- Латиница -----
 
-    private val LATIN_WORD = Regex("[A-Za-z][A-Za-z'’]*")
+    private val LATIN_WORD = Regex("[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’]*")
+    private val FOOTNOTE_RE = Regex("\\[\\d{1,3}]")
+
+    /** Сноски, приклеенные к слову: «mariages.21», «sincipide.6». Годы (4 цифры) не трогаем. */
+    private val GLUED_NUMBER_RE = Regex("(?<=[а-яёa-z][.])\\d{1,2}(?!\\d)|(?<=[а-яёa-z])\\d{1,2}(?!\\d)")
 
     private val LETTER_NAMES = mapOf(
         'a' to "эй", 'b' to "би", 'c' to "си", 'd' to "ди", 'e' to "и", 'f' to "эф",
@@ -160,20 +181,101 @@ internal object SileroText {
     /**
      * Переводит латинские слова в кириллицу: Silero не умеет читать латиницу
      * и просто выбрасывает её из входной последовательности.
+     * Французские фразы (частые в русской классике) читаются по французским правилам.
      */
-    fun transliterateLatin(text: String): String = LATIN_WORD.replace(text) { match ->
-        val word = match.value
-        val lower = word.lowercase()
-        TERMS[lower]?.let { return@replace it }
-        // Аббревиатуры из заглавных читаем по буквам: API → «эй-пи-ай».
-        if (word.length <= 5 && word.none { it.isLowerCase() } && word.length > 1) {
-            val letters = lower.mapNotNull { LETTER_NAMES[it] }.joinToString("-")
-            if (letters.isNotEmpty()) return@replace letters
+    fun transliterateLatin(text: String): String {
+        val french = isFrench(text)
+        return LATIN_WORD.replace(text) { match ->
+            val word = normalizeLatin(word = match.value)
+            val lower = word.lowercase()
+            TERMS[lower]?.let { return@replace it }
+            // Аббревиатуры из заглавных читаем по буквам: API → «эй-пи-ай».
+            if (word.length <= 5 && word.none { it.isLowerCase() } && word.length > 1) {
+                val letters = lower.mapNotNull { LETTER_NAMES[it] }.joinToString("-")
+                if (letters.isNotEmpty()) return@replace letters
+            }
+            if (word.length == 1) {
+                LETTER_NAMES[lower[0]]?.let { return@replace it }
+            }
+            if (french) transliterateFrench(lower) else transliterateWord(lower)
         }
-        if (word.length == 1) {
-            LETTER_NAMES[lower[0]]?.let { return@replace it }
+    }
+
+    private val FRENCH_MARKERS = setOf(
+        "le", "la", "les", "de", "des", "du", "je", "tu", "il", "elle", "nous", "vous", "ils",
+        "que", "qui", "pas", "est", "et", "un", "une", "mon", "ma", "mes", "votre", "ce", "cette",
+        "dans", "pour", "avec", "sur", "au", "aux", "comme", "mais", "tout", "tous", "bien",
+    )
+
+    /** Простая эвристика: считаем французские служебные слова в латинском фрагменте. */
+    private fun isFrench(text: String): Boolean {
+        val words = LATIN_WORD.findAll(text).map { it.value.lowercase() }.toList()
+        if (words.isEmpty()) return false
+        val score = words.count { it in FRENCH_MARKERS }
+        return score >= 2 && score * 4 >= words.size
+    }
+
+    private val DIACRITICS = mapOf(
+        'à' to 'а', 'á' to 'а', 'â' to 'а', 'ä' to 'а',
+        'è' to 'е', 'é' to 'е', 'ê' to 'е', 'ë' to 'е',
+        'ì' to 'и', 'í' to 'и', 'î' to 'и', 'ï' to 'и',
+        'ò' to 'о', 'ó' to 'о', 'ô' to 'о', 'ö' to 'о',
+        'ù' to 'у', 'ú' to 'у', 'û' to 'у', 'ü' to 'у',
+        'ç' to 'с', 'ñ' to 'н', 'ß' to 'с',
+    )
+
+    /** Снимает диакритику: символы вроде «é» иначе вырезаются словарём модели. */
+    private fun normalizeLatin(word: String): String = buildString {
+        for (char in word) append(DIACRITICS[char.lowercaseChar()] ?: char)
+    }
+
+    private val FRENCH_DIGRAPHS = listOf(
+        "eaux" to "о", "eau" to "о", "oeu" to "ё", "ill" to "ий", "aux" to "о",
+        "oi" to "уа", "ou" to "у", "ai" to "э", "ei" to "э", "au" to "о", "eu" to "ё",
+        "ch" to "ш", "qu" to "к", "gn" to "нь", "ph" to "ф", "th" to "т",
+        "an" to "ан", "am" to "ам", "en" to "ан", "em" to "ам", "on" to "он", "om" to "ом",
+        "in" to "ен", "im" to "ем", "un" to "ен", "ez" to "е", "er" to "е", "et" to "е",
+    )
+
+    private val FRENCH_LETTERS = mapOf(
+        'a' to "а", 'b' to "б", 'c' to "к", 'd' to "д", 'e' to "е", 'f' to "ф",
+        'g' to "г", 'h' to "", 'i' to "и", 'j' to "ж", 'k' to "к", 'l' to "л",
+        'm' to "м", 'n' to "н", 'o' to "о", 'p' to "п", 'q' to "к", 'r' to "р",
+        's' to "с", 't' to "т", 'u' to "ю", 'v' to "в", 'w' to "в", 'x' to "кс",
+        'y' to "и", 'z' to "з",
+    )
+
+    private fun transliterateFrench(word: String): String {
+        val trimmed = when {
+            word.length >= 3 && word.last() == 'e' -> word.dropLast(1)
+            word.length >= 4 && word.last() in setOf('s', 't', 'x', 'd') -> word.dropLast(1)
+            else -> word
         }
-        transliterateWord(lower)
+        val builder = StringBuilder()
+        var index = 0
+        while (index < trimmed.length) {
+            val rest = trimmed.substring(index)
+            val digraph = FRENCH_DIGRAPHS.firstOrNull { rest.startsWith(it.first) }
+            if (digraph != null) {
+                builder.append(digraph.second)
+                index += digraph.first.length
+                continue
+            }
+            val char = trimmed[index]
+            // Во французском c/g перед e/i читаются мягко.
+            if ((char == 'c' || char == 'g') && index + 1 < trimmed.length &&
+                trimmed[index + 1] in "ei"
+            ) {
+                builder.append(if (char == 'c') "с" else "ж")
+                index++
+                continue
+            }
+            builder.append(FRENCH_LETTERS[char] ?: "")
+            index++
+        }
+        val result = builder.toString()
+        if (result.isEmpty() || result.none { it in "аеёиоуыэюя" }) return transliterateWord(word)
+        return result
     }
 
     private fun transliterateWord(word: String): String {
@@ -459,6 +561,72 @@ internal object SileroText {
     data class Chunk(val text: String, val pauseMs: Int)
 
     fun chunkPlan(text: String, maxChars: Int): List<Chunk> {
+        val segments = splitBySsml(text)
+        val result = mutableListOf<Chunk>()
+        for (segment in segments) {
+            // В стихах перенос строки — естественная пауза между строками.
+            val lines = if (segment.text.contains('\n')) {
+                segment.text.split('\n').filter { it.isNotBlank() }
+            } else {
+                listOf(segment.text)
+            }
+            for ((lineIndex, line) in lines.withIndex()) {
+                val chunks = chunkPlain(line, maxChars)
+                chunks.forEachIndexed { index, chunk ->
+                    val pause = when {
+                        index < chunks.lastIndex -> 0
+                        lineIndex < lines.lastIndex -> maxOf(LINE_PAUSE_MS, pauseAfter(chunk))
+                        else -> maxOf(pauseAfter(chunk), segment.pauseMs)
+                    }
+                    result += Chunk(chunk, pause)
+                }
+            }
+        }
+        return result
+    }
+
+    /** Кусок текста между SSML-паузами и пауза после него. */
+    private data class Segment(val text: String, val pauseMs: Int)
+
+    private fun splitBySsml(text: String): List<Segment> {
+        // <p>/<s> по документации Silero эквивалентны сильным паузам.
+        val normalized = text
+            .replace(Regex("(?i)</p\\s*>"), "<break strength=\"x-strong\"/>")
+            .replace(Regex("(?i)</s\\s*>"), "<break strength=\"strong\"/>")
+        if (!normalized.contains("<break", ignoreCase = true)) {
+            return listOf(Segment(ANY_TAG.replace(normalized, " "), 0))
+        }
+        val segments = mutableListOf<Segment>()
+        var cursor = 0
+        for (match in BREAK_TAG.findAll(normalized)) {
+            val part = ANY_TAG.replace(normalized.substring(cursor, match.range.first), " ").trim()
+            if (part.isNotEmpty()) segments += Segment(part, 0)
+            val pause = ssmlPauseMs(match.value)
+            if (segments.isEmpty()) {
+                segments += Segment("", pause)
+            } else {
+                segments[segments.lastIndex] = segments.last().copy(pauseMs = maxOf(segments.last().pauseMs, pause))
+            }
+            cursor = match.range.last + 1
+        }
+        val tail = ANY_TAG.replace(normalized.substring(cursor), " ").trim()
+        if (tail.isNotEmpty()) segments += Segment(tail, 0)
+        return segments
+    }
+
+    /** Длительность паузы из `<break time="2s"/>` или `strength="strong"`. */
+    private fun ssmlPauseMs(tag: String): Int {
+        TIME_ATTR.find(tag)?.let { match ->
+            val value = match.groupValues[1].toDoubleOrNull() ?: return@let
+            val unit = match.groupValues[2].lowercase()
+            val millis = if (unit == "s") value * 1000 else value
+            return millis.toInt().coerceIn(0, 5000)
+        }
+        val strength = STRENGTH_ATTR.find(tag)?.groupValues?.get(1)?.lowercase()
+        return STRENGTH_MS[strength] ?: 150
+    }
+
+    private fun chunkPlain(text: String, maxChars: Int): List<String> {
         val sentences = SENT_SPLIT_RE.split(text.trim()).filter { it.isNotBlank() }
         val parts = mutableListOf<String>()
         val current = StringBuilder()
@@ -484,7 +652,7 @@ internal object SileroText {
                     acc
                 }
             }
-        }.map { Chunk(it, pauseAfter(it)) }
+        }
     }
 
     /** Пауза после куска: многоточие и тире заметно длиннее, точка уже учтена моделью. */

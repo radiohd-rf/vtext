@@ -177,6 +177,35 @@ class SileroTextTest {
     }
 
     @Test
+    fun buildsSsmlBreaksAndLinePauses() {
+        val ssml = SileroText.chunkPlan("Первое. <break time=\"2s\"/> Второе.", 200)
+        assertEquals(2, ssml.size)
+        assertEquals(2000, ssml.first().pauseMs)
+
+        val strong = SileroText.chunkPlan("<speak>Раз. <break strength=\"strong\"/> Два.</speak>", 200)
+        assertEquals(300, strong.first().pauseMs)
+
+        val poetry = SileroText.chunkPlan("Строка первая\nСтрока вторая\nСтрока третья", 200)
+        assertEquals(3, poetry.size)
+        assertEquals(220, poetry[0].pauseMs)
+        assertEquals(220, poetry[1].pauseMs)
+    }
+
+    @Test
+    fun stripsFootnoteMarkers() {
+        assertEquals("Новый год", SileroText.stripFootnotes("Новый год[12]"))
+        assertEquals("без сносок", SileroText.stripFootnotes("без сносок"))
+    }
+
+    @Test
+    fun transliteratesFrenchPhrases() {
+        val french = SileroText.transliterateLatin("Je ne vous connais plus, mon ami")
+        assertTrue(french.contains("же"))
+        assertTrue(french.contains("ву"))
+        assertTrue(french.contains("плю"))
+    }
+
+    @Test
     fun splitsLongTextIntoChunks() {
         val text = "Первое предложение. Второе предложение. Третье предложение."
         val chunks = SileroText.chunks(text, 20)

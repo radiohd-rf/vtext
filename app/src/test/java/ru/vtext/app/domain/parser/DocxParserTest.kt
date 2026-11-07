@@ -79,6 +79,31 @@ class DocxParserTest {
         assertEquals(listOf("Просто текст без заголовков."), parsed.chapters[0].segments)
     }
 
+    @Test
+    fun `marks italic and bold runs for emphasis`() {
+        val file = createDocx(
+            document = """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body>
+                    <w:p>
+                      <w:r><w:t>Обычный </w:t></w:r>
+                      <w:r><w:rPr><w:i/></w:rPr><w:t>курсив</w:t></w:r>
+                      <w:r><w:t> и </w:t></w:r>
+                      <w:r><w:rPr><w:b/></w:rPr><w:t>жирный</w:t></w:r>
+                    </w:p>
+                  </w:body>
+                </w:document>
+            """.trimIndent(),
+        )
+
+        val parsed = DocxParser().parse(file, "Имя файла")
+
+        val segment = parsed.chapters[0].segments.first()
+        assertTrue(segment.contains("*курсив*"))
+        assertTrue(segment.contains("**жирный**"))
+    }
+
     private fun createDocx(document: String, core: String? = null): File {
         val file = folder.newFile("sample.docx")
         ZipOutputStream(file.outputStream()).use { zip ->

@@ -370,6 +370,16 @@ class SileroSpeechEngine(
             scaled[length - 1] = minOf(scaled[length - 1], 7f)
             if (length >= 2) scaled[length - 2] = 13f
             if (length >= 3) scaled[length - 3] = minOf(scaled[length - 3], 13f)
+            // «…» — тянем последнюю гласную: тот самый per-symbol duration из Silero.
+            if (text.trimEnd().endsWith("…")) {
+                val vowelIndex = (length - 2 downTo 1).firstOrNull { index ->
+                    val symbol = config.idToSymbol[sequence.ids[index].toInt()]
+                    symbol != null && symbol in VOWELS
+                }
+                if (vowelIndex != null) {
+                    scaled[vowelIndex] = (scaled[vowelIndex] * ELLIPSIS_STRETCH).roundToLong().coerceAtLeast(1L).toFloat()
+                }
+            }
             val durationTensor = Tensor.fromBlob(scaled, longArrayOf(1, length.toLong()))
 
             val pitchResult = pitchModule.forward(
@@ -471,6 +481,8 @@ class SileroSpeechEngine(
         private const val MIN_RATE = 0.5f
         private const val MAX_RATE = 3f
         private const val SOS_CAP = 5f
+        private const val ELLIPSIS_STRETCH = 1.5f
+        private const val VOWELS = "аеёиоуыэюя"
         private const val CHUNK_CHARS = 220
         private const val BUFFER_BYTES = 32_768
         private const val WRITE_CHUNK = 4096
@@ -502,6 +514,7 @@ enum class SileroVoice(
 internal class SileroMeta(
     val symbols: String,
     val symbolToId: Map<Char, Int>,
+    val idToSymbol: Map<Int, Char>,
     val sos: String,
     val eos: String,
     val speakers: List<Map<String, Int>>,
@@ -528,6 +541,7 @@ internal class SileroMeta(
             return SileroMeta(
                 symbols = symbols,
                 symbolToId = symbolToId,
+                idToSymbol = symbolToId.entries.associate { (char, id) -> id to char },
                 sos = json.getString("sos"),
                 eos = json.getString("eos"),
                 speakers = speakers,

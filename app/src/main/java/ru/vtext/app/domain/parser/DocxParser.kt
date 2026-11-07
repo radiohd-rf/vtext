@@ -75,6 +75,28 @@ class DocxParser : BookParser {
     private fun paragraphText(paragraph: Element): String {
         val builder = StringBuilder()
         fun walk(node: Node) {
+            if (node is Element && localName(node) == "r") {
+                val text = StringBuilder()
+                collectRunText(node, text)
+                val raw = text.toString()
+                if (raw.isBlank()) {
+                    builder.append(raw)
+                } else {
+                    val properties = firstChildElement(node, "rpr")
+                    val bold = properties != null && isEnabled(properties, "b")
+                    val italic = properties != null && isEnabled(properties, "i")
+                    val leading = if (raw.first().isWhitespace()) " " else ""
+                    val trailing = if (raw.last().isWhitespace()) " " else ""
+                    val core = raw.trim()
+                    val marked = when {
+                        bold -> "**$core**"
+                        italic -> "*$core*"
+                        else -> core
+                    }
+                    builder.append(leading).append(marked).append(trailing)
+                }
+                return
+            }
             if (node is Element) {
                 when (localName(node)) {
                     "t" -> {
@@ -109,6 +131,30 @@ class DocxParser : BookParser {
         }
         walk(paragraph)
         return builder.toString()
+    }
+
+    /** Текст внутри одного run (`w:r`), без вложенных абзацев. */
+    private fun collectRunText(run: Element, builder: StringBuilder) {
+        val children = run.childNodes
+        for (index in 0 until children.length) {
+            val child = children.item(index)
+            if (child !is Element) continue
+            when (localName(child)) {
+                "t" -> builder.append(child.textContent ?: "")
+                "tab" -> builder.append(' ')
+                "br", "cr" -> builder.append('\n')
+                "nobreakhyphen" -> builder.append('-')
+                "rpr" -> Unit
+                else -> collectRunText(child, builder)
+            }
+        }
+    }
+
+    /** Свойство run включено: `<w:b/>` без `w:val` или с `true`/`1`/`on`. */
+    private fun isEnabled(properties: Element, name: String): Boolean {
+        val element = firstChildElement(properties, name) ?: return false
+        val value = element.getAttribute("w:val").ifBlank { element.getAttribute("val") }
+        return value.isBlank() || value !in setOf("0", "false", "off")
     }
 
     private fun isHeading(paragraph: Element): Boolean {
