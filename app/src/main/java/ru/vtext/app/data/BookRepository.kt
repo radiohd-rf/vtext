@@ -171,7 +171,12 @@ class BookRepository(private val context: Context) {
         book.chapters.forEach { chapter ->
             val segments = JSONArray()
             chapter.segments.forEach { segments.put(it) }
-            chapters.put(JSONObject().put("title", chapter.title).put("segments", segments))
+            chapters.put(
+                JSONObject()
+                    .put("title", chapter.title)
+                    .put("segments", segments)
+                    .put("depth", chapter.depth),
+            )
         }
         File(dir, "chapters.json").writeText(chapters.toString())
     }
@@ -187,6 +192,7 @@ class BookRepository(private val context: Context) {
                 Chapter(
                     title = obj.optString("title", "Глава ${index + 1}"),
                     segments = (0 until segments.length()).map { segments.getString(it) },
+                    depth = obj.optInt("depth", 0),
                 )
             }
         }.getOrNull()
@@ -195,6 +201,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 3
+        const val SEGMENT_VERSION = 5
     }
 }

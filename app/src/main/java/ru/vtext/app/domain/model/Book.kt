@@ -6,6 +6,8 @@ enum class BookFormat { TXT, FB2, EPUB, PDF, DOCX }
 data class Chapter(
     val title: String,
     val segments: List<String>,
+    /** 0 — глава/раздел верхнего уровня, 1+ — подглава из оглавления PDF. */
+    val depth: Int = 0,
 )
 
 data class Book(

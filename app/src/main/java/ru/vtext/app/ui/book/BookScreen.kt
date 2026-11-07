@@ -197,7 +197,8 @@ private fun ChapterSelector(state: BookUiState, chapters: List<Chapter>, onSelec
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             TextButton(onClick = { expanded = true }) {
                 Text(
-                    text = stringResource(R.string.chapter_of, chapterIndex + 1, chapters.size),
+                    text = chapters.getOrNull(chapterIndex)?.title
+                        ?: stringResource(R.string.chapter_of, chapterIndex + 1, chapters.size),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -207,9 +208,19 @@ private fun ChapterSelector(state: BookUiState, chapters: List<Chapter>, onSelec
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "${index + 1}. ${chapter.title}",
+                                text = if (chapter.depth > 0) {
+                                    "• ${chapter.title}"
+                                } else {
+                                    "${index + 1}. ${chapter.title}"
+                                },
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
+                                style = if (chapter.depth > 0) {
+                                    MaterialTheme.typography.bodySmall
+                                } else {
+                                    MaterialTheme.typography.bodyLarge
+                                },
+                                modifier = Modifier.padding(start = (chapter.depth * 16).dp),
                             )
                         },
                         onClick = {

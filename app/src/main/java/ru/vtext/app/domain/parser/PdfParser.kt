@@ -1,6 +1,9 @@
 package ru.vtext.app.domain.parser
 
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import ru.vtext.app.domain.TextSegmenter
@@ -10,7 +13,8 @@ import ru.vtext.app.domain.model.ParsedBook
 
 /**
  * Разбор PDF через PDFBox: текст извлекается постранично.
- * Страница — естественная единица навигации для PDF-документа.
+ * Если в PDF есть закладки, главы и подглавы берутся из оглавления;
+ * иначе страница остаётся единицей навигации.
  */
 class PdfParser : BookParser {
 
@@ -32,13 +36,13 @@ class PdfParser : BookParser {
                 }
                 // Убираем номера страниц и повторяющиеся колонтитулы до разбиения на фрагменты.
                 val cleanedPages = ImportTextCleaner.cleanPages(pageTexts).pages
-                val chapters = cleanedPages.mapIndexedNotNull { index, text ->
-                    val segments = TextSegmenter.segment(text)
-                    if (segments.isEmpty()) {
-                        null
-                    } else {
-                        Chapter("Страница ${index + 1}", segments)
+                val outline = readOutline(document)
+                val chapters = if (outline.size >= MIN_OUTLINE_ENTRIES) {
+                    chaptersFromOutline(cleanedPages, outline).ifEmpty {
+                        chaptersFromPages(cleanedPages)
                     }
+                } else {
+                    chaptersFromPages(cleanedPages)
                 }
                 ParsedBook(title, author, chapters)
             }
@@ -48,6 +52,73 @@ class PdfParser : BookParser {
             ParsedBook(fallbackTitle, null, emptyList())
         }
     }
+
+    private data class OutlineEntry(val title: String, val page: Int, val depth: Int)
+
+    private fun readOutline(document: PDDocument): List<OutlineEntry> {
+        val root = document.documentCatalog?.documentOutline ?: return emptyList()
+        val pages = document.pages
+        val result = mutableListOf<OutlineEntry>()
+        fun walk(node: PDOutlineNode, depth: Int) {
+            for (item in node.children()) {
+                val page: PDPage? = runCatching { item.findDestinationPage(document) }.getOrNull()
+                val pageIndex = page?.let { pages.indexOf(it) } ?: -1
+                val title = item.title
+                    ?.replace(WHITESPACE, " ")
+                    ?.trim()
+                    .orEmpty()
+                if (pageIndex in 0 until pages.count && title.isNotBlank()) {
+                    result += OutlineEntry(title, pageIndex, depth.coerceAtMost(MAX_DEPTH))
+                }
+                if (item.hasChildren()) {
+                    walk(item, depth + 1)
+                }
+            }
+        }
+        walk(root, 0)
+        return result
+    }
+
+    private fun chaptersFromOutline(
+        pages: List<String>,
+        outline: List<OutlineEntry>,
+    ): List<Chapter> {
+        val chapters = mutableListOf<Chapter>()
+        var index = 0
+        while (index < outline.size) {
+            val startPage = outline[index].page
+            val samePage = mutableListOf(outline[index])
+            var next = index + 1
+            // Несколько закладок на одной странице (например, «Об авторе» и
+            // «От издательства») объединяем, иначе текст страницы дублируется.
+            while (next < outline.size && outline[next].page == startPage) {
+                samePage += outline[next]
+                next += 1
+            }
+            val title = samePage.map { it.title }.distinct().joinToString(" · ")
+            val depth = samePage.minOf { it.depth }
+            val endPage = outline.drop(next)
+                .firstOrNull { it.page > startPage }
+                ?.page
+                ?: pages.size
+            val safeEnd = endPage.coerceAtMost(pages.size)
+            if (startPage < safeEnd) {
+                val text = pages.subList(startPage, safeEnd).joinToString("\n\n")
+                val segments = TextSegmenter.segment(text)
+                if (segments.isNotEmpty()) {
+                    chapters += Chapter(title, segments, depth)
+                }
+            }
+            index = next
+        }
+        return chapters
+    }
+
+    private fun chaptersFromPages(pages: List<String>): List<Chapter> =
+        pages.mapIndexedNotNull { index, text ->
+            val segments = TextSegmenter.segment(text)
+            if (segments.isEmpty()) null else Chapter("Страница ${index + 1}", segments)
+        }
 
     /** PDF-генераторы часто оставляют заглушки вроде «untitled»/«anonymous». */
     private fun cleanMetadata(value: String?, placeholders: Set<String>): String? {
@@ -59,5 +130,8 @@ class PdfParser : BookParser {
     private companion object {
         val TITLE_PLACEHOLDERS = setOf("untitled", "без названия", "unknown")
         val AUTHOR_PLACEHOLDERS = setOf("anonymous", "unknown", "user", "admin")
+        val WHITESPACE = Regex("\\s+")
+        const val MIN_OUTLINE_ENTRIES = 3
+        const val MAX_DEPTH = 2
     }
 }
