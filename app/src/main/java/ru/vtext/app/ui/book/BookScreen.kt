@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -45,8 +46,6 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -83,11 +82,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 import ru.vtext.app.domain.TextMarkup
@@ -96,6 +99,8 @@ import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.player.PlayerState
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.SileroText
+import ru.vtext.app.tts.SileroVoice
+import ru.vtext.app.tts.VoiceGender
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +118,7 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var activeSheet by remember { mutableStateOf<PlayerSheet?>(null) }
 
     val error = state.error ?: state.player.error
     LaunchedEffect(error) {
@@ -135,20 +141,18 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    SpeedAction(
-                        speed = state.player.speed,
-                        onSelect = viewModel::setSpeed,
-                    )
-                    VoiceAction(
-                        current = state.player.sileroVoice,
-                        onSelect = viewModel::setVoice,
-                    )
+                    SpeedAction(speed = state.player.speed) {
+                        activeSheet = PlayerSheet.SPEED
+                    }
+                    VoiceAction {
+                        activeSheet = PlayerSheet.VOICE
+                    }
                     SleepAction(
-                        current = state.player.sleepTimerMinutes,
-                        untilChapterEnd = state.player.sleepUntilChapterEnd,
-                        onSelect = viewModel::setSleepTimer,
-                        onChapterEnd = viewModel::setSleepUntilChapterEnd,
-                    )
+                        active = state.player.sleepTimerMinutes != null ||
+                            state.player.sleepUntilChapterEnd,
+                    ) {
+                        activeSheet = PlayerSheet.SLEEP
+                    }
                     var bookmarksOpen by remember { mutableStateOf(false) }
                     IconButton(onClick = { bookmarksOpen = true }) {
                         Icon(
@@ -190,6 +194,27 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
                 else -> PlayerContent(state = state, book = book, viewModel = viewModel)
             }
         }
+    }
+
+    activeSheet?.let { sheet ->
+        PlayerOptionsSheet(
+            sheet = sheet,
+            player = state.player,
+            onDismiss = { activeSheet = null },
+            onSpeed = viewModel::setSpeed,
+            onVoice = { id ->
+                viewModel.setVoice(id)
+                activeSheet = null
+            },
+            onSleep = { minutes ->
+                viewModel.setSleepTimer(minutes)
+                activeSheet = null
+            },
+            onSleepChapter = {
+                viewModel.setSleepUntilChapterEnd()
+                activeSheet = null
+            },
+        )
     }
 }
 
@@ -725,91 +750,222 @@ private fun BookmarksDialog(
     )
 }
 
+private enum class PlayerSheet { SPEED, VOICE, SLEEP }
+
 @Composable
-private fun SpeedAction(speed: Float, onSelect: (Float) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val options = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+private fun SpeedAction(speed: Float, onClick: () -> Unit) {
     val description = stringResource(R.string.speed_action, formatSpeed(speed))
-    Box {
-        Row(
-            modifier = Modifier
-                .clip(CircleShape)
-                .clickable { expanded = true }
-                .semantics(mergeDescendants = true) { contentDescription = description }
-                .heightIn(min = 48.dp)
-                .padding(horizontal = 8.dp),
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = description }
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Speed,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(19.dp),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            text = "${formatSpeed(speed)}\u00d7",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun VoiceAction(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            Icons.Filled.RecordVoiceOver,
+            contentDescription = stringResource(R.string.sheet_voice_title),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SleepAction(active: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            Icons.Filled.Schedule,
+            contentDescription = stringResource(R.string.sheet_sleep_title),
+            tint = if (active) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerOptionsSheet(
+    sheet: PlayerSheet,
+    player: PlayerState,
+    onDismiss: () -> Unit,
+    onSpeed: (Float) -> Unit,
+    onVoice: (String) -> Unit,
+    onSleep: (Int?) -> Unit,
+    onSleepChapter: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        when (sheet) {
+            PlayerSheet.SPEED -> SpeedSheet(speed = player.speed, onSelect = onSpeed)
+            PlayerSheet.VOICE -> VoiceSheet(current = player.sileroVoice, onSelect = onVoice)
+            PlayerSheet.SLEEP -> SleepSheet(
+                current = player.sleepTimerMinutes,
+                untilChapterEnd = player.sleepUntilChapterEnd,
+                onSelect = onSleep,
+                onChapterEnd = onSleepChapter,
+            )
+        }
+    }
+}
+
+/** Шторка скорости: горизонтальная шкала 0.5–3.0 с шагом 0.1, как в плеере Bookmate. */
+@Composable
+private fun SpeedSheet(speed: Float, onSelect: (Float) -> Unit) {
+    val values = remember(speed) {
+        val base = (5..30).map { it / 10f }
+        if (base.any { abs(it - speed) < 0.001f }) {
+            base
+        } else {
+            (base + speed).sorted()
+        }
+    }
+    val selectedIndex = values
+        .indexOfFirst { abs(it - speed) < 0.001f }
+        .coerceAtLeast(0)
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (selectedIndex - 2).coerceAtLeast(0),
+    )
+    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+        Text(
+            text = stringResource(R.string.sheet_speed_title),
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(14.dp))
+        LazyRow(
+            state = listState,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 28.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                Icons.Filled.Speed,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(19.dp),
-            )
-            Spacer(Modifier.width(5.dp))
-            Text(
-                text = "${formatSpeed(speed)}\u00d7",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-            )
+            itemsIndexed(values) { _, value ->
+                val selected = abs(value - speed) < 0.001f
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable { onSelect(value) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = "${formatSpeedScale(value)}\u00d7",
+                        style = if (selected) {
+                            MaterialTheme.typography.headlineMedium
+                        } else {
+                            MaterialTheme.typography.titleLarge
+                        },
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        Modifier
+                            .size(6.dp)
+                            .background(
+                                if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.Transparent
+                                },
+                                CircleShape,
+                            ),
+                    )
+                }
+            }
         }
-        SpeedMenu(expanded = expanded, speed = speed, options = options, onDismiss = { expanded = false }, onSelect = onSelect)
     }
 }
 
 @Composable
-private fun SpeedMenu(
-    expanded: Boolean,
-    speed: Float,
-    options: List<Float>,
-    onDismiss: () -> Unit,
-    onSelect: (Float) -> Unit,
+private fun VoiceSheet(current: String?, onSelect: (String) -> Unit) {
+    val selected = SileroVoice.fromId(current)
+    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+        Text(
+            text = stringResource(R.string.sheet_voice_title),
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(10.dp))
+        VoiceGroup(
+            title = stringResource(R.string.voices_female_title),
+            voices = SileroVoice.entries.filter { it.gender == VoiceGender.FEMALE },
+            selectedId = selected.id,
+            onSelect = onSelect,
+        )
+        VoiceGroup(
+            title = stringResource(R.string.voices_male_title),
+            voices = SileroVoice.entries.filter { it.gender == VoiceGender.MALE },
+            selectedId = selected.id,
+            onSelect = onSelect,
+        )
+    }
+}
+
+@Composable
+private fun VoiceGroup(
+    title: String,
+    voices: List<SileroVoice>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        options.forEach { option ->
-            DropdownMenuItem(
-                text = { Text("${formatSpeed(option)}\u00d7") },
-                onClick = {
-                    onSelect(option)
-                    onDismiss()
-                },
-                trailingIcon = if (option == speed) {
-                    { Icon(Icons.Filled.Check, contentDescription = null) }
-                } else {
-                    null
-                },
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 4.dp),
+    )
+    voices.forEach { voice ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onSelect(voice.id) }
+                .padding(horizontal = 24.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = voice.title,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
             )
-        }
-    }
-}
-
-@Composable
-private fun VoiceAction(current: String?, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val voice = ru.vtext.app.tts.SileroVoice.fromId(current)
-    val description = stringResource(R.string.voice_action, voice.title)
-    Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(
-                Icons.Filled.RecordVoiceOver,
-                contentDescription = description,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            ru.vtext.app.tts.SileroVoice.entries.forEach { item ->
-                DropdownMenuItem(
-                    text = { Text(item.title) },
-                    onClick = {
-                        onSelect(item.id)
-                        expanded = false
-                    },
-                    trailingIcon = if (item.id == voice.id) {
-                        { Icon(Icons.Filled.Check, contentDescription = null) }
-                    } else {
-                        null
-                    },
+            if (voice.id == selectedId) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
         }
@@ -817,72 +973,71 @@ private fun VoiceAction(current: String?, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun SleepAction(
+private fun SleepSheet(
     current: Int?,
     untilChapterEnd: Boolean,
     onSelect: (Int?) -> Unit,
     onChapterEnd: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val active = current != null || untilChapterEnd
-    val description = when {
-        untilChapterEnd -> stringResource(R.string.sleep_action_chapter)
-        current != null -> stringResource(R.string.sleep_action_minutes, current)
-        else -> stringResource(R.string.sleep_action_off)
+    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+        Text(
+            text = stringResource(R.string.sheet_sleep_title),
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(10.dp))
+        SleepRow(
+            title = stringResource(R.string.sleep_off),
+            selected = !untilChapterEnd && current == null,
+            onClick = { onSelect(null) },
+        )
+        SleepRow(
+            title = stringResource(R.string.sleep_chapter_end_title),
+            selected = untilChapterEnd,
+            onClick = onChapterEnd,
+        )
+        listOf(15, 30, 60).forEach { minutes ->
+            SleepRow(
+                title = stringResource(R.string.sleep_minutes, minutes),
+                selected = current == minutes,
+                onClick = { onSelect(minutes) },
+            )
+        }
     }
-    val options = listOf(15, 30, 60)
-    Box {
-        IconButton(onClick = { expanded = true }) {
+}
+
+@Composable
+private fun SleepRow(title: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
             Icon(
-                Icons.Filled.Schedule,
-                contentDescription = description,
-                tint = if (active) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.sleep_off)) },
-                onClick = {
-                    onSelect(null)
-                    expanded = false
-                },
-                trailingIcon = if (!active) {
-                    { Icon(Icons.Filled.Check, contentDescription = null) }
-                } else {
-                    null
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.sleep_chapter_end)) },
-                onClick = {
-                    onChapterEnd()
-                    expanded = false
-                },
-                trailingIcon = if (untilChapterEnd) {
-                    { Icon(Icons.Filled.Check, contentDescription = null) }
-                } else {
-                    null
-                },
-            )
-            options.forEach { minutes ->
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.sleep_minutes, minutes)) },
-                    onClick = {
-                        onSelect(minutes)
-                        expanded = false
-                    },
-                    trailingIcon = if (current == minutes) {
-                        { Icon(Icons.Filled.Check, contentDescription = null) }
-                    } else {
-                        null
-                    },
-                )
-            }
-        }
+    }
+}
+
+private fun formatSpeedScale(value: Float): String {
+    val tenths = value * 10f
+    val rounded = tenths.roundToInt()
+    return if (abs(tenths - rounded) < 0.001f) {
+        String.format(Locale.US, "%.1f", value)
+    } else {
+        String.format(Locale.US, "%.2f", value)
     }
 }
 
