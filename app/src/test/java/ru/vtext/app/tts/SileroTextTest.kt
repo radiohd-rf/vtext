@@ -206,6 +206,40 @@ class SileroTextTest {
     }
 
     @Test
+    fun readsYearsInContext() {
+        assertEquals(
+            "в тысяча восемьсот пятом году",
+            SileroText.normalizeForSpeech("в 1805 году"),
+        )
+        assertEquals(
+            "тысяча восемьсот пятого года",
+            SileroText.normalizeForSpeech("1805 года"),
+        )
+        assertEquals(
+            "в тысяча девятисотом году",
+            SileroText.normalizeForSpeech("в 1900 году"),
+        )
+    }
+
+    @Test
+    fun readsRomanNumerals() {
+        assertEquals("глава семнадцать", SileroText.normalizeForSpeech("глава XVII"))
+        assertEquals("", SileroText.normalizeForSpeech("\nII\n").trim())
+    }
+
+    @Test
+    fun expandsAbbreviations() {
+        assertEquals("и так далее", SileroText.expandAbbreviations("и т. д."))
+        assertEquals("смотри страница", SileroText.expandAbbreviations("см. стр."))
+    }
+
+    @Test
+    fun readsDecimalNumbers() {
+        assertEquals("три запятая пять", SileroText.spellNumbers("3,5"))
+        assertEquals("два запятая семьдесят пять", SileroText.spellNumbers("2.75"))
+    }
+
+    @Test
     fun splitsLongTextIntoChunks() {
         val text = "Первое предложение. Второе предложение. Третье предложение."
         val chunks = SileroText.chunks(text, 20)

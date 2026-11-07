@@ -74,13 +74,205 @@ internal object SileroText {
     // ----- Нормализация текста -----
 
     /** Числа записываем словами: Silero выбрасывает все цифры из входа. */
-    fun spellNumbers(text: String): String = Regex("\\d+").replace(text) { match ->
-        spellNumber(match.value.toLongOrNull() ?: 0L)
+    fun spellNumbers(text: String): String = DECIMAL.replace(text) { match ->
+        "${spellNumber(match.groupValues[1].toLong())} запятая ${spellNumber(match.groupValues[2].toLong())}"
+    }.let { withDecimals ->
+        Regex("\\d+").replace(withDecimals) { match ->
+            spellNumber(match.value.toLongOrNull() ?: 0L)
+        }
     }
 
-    /** Полная подготовка текста: пользовательский словарь, латиница → кириллица, цифры → слова. */
-    fun normalizeForSpeech(text: String, userTerms: Map<String, String> = emptyMap()): String =
-        spellNumbers(transliterateLatin(applyUserDictionary(stripFootnotes(text), userTerms)))
+    private val DECIMAL = Regex("(\\d+)[,.](\\d+)")
+
+    /** Полная подготовка текста: словарь, сноски, сокращения, римские числа, годы, латиница, цифры. */
+    fun normalizeForSpeech(text: String, userTerms: Map<String, String> = emptyMap()): String {
+        var value = stripFootnotes(text)
+        value = dropStandaloneRomanLines(value)
+        value = expandAbbreviations(value)
+        value = romanNumeralsToWords(value)
+        value = yearsWithCase(value)
+        value = applyUserDictionary(value, userTerms)
+        value = transliterateLatin(value)
+        return spellNumbers(value)
+    }
+
+    // ----- Сокращения и числа -----
+
+    private val STANDALONE_ROMAN_LINE = Regex("(?m)^\\s*[IVXLCDM]{1,6}\\s*$")
+
+    /** Номер строфы на отдельной строке («II», «XVII») не читаем. */
+    fun dropStandaloneRomanLines(text: String): String =
+        STANDALONE_ROMAN_LINE.replace(text, "").replace(Regex("\\n{3,}"), "\n\n")
+
+    private fun abbreviation(pattern: String) = Regex(
+        "(?i)(?<![а-яёa-z])(?:$pattern)",
+    )
+
+    private val ABBREVIATIONS = listOf(
+        abbreviation("т\\.\\s*д\\.") to "так далее",
+        abbreviation("т\\.\\s*п\\.") to "тому подобное",
+        abbreviation("т\\.\\s*е\\.") to "то есть",
+        abbreviation("см\\.") to "смотри",
+        abbreviation("стр\\.") to "страница",
+        abbreviation("рис\\.") to "рисунок",
+        abbreviation("напр\\.") to "например",
+        abbreviation("др\\.") to "другие",
+        abbreviation("проф\\.") to "профессор",
+        abbreviation("гр\\.") to "гражданин",
+    )
+
+    fun expandAbbreviations(text: String): String {
+        var value = text
+        for ((pattern, replacement) in ABBREVIATIONS) {
+            value = pattern.replace(value, replacement)
+        }
+        return value
+    }
+
+    private val ROMAN_TOKEN = Regex("\\b[IVXLCDM]{1,6}\\b")
+    private val ROMAN_VALUES = mapOf(
+        'I' to 1, 'V' to 5, 'X' to 10, 'L' to 50, 'C' to 100, 'D' to 500, 'M' to 1000,
+    )
+
+    /** Римские числа читаем словами: «XIX» → «девятнадцать», «III» → «три». */
+    fun romanNumeralsToWords(text: String): String = ROMAN_TOKEN.replace(text) { match ->
+        val value = romanToInt(match.value)
+        if (value in 1..3999) spellNumber(value.toLong()) else match.value
+    }
+
+    internal fun romanToInt(value: String): Int {
+        var result = 0
+        var previous = 0
+        for (char in value.reversed()) {
+            val current = ROMAN_VALUES[char] ?: return 0
+            if (current < previous) result -= current else {
+                result += current
+                previous = current
+            }
+        }
+        return result
+    }
+
+    private val YEAR_WITH_WORD = Regex(
+        "(?<![\\d])([12]\\d{3})\\s*(году|года|годом|год|г\\.)(?![а-яё])",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** «1805 году» → «тысяча восемьсот пятом году», «1805 года» → «…пятого года». */
+    fun yearsWithCase(text: String): String = YEAR_WITH_WORD.replace(text) { match ->
+        val year = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+        val word = match.groupValues[2]
+        val case = when (word.lowercase()) {
+            "году" -> NumberCase.PREPOSITIONAL
+            "года" -> NumberCase.GENITIVE
+            else -> NumberCase.NOMINATIVE
+        }
+        val suffix = if (word.lowercase() == "г.") "году" else word
+        "${yearWords(year, case)} $suffix"
+    }
+
+    enum class NumberCase { NOMINATIVE, GENITIVE, PREPOSITIONAL }
+
+    private val ORDINAL_UNITS = arrayOf(
+        triple("", "", ""),
+        triple("первый", "первого", "первом"),
+        triple("второй", "второго", "втором"),
+        triple("третий", "третьего", "третьем"),
+        triple("четвёртый", "четвёртого", "четвёртом"),
+        triple("пятый", "пятого", "пятом"),
+        triple("шестой", "шестого", "шестом"),
+        triple("седьмой", "седьмого", "седьмом"),
+        triple("восьмой", "восьмого", "восьмом"),
+        triple("девятый", "девятого", "девятом"),
+        triple("десятый", "десятого", "десятом"),
+        triple("одиннадцатый", "одиннадцатого", "одиннадцатом"),
+        triple("двенадцатый", "двенадцатого", "двенадцатом"),
+        triple("тринадцатый", "тринадцатого", "тринадцатом"),
+        triple("четырнадцатый", "четырнадцатого", "четырнадцатом"),
+        triple("пятнадцатый", "пятнадцатого", "пятнадцатом"),
+        triple("шестнадцатый", "шестнадцатого", "шестнадцатом"),
+        triple("семнадцатый", "семнадцатого", "семнадцатом"),
+        triple("восемнадцатый", "восемнадцатого", "восемнадцатом"),
+        triple("девятнадцатый", "девятнадцатого", "девятнадцатом"),
+    )
+
+    private val ORDINAL_TENS = arrayOf(
+        triple("", "", ""),
+        triple("", "", ""),
+        triple("двадцатый", "двадцатого", "двадцатом"),
+        triple("тридцатый", "тридцатого", "тридцатом"),
+        triple("сороковой", "сорокового", "сороковом"),
+        triple("пятидесятый", "пятидесятого", "пятидесятом"),
+        triple("шестидесятый", "шестидесятого", "шестидесятом"),
+        triple("семидесятый", "семидесятого", "семидесятом"),
+        triple("восьмидесятый", "восьмидесятого", "восьмидесятом"),
+        triple("девяностый", "девяностого", "девяностом"),
+    )
+
+    private val ORDINAL_HUNDREDS = arrayOf(
+        triple("", "", ""),
+        triple("сотый", "сотого", "сотом"),
+        triple("двухсотый", "двухсотого", "двухсотом"),
+        triple("трёхсотый", "трёхсотого", "трёхсотом"),
+        triple("четырёхсотый", "четырёхсотого", "четырёхсотом"),
+        triple("пятисотый", "пятисотого", "пятисотом"),
+        triple("шестисотый", "шестисотого", "шестисотом"),
+        triple("семисотый", "семисотого", "семисотом"),
+        triple("восьмисотый", "восьмисотого", "восьмисотом"),
+        triple("девятисотый", "девятисотого", "девятисотом"),
+    )
+
+    private fun triple(nominative: String, genitive: String, prepositional: String) =
+        arrayOf(nominative, genitive, prepositional)
+
+    private fun Array<String>.form(case: NumberCase) = when (case) {
+        NumberCase.NOMINATIVE -> this[0]
+        NumberCase.GENITIVE -> this[1]
+        NumberCase.PREPOSITIONAL -> this[2]
+    }
+
+    /** Год словами: 1805 → «тысяча восемьсот пятый», в предложном — «…пятом». */
+    fun yearWords(year: Int, case: NumberCase): String {
+        val thousand = when {
+            year in 1000..1999 -> "тысяча"
+            year in 2000..2999 -> "две тысячи"
+            year in 3000..3999 -> "три тысячи"
+            else -> return spellNumber(year.toLong())
+        }
+        val rest = year % 1000
+        if (rest == 0) {
+            return if (year == 1000) "тысячный" else "$thousand"
+        }
+        return "$thousand ${ordinalWords(rest, case)}"
+    }
+
+    /** Последний ненулевой разряд — порядковый, предыдущие — количественные. */
+    private fun ordinalWords(value: Int, case: NumberCase): String {
+        val hundreds = value / 100
+        val tens = (value % 100) / 10
+        val units = value % 10
+        val teen = value % 100
+        val parts = mutableListOf<String>()
+        when {
+            teen in 10..19 -> {
+                if (hundreds > 0) parts += HUNDREDS[hundreds]
+                parts += ORDINAL_UNITS[teen].form(case)
+            }
+            tens == 0 && units == 0 -> {
+                if (hundreds > 0) parts += ORDINAL_HUNDREDS[hundreds].form(case)
+            }
+            tens > 0 && units == 0 -> {
+                if (hundreds > 0) parts += HUNDREDS[hundreds]
+                parts += ORDINAL_TENS[tens].form(case)
+            }
+            else -> {
+                if (hundreds > 0) parts += HUNDREDS[hundreds]
+                if (tens > 0) parts += TENS[tens]
+                if (units > 0) parts += ORDINAL_UNITS[units].form(case)
+            }
+        }
+        return parts.joinToString(" ")
+    }
 
     /** Сноски вида «[12]» не читаем: в книгах это ссылки, а не текст. */
     fun stripFootnotes(text: String): String =
