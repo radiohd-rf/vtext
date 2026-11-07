@@ -24,6 +24,22 @@ class SileroTextTest {
     }
 
     @Test
+    fun transliteratesEnglishWords() {
+        assertEquals("пайтон и джава", SileroText.transliterateLatin("Python и Java"))
+        assertEquals("баффер", SileroText.transliterateLatin("buffer"))
+        assertEquals("кэш", SileroText.transliterateLatin("cache"))
+        assertEquals("апи", SileroText.transliterateLatin("API"))
+        assertEquals("си-пи-ю", SileroText.transliterateLatin("CPU"))
+        assertEquals("хелло", SileroText.transliterateLatin("Hello"))
+    }
+
+    @Test
+    fun normalizesLatinAndDigits() {
+        assertEquals("глава один про пайтон", SileroText.normalizeForSpeech("глава 1 про Python"))
+        assertEquals("апи", SileroText.normalizeForSpeech("API"))
+    }
+
+    @Test
     fun classifiesSentences() {
         assertEquals("st", SileroText.classifyText("Привет."))
         assertEquals("exclam", SileroText.classifyText("Привет!"))

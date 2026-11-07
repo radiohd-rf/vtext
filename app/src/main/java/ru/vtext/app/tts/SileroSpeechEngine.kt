@@ -162,7 +162,7 @@ class SileroSpeechEngine(
 
     private suspend fun play(token: Int, text: String, utteranceId: String) {
         val config = meta ?: return
-        val chunks = SileroText.chunks(SileroText.spellNumbers(text), CHUNK_CHARS)
+        val chunks = SileroText.chunks(SileroText.normalizeForSpeech(text), CHUNK_CHARS)
         if (chunks.isEmpty()) {
             _events.tryEmit(SpeechEvent.Done(utteranceId))
             return

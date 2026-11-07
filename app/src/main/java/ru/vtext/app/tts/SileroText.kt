@@ -58,6 +58,102 @@ internal object SileroText {
         spellNumber(match.value.toLongOrNull() ?: 0L)
     }
 
+    /** Полная подготовка текста: латиница → кириллица, цифры → слова. */
+    fun normalizeForSpeech(text: String): String = spellNumbers(transliterateLatin(text))
+
+    // ----- Латиница -----
+
+    private val LATIN_WORD = Regex("[A-Za-z][A-Za-z'’]*")
+
+    private val LETTER_NAMES = mapOf(
+        'a' to "эй", 'b' to "би", 'c' to "си", 'd' to "ди", 'e' to "и", 'f' to "эф",
+        'g' to "джи", 'h' to "эйч", 'i' to "ай", 'j' to "джей", 'k' to "кей", 'l' to "эл",
+        'm' to "эм", 'n' to "эн", 'o' to "оу", 'p' to "пи", 'q' to "кью", 'r' to "ар",
+        's' to "эс", 't' to "ти", 'u' to "ю", 'v' to "ви", 'w' to "дабл-ю", 'x' to "экс",
+        'y' to "уай", 'z' to "зет",
+    )
+
+    /** Частые термины: транслитерация «по правилам» их только испортит. */
+    private val TERMS = mapOf(
+        "python" to "пайтон", "java" to "джава", "javascript" to "джаваскрипт",
+        "kotlin" to "котлин", "linux" to "линукс", "windows" to "виндоус",
+        "android" to "андроид", "google" to "гугл", "microsoft" to "майкрософт",
+        "apple" to "эппл", "github" to "гитхаб", "git" to "гит", "sql" to "сиквел",
+        "mysql" to "май-эс-кью-эл", "postgres" to "постгрес", "json" to "джейсон",
+        "xml" to "икс-эм-эл", "html" to "эйч-ти-эм-эл", "css" to "си-эс-эс",
+        "api" to "апи", "http" to "эйч-ти-ти-пи", "https" to "эйч-ти-ти-пи-эс",
+        "url" to "ю-ар-эл", "uri" to "ю-ар-ай", "usb" to "ю-эс-би",
+        "cpu" to "си-пи-ю", "gpu" to "джи-пи-ю", "ram" to "рэм", "ssd" to "эс-эс-ди",
+        "pdf" to "пэ-дэ-эф", "docx" to "докс", "epub" to "эпаб", "fb2" to "эф-бэ-два",
+        "buffer" to "баффер", "cache" to "кэш", "memory" to "мемори", "stack" to "стек",
+        "queue" to "кью", "array" to "эррей", "list" to "лист", "heap" to "хип",
+        "server" to "сервер", "client" to "клиент", "byte" to "байт", "bit" to "бит",
+        "big" to "биг", "data" to "дата", "file" to "файл", "code" to "код",
+        "email" to "имейл", "online" to "онлайн", "offline" to "офлайн",
+        "wifi" to "вай-фай", "wi" to "вай", "fi" to "фай", "ok" to "окей",
+        "ui" to "ю-ай", "ux" to "ю-экс", "sdk" to "эс-дэ-кей", "ide" to "ай-ди-и",
+    )
+
+    private val DIGRAPHS = listOf(
+        "shch" to "щ", "sch" to "ш", "tion" to "шн", "sion" to "жн", "igh" to "ай",
+        "tch" to "ч", "dge" to "дж", "sh" to "ш", "ch" to "ч", "th" to "т",
+        "ph" to "ф", "zh" to "ж", "kh" to "х", "ck" to "к", "qu" to "кв",
+        "oo" to "у", "ee" to "и", "ea" to "и", "ai" to "эй", "ay" to "эй",
+        "ey" to "эй", "oy" to "ой", "oi" to "ой", "ou" to "ау", "ow" to "оу",
+        "au" to "ау", "aw" to "о", "ew" to "ью", "ie" to "и", "ur" to "ер",
+        "ir" to "ир", "ar" to "ар", "or" to "ор", "er" to "ер", "gh" to "",
+    )
+
+    private val LETTERS = mapOf(
+        'a' to "а", 'b' to "б", 'c' to "к", 'd' to "д", 'e' to "е", 'f' to "ф",
+        'g' to "г", 'h' to "х", 'i' to "и", 'j' to "дж", 'k' to "к", 'l' to "л",
+        'm' to "м", 'n' to "н", 'o' to "о", 'p' to "п", 'q' to "к", 'r' to "р",
+        's' to "с", 't' to "т", 'u' to "у", 'v' to "в", 'w' to "в", 'x' to "кс",
+        'y' to "и", 'z' to "з",
+    )
+
+    /**
+     * Переводит латинские слова в кириллицу: Silero не умеет читать латиницу
+     * и просто выбрасывает её из входной последовательности.
+     */
+    fun transliterateLatin(text: String): String = LATIN_WORD.replace(text) { match ->
+        val word = match.value
+        val lower = word.lowercase()
+        TERMS[lower]?.let { return@replace it }
+        // Аббревиатуры из заглавных читаем по буквам: API → «эй-пи-ай».
+        if (word.length <= 5 && word.none { it.isLowerCase() } && word.length > 1) {
+            val letters = lower.mapNotNull { LETTER_NAMES[it] }.joinToString("-")
+            if (letters.isNotEmpty()) return@replace letters
+        }
+        if (word.length == 1) {
+            LETTER_NAMES[lower[0]]?.let { return@replace it }
+        }
+        transliterateWord(lower)
+    }
+
+    private fun transliterateWord(word: String): String {
+        val builder = StringBuilder()
+        var index = 0
+        while (index < word.length) {
+            val rest = word.substring(index)
+            val digraph = DIGRAPHS.firstOrNull { rest.startsWith(it.first) }
+            if (digraph != null) {
+                builder.append(digraph.second)
+                index += digraph.first.length
+                continue
+            }
+            val char = word[index]
+            builder.append(LETTERS[char] ?: "")
+            index++
+        }
+        val result = builder.toString()
+        // «спл» без гласных произнести нельзя — читаем по буквам.
+        if (result.length > 1 && result.none { it in "аеёиоуыэюя" }) {
+            return word.mapNotNull { LETTER_NAMES[it] }.joinToString("-")
+        }
+        return result
+    }
+
     fun spellNumber(value: Long): String {
         if (value == 0L) return "ноль"
         if (value < 0) return "минус " + spellNumber(-value)
