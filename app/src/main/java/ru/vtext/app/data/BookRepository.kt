@@ -74,8 +74,10 @@ class BookRepository(private val context: Context) {
         )
         writeMeta(dir, book)
         writeChapters(dir, book)
-        cache[id] = book
-        book
+        val cover = CoverExtractor.extract(format, source, dir)
+        val bookWithCover = book.copy(coverPath = cover?.absolutePath)
+        cache[id] = bookWithCover
+        bookWithCover
     }
 
     suspend fun loadBook(id: String): Book? = withContext(Dispatchers.IO) {
@@ -83,19 +85,25 @@ class BookRepository(private val context: Context) {
             val dir = File(root, id)
             if (!dir.isDirectory) return@run null
             val meta = readMeta(dir) ?: return@run null
+            val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") }
+            if (coverFile(dir) == null && source != null) {
+                CoverExtractor.extract(meta.format, source, dir)
+            }
             val cachedChapters = readChapters(dir)
             val cachedVersion = readSegmentVersion(dir)
             val useCache = cachedChapters != null && cachedVersion == SEGMENT_VERSION
             val chapters = if (useCache) {
                 cachedChapters
             } else {
-                val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") }
-                    ?: return@run null
+                source ?: return@run null
                 val parsed = parsers.getValue(meta.format).parse(source, meta.title, meta.preset).chapters
                 // Если повторный разбор не удался, лучше оставить старый кэш.
                 parsed.ifEmpty { cachedChapters ?: emptyList() }
             }
-            val book = meta.copy(chapters = chapters)
+            val book = meta.copy(
+                chapters = chapters,
+                coverPath = coverFile(dir)?.absolutePath,
+            )
             // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
             writeChapters(dir, book)
             if (!useCache && chapters.isNotEmpty()) {
@@ -170,9 +178,12 @@ class BookRepository(private val context: Context) {
                 format = BookFormat.valueOf(json.optString("format", BookFormat.TXT.name)),
                 addedAt = json.optLong("addedAt", 0L),
                 preset = TextPreset.fromId(json.optString("preset", TextPreset.AUTO.id)),
+                coverPath = coverFile(dir)?.absolutePath,
             )
         }.getOrNull()
     }
+
+    private fun coverFile(dir: File): File? = File(dir, "cover").takeIf { it.isFile }
 
     private fun writeChapters(dir: File, book: Book) {
         val chapters = JSONArray()
@@ -209,6 +220,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 7
+        const val SEGMENT_VERSION = 8
     }
 }

@@ -93,6 +93,15 @@ class DocxParser : BookParser {
                         builder.append('-')
                         return
                     }
+                    "docpr" -> {
+                        // Alt-текст изображения из wp:docPr.
+                        val alt = node.getAttribute("descr").trim()
+                            .ifBlank { node.getAttribute("title").trim() }
+                        if (alt.isNotBlank()) {
+                            builder.append(' ').append(alt).append(' ')
+                        }
+                        return
+                    }
                 }
             }
             val children = node.childNodes

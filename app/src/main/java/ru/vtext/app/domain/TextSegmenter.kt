@@ -1,5 +1,6 @@
 package ru.vtext.app.domain
 
+import ru.vtext.app.domain.cleanup.CaptionFilter
 import ru.vtext.app.domain.model.TextPreset
 
 /**
@@ -22,7 +23,10 @@ object TextSegmenter {
         text: String,
         maxChars: Int = DEFAULT_MAX_CHARS,
         hardMaxChars: Int = maxChars * 2,
-    ): List<String> {        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+    ): List<String> {
+        val normalized = CaptionFilter.removeCaptions(text)
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
         val paragraphs = normalized
             .split(Regex("\\n\\s*\\n+"))
             .map { it.replace(whitespace, " ").trim() }
@@ -75,7 +79,9 @@ object TextSegmenter {
 
     /** Стихи: сохраняем переносы строк и строфы, не склеиваем предложения. */
     fun segmentPoetry(text: String, maxChars: Int = DEFAULT_MAX_CHARS): List<String> {
-        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+        val normalized = CaptionFilter.removeCaptions(text)
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
         val stanzas = normalized.split(Regex("\\n\\s*\\n+"))
         val result = ArrayList<String>()
         for (stanza in stanzas) {

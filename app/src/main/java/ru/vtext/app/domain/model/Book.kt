@@ -18,6 +18,7 @@ data class Book(
     val addedAt: Long,
     val chapters: List<Chapter> = emptyList(),
     val preset: TextPreset = TextPreset.AUTO,
+    val coverPath: String? = null,
 )
 
 /** Результат разбора файла до сохранения в библиотеку. */

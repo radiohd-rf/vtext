@@ -4,12 +4,21 @@ package ru.vtext.app.domain.parser
 object HtmlText {
 
     private val ignoredBlocks = Regex("(?is)<(script|style|head)[^>]*>.*?</\\1>")
+    private val imageTag = Regex("(?is)<img\\b[^>]*>")
+    private val altAttribute = Regex("""(?is)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')""")
     private val lineBreak = Regex("(?i)<br\\s*/?>")
     private val blockEnd = Regex("(?i)</(p|div|h[1-6]|li|tr|blockquote|section|article)>")
     private val anyTag = Regex("(?s)<[^>]+>")
 
     fun extract(html: String): String {
         var text = ignoredBlocks.replace(html, " ")
+        // Alt-текст изображений полезен для озвучки схем и рисунков.
+        text = imageTag.replace(text) { match ->
+            val alt = altAttribute.find(match.value)?.let { attr ->
+                attr.groupValues[1].ifBlank { attr.groupValues[2] }
+            }.orEmpty().trim()
+            if (alt.isEmpty()) " " else "\n${decodeEntities(alt)}\n"
+        }
         text = lineBreak.replace(text, "\n")
         text = blockEnd.replace(text, "\n\n")
         text = anyTag.replace(text, "")
