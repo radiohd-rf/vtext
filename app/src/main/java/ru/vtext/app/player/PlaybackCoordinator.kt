@@ -257,6 +257,10 @@ class PlaybackCoordinator(
         val chapter = current.chapters.getOrNull(chapterIndex) ?: return
         if (chapter.segments.isEmpty()) return
         val safeSegment = segmentIndex.coerceIn(0, chapter.segments.lastIndex)
+        // Случайный тап по уже звучащему фрагменту не должен начинать его заново.
+        if (current.isPlaying && chapterIndex == current.chapterIndex && safeSegment == current.segmentIndex) {
+            return
+        }
         if (current.isPlaying) {
             speakAt(chapterIndex, safeSegment)
         } else {
