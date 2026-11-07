@@ -19,26 +19,67 @@
 5. Не коммить секреты, ключи, `local.properties`, keystore-файлы и локальные конфиги (см. `.gitignore`).
 6. Учитывай ограничения Android: жизненный цикл, Doze, фоновое воспроизведение, разрешения на чтение файлов (Storage Access Framework).
 
-## Планируемая архитектура (черновик)
+## Стек
 
-- Разделение слоёв: UI → ViewModel → domain (разбор текста, очередь фрагментов) → data (файлы, настройки, состояние).
-- TTS-движок Android (`android.speech.tts.TextToSpeech`) за интерфейсом-обёрткой, чтобы движок можно было заменить.
-- Разбиение книги на предложения/абзацы — для корректной паузы, подсветки и возобновления с места.
-- Сохранение прогресса чтения и позиции в файле.
-- Фоновое воспроизведение — через foreground service.
+- Kotlin 2.0.21, AGP 8.7.3, Gradle 8.11.1, JDK 17.
+- Jetpack Compose (BOM 2024.10.01) + Material 3, Navigation Compose, MVVM.
+- minSdk 24, compileSdk/targetSdk 35.
+- Форматы: TXT, FB2, EPUB.
+- TTS: системный `android.speech.tts.TextToSpeech` за интерфейсом `SpeechEngine`.
+- Хранение: SAF-импорт с копированием в `filesDir/books/<id>/`.
+
+## Архитектура
+
+```
+UI (Compose) → ViewModel (StateFlow) → domain (модели, TextSegmenter, parsers) → data (BookRepository, ProgressStore)
+                                        ↘ tts (SpeechEngine)
+```
+
+- `domain/model` — `Book`, `Chapter`, `ParsedBook`.
+- `domain/parser` — `TxtParser`, `Fb2Parser`, `EpubParser`, `TextDecoder`, `HtmlText`, `XmlSanitizer`.
+- `data` — библиотека в приватном хранилище (`meta.json`, `chapters.json`), прогресс в SharedPreferences.
+- `tts` — `AndroidSpeechEngine` с событиями Started/Done/Error/Stopped.
+- `ui/library` — список книг и импорт; `ui/book` — плеер с подсветкой фрагмента, скоростью и таймером сна.
 
 ## Структура проекта
 
 ```
 vtext/
-├── AGENTS.md      # инструкции для агентов
-├── MEMORY.md      # долговременная память проекта
-├── .gitignore
+├── app/
+│   ├── build.gradle.kts
+│   └── src/
+│       ├── main/java/ru/vtext/app/
+│       │   ├── data/
+│       │   ├── domain/{model,parser}/
+│       │   ├── tts/
+│       │   ├── ui/{library,book,theme}/
+│       │   ├── MainActivity.kt
+│       │   └── VtextApp.kt
+│       ├── main/res/
+│       └── test/java/ru/vtext/app/   # unit-тесты парсеров и сегментации
+├── gradle/                           # wrapper
+├── build.gradle.kts
+├── settings.gradle.kts
+├── gradle.properties
+├── AGENTS.md
+├── MEMORY.md
 └── README.md
 ```
 
-Обновляй этот раздел при добавлении ключевых каталогов (`app/`, `gradle/`, `core/` и т.д.).
-
 ## Команды
 
-_(заполнить после генерации Android-проекта: сборка через `./gradlew assembleDebug`, тесты `./gradlew test`, запуск `./gradlew installDebug`)_
+```powershell
+.\gradlew.bat :app:assembleDebug       # сборка APK
+.\gradlew.bat :app:testDebugUnitTest   # юнит-тесты
+.\gradlew.bat :app:installDebug        # установка на подключённое устройство
+```
+
+Если тесты падают с `Could not find or load main class worker.org.gradle.process.internal.worker.GradleWorkerMain`,
+задай `GRADLE_USER_HOME` на путь без кириллицы (в этом окружении — junction `G:\gradle-home`).
+
+## TODO
+
+- Foreground service для воспроизведения в фоне и уведомления с управлением.
+- Сохранение настроек скорости/таймера между сессиями.
+- Обработка окончания книги, удаление книг из библиотеки.
+- Инструментальные UI-тесты.
