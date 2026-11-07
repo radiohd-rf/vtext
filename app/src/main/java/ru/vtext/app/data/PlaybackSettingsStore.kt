@@ -40,7 +40,7 @@ class PlaybackSettingsStore(context: Context) {
 
     companion object {
         const val MIN_SPEED = 0.5f
-        const val MAX_SPEED = 3f
+        const val MAX_SPEED = 2f
         const val DEFAULT_SPEED = 1f
 
         const val MIN_PITCH = 0.5f

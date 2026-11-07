@@ -117,7 +117,8 @@ class PlaybackCoordinator(
         val safeSegment = segmentIndex.coerceIn(0, (segmentCount - 1).coerceAtLeast(0))
         advanceJob?.cancel()
         engine.stop()
-        val bookSpeed = bookSettings.speed(book.id) ?: settings.speed
+        val bookSpeed = (bookSettings.speed(book.id) ?: settings.speed)
+            .coerceIn(PlaybackSettingsStore.MIN_SPEED, PlaybackSettingsStore.MAX_SPEED)
         val bookVoice = bookSettings.voice(book.id)
         if (bookVoice != null) tts?.applySileroVoice(bookVoice)
         engine.setRate(bookSpeed)

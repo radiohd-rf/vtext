@@ -839,7 +839,7 @@ private fun PlayerOptionsSheet(
 @Composable
 private fun SpeedSheet(speed: Float, onSelect: (Float) -> Unit) {
     val values = remember(speed) {
-        val base = (5..30).map { it / 10f }
+        val base = (5..20).map { it / 10f }
         if (base.any { abs(it - speed) < 0.001f }) {
             base
         } else {
