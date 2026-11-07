@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,6 +36,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -58,6 +62,7 @@ import ru.vtext.app.tts.NeuralModelState
 import ru.vtext.app.tts.SileroVoice
 import ru.vtext.app.tts.TtsEngineType
 import ru.vtext.app.tts.VoiceGender
+import ru.vtext.app.tts.VoiceInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,8 +78,18 @@ fun SettingsScreen(onBack: () -> Unit) {
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var modelPrompt by remember { mutableStateOf(false) }
+    val modelPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importModel(NeuralModel.DEFAULT_SILERO.id, uri)
+        } else {
+            // Файл не выбран — остаёмся на системном TTS.
+            viewModel.selectEngine(TtsEngineType.SYSTEM)
+        }
+    }
     val engineTitle = stringResource(R.string.engine_title)
-    val neuralFallback = stringResource(R.string.neural_fallback)
     val neuralLoading = stringResource(R.string.neural_loading)
     val neuralUnavailable = stringResource(R.string.neural_unavailable)
 
@@ -106,32 +121,29 @@ fun SettingsScreen(onBack: () -> Unit) {
             ) {
                 appearanceSection(state, viewModel, context)
                 sectionHeader(engineTitle)
-            items(TtsEngineType.entries, key = { it.id }) { type ->
-                EngineRow(
-                    type = type,
-                    selected = state.engineType == type,
-                    onClick = { viewModel.selectEngine(type) },
-                )
-            }
-
-            if (state.neural.usingSystemFallback) {
-                item {
-                    Text(
-                        text = neuralFallback,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                items(TtsEngineType.entries, key = { it.id }) { type ->
+                    EngineRow(
+                        type = type,
+                        selected = state.engineType == type,
+                        onClick = {
+                            val model = state.neural.stateOf(NeuralModel.DEFAULT_SILERO)
+                            if (type == TtsEngineType.SILERO && model?.status != ModelStatus.READY) {
+                                modelPrompt = true
+                            } else {
+                                viewModel.selectEngine(type)
+                            }
+                        },
                     )
                 }
-            }
-            item {
-                Text(
-                    text = stringResource(R.string.voice_preview_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                )
-            }
+
+                item {
+                    Text(
+                        text = stringResource(R.string.voice_preview_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
+                }
             if (state.engineType != TtsEngineType.SYSTEM) {
                 when (state.engineState) {
                     EngineState.INITIALIZING -> if (!state.neural.usingSystemFallback) item {
@@ -158,14 +170,51 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
             }
 
-            voiceTuningSection(state, viewModel, context)
-
             when (state.engineType) {
                 TtsEngineType.SYSTEM -> systemVoicesSection(state, viewModel, context)
-                TtsEngineType.SILERO -> sileroSection(state, viewModel, context)
-                }
+                TtsEngineType.SILERO -> sileroVoicesSection(state, viewModel, context)
+            }
+
+            voiceTuningSection(state, viewModel, context)
+
+            if (state.engineType == TtsEngineType.SILERO) {
+                sileroDictionarySection(state, viewModel, context)
             }
         }
+    }
+    }
+
+    if (modelPrompt) {
+        AlertDialog(
+            onDismissRequest = { modelPrompt = false },
+            title = { Text(stringResource(R.string.model_prompt_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.model_prompt_text,
+                        NeuralModel.DEFAULT_SILERO.approxMegabytes,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        modelPrompt = false
+                        viewModel.selectEngine(TtsEngineType.SILERO)
+                        modelPicker.launch(
+                            arrayOf("application/zip", "application/octet-stream", "*/*"),
+                        )
+                    },
+                ) {
+                    Text(stringResource(R.string.import_model))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { modelPrompt = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
@@ -408,7 +457,24 @@ private fun LazyListScope.systemVoicesSection(
         )
     }
 
-    items(state.systemVoices, key = { it.name }) { voice ->
+    val (offline, online) = state.systemVoices.partition { !it.requiresNetwork }
+    if (offline.isNotEmpty()) {
+        groupHeader(context.getString(R.string.voices_offline_title))
+        systemVoiceRows(offline, state, viewModel, "off")
+    }
+    if (online.isNotEmpty()) {
+        groupHeader(context.getString(R.string.voices_network_title))
+        systemVoiceRows(online, state, viewModel, "net")
+    }
+}
+
+private fun LazyListScope.systemVoiceRows(
+    voices: List<VoiceInfo>,
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    keyPrefix: String,
+) {
+    items(voices, key = { "$keyPrefix-${it.name}" }) { voice ->
         val gender = when (voice.gender) {
             VoiceGender.FEMALE -> stringResource(R.string.gender_female)
             VoiceGender.MALE -> stringResource(R.string.gender_male)
@@ -422,10 +488,6 @@ private fun LazyListScope.systemVoicesSection(
                     append(" · ")
                 }
                 append(voice.localeTag)
-                if (voice.requiresNetwork) {
-                    append(" · ")
-                    append(context.getString(R.string.voice_network))
-                }
             },
             selected = state.systemSelectedVoice == voice.name,
             onClick = { viewModel.selectSystemVoice(voice.name) },
@@ -433,43 +495,17 @@ private fun LazyListScope.systemVoicesSection(
     }
 }
 
-private fun LazyListScope.sileroSection(
+private fun LazyListScope.sileroVoicesSection(
     state: SettingsUiState,
     viewModel: SettingsViewModel,
     context: Context,
 ) {
     val model = NeuralModel.DEFAULT_SILERO
     val modelState = state.neural.stateOf(model)
-    sectionHeader(context.getString(R.string.silero_model_title))
-    if (modelState != null) {
-        item(key = modelState.model.id) {
-            val launcher = rememberLauncherForActivityResult(
-                ActivityResultContracts.OpenDocument(),
-            ) { uri ->
-                if (uri != null) viewModel.importModel(modelState.model.id, uri)
-            }
-            ModelRow(
-                item = modelState,
-                selected = state.engineType == TtsEngineType.SILERO,
-                onSelect = { viewModel.selectEngine(TtsEngineType.SILERO) },
-                onDownload = { launcher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
-                onCancel = viewModel::cancelDownload,
-                importLabel = stringResource(R.string.import_model),
-            )
-        }
-    }
 
-    if (modelState?.status != ModelStatus.READY) {
-        item {
-            Text(
-                text = context.getString(R.string.silero_import_hint),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(20.dp),
-            )
-        }
-        return
-    }
+    // Модель показываем только пока её нет: когда всё готово, отдельная карточка —
+    // третий повтор «Silero v5» на одном экране и лишний шум.
+    if (modelState?.status != ModelStatus.READY) return
 
     sectionHeader(context.getString(R.string.voice_title))
     val female = SileroVoice.entries.filter { it.gender == VoiceGender.FEMALE }
@@ -492,6 +528,14 @@ private fun LazyListScope.sileroSection(
             onClick = { viewModel.selectSileroVoice(voice.id) },
         )
     }
+}
+
+private fun LazyListScope.sileroDictionarySection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    context: Context,
+) {
+    if (state.neural.stateOf(NeuralModel.DEFAULT_SILERO)?.status != ModelStatus.READY) return
     sectionHeader(context.getString(R.string.silero_dictionary_title))
     item(key = "silero-dictionary") {
         val dictionaryLauncher = rememberLauncherForActivityResult(
@@ -512,89 +556,6 @@ private fun LazyListScope.sileroSection(
             }
         }
     }
-}
-
-@Composable
-private fun ModelRow(
-    item: NeuralModelState,
-    selected: Boolean,
-    onSelect: () -> Unit,
-    onDownload: () -> Unit,
-    onCancel: () -> Unit,
-    importLabel: String? = null,
-) {
-    val ready = item.status == ModelStatus.READY
-    SettingsCard(selected = selected, onClick = null) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = ready, onClick = onSelect)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(
-                    selected = selected,
-                    onClick = { if (ready) onSelect() },
-                )
-                Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                    Text(text = item.model.displayName, style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        text = modelSubtitle(item),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (item.status == ModelStatus.ERROR) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-                when (item.status) {
-                    ModelStatus.NOT_INSTALLED -> TextButton(onClick = onDownload) {
-                        Text(importLabel ?: stringResource(R.string.download))
-                    }
-                    ModelStatus.DOWNLOADING -> TextButton(onClick = onCancel) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                    ModelStatus.EXTRACTING -> CircularProgressIndicator(Modifier.size(20.dp))
-                    ModelStatus.READY -> if (!selected) TextButton(onClick = onSelect) {
-                        Text(stringResource(R.string.choose))
-                    }
-                    ModelStatus.ERROR -> TextButton(onClick = onDownload) {
-                        Text(importLabel ?: stringResource(R.string.retry))
-                    }
-                }
-            }
-            when (item.status) {
-                ModelStatus.DOWNLOADING -> LinearProgressIndicator(
-                    progress = { item.progress },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                )
-                ModelStatus.EXTRACTING -> LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                )
-                else -> Unit
-            }
-        }
-    }
-}
-
-@Composable
-private fun modelSubtitle(item: NeuralModelState): String {
-    val base = when (item.status) {
-        ModelStatus.NOT_INSTALLED, ModelStatus.READY ->
-            stringResource(R.string.model_size_mb, item.model.approxMegabytes)
-        ModelStatus.DOWNLOADING ->
-            stringResource(R.string.model_downloading, (item.progress * 100).toInt())
-        ModelStatus.EXTRACTING -> stringResource(R.string.model_extracting)
-        ModelStatus.ERROR -> item.error ?: stringResource(R.string.model_size_mb, item.model.approxMegabytes)
-    }
-    val gender = when (item.model.gender) {
-        VoiceGender.FEMALE -> stringResource(R.string.gender_female)
-        VoiceGender.MALE -> stringResource(R.string.gender_male)
-        VoiceGender.UNKNOWN -> null
-    }
-    return if (gender != null) "$gender · $base" else base
 }
 
 @Composable

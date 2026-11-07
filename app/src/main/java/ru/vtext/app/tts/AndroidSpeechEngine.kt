@@ -119,12 +119,28 @@ class AndroidSpeechEngine(
     }
 
     private fun publishVoices(engine: TextToSpeech) {
-        val available = engine.voices
+        val voices = engine.voices
             ?.filter { it.locale.language.equals("ru", ignoreCase = true) }
             ?.map { voice -> voice.toInfo() }
-            ?.sortedWith(compareBy({ it.localeTag }, { it.name }))
+            // Один и тот же голос может прийти из нескольких движков — не дублируем.
+            ?.distinctBy { it.name }
+            // Сначала офлайн-голоса, потом сетевые; внутри — по техническому имени.
+            ?.sortedWith(compareBy({ it.requiresNetwork }, { it.name }))
             ?: emptyList()
-        _voices.value = available
+
+        // Android не даёт голосам человеческих имён: у всех «Русский (Россия)».
+        // Нумеруем их, иначе список выглядит как одинаковые строки.
+        val totals = voices.groupingBy { it.localeTag }.eachCount()
+        val seen = mutableMapOf<String, Int>()
+        _voices.value = voices.map { voice ->
+            val index = (seen[voice.localeTag] ?: 0) + 1
+            seen[voice.localeTag] = index
+            if ((totals[voice.localeTag] ?: 1) > 1) {
+                voice.copy(displayName = "${voice.displayName} · $index")
+            } else {
+                voice
+            }
+        }
     }
 
     private fun applySavedVoice(engine: TextToSpeech) {

@@ -112,6 +112,17 @@ class TtsManager(
         systemEngine.setRate(rate)
         systemEngine.setPitch(playbackSettings.pitch)
         systemEngine.setVolume(volume)
+        // Без установленной модели Silero движок недоступен — остаёмся на системном TTS.
+        if (_engineType.value == TtsEngineType.SILERO) {
+            val status = _models.value
+                .firstOrNull { it.model == NeuralModel.DEFAULT_SILERO }
+                ?.status
+            if (status != ModelStatus.READY) {
+                settings.engineType = TtsEngineType.SYSTEM
+                _engineType.value = TtsEngineType.SYSTEM
+                _neuralSettings.update { it.copy(engineType = TtsEngineType.SYSTEM) }
+            }
+        }
         activate()
     }
 
@@ -167,6 +178,10 @@ class TtsManager(
                         progress = 0f,
                         error = error.message ?: "Не удалось импортировать модель",
                     )
+                }
+                // Модели нет — оставлять выбор на Silero нельзя.
+                if (_engineType.value == TtsEngineType.SILERO) {
+                    selectEngine(TtsEngineType.SYSTEM)
                 }
             }
         }
