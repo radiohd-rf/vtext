@@ -152,6 +152,8 @@ class TtsManager(
             }
             if (engine.state.value == EngineState.READY) {
                 android.util.Log.i("vtext-tts", "voice preview: ${engine.javaClass.simpleName}")
+                // Пример всегда звучит в естественном темпе, независимо от скорости книги.
+                engine.setRate(1f)
                 engine.speak(PREVIEW_TEXT, PREVIEW_UTTERANCE_ID)
             }
         }
@@ -230,6 +232,7 @@ class TtsManager(
 
     override fun speak(text: String, utteranceId: String) {
         previewJob?.cancel()
+        _active.value.setRate(rate)
         _active.value.speak(text, utteranceId)
     }
 
