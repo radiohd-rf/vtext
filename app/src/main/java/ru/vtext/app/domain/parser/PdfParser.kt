@@ -4,7 +4,6 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
-import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import ru.vtext.app.domain.TextSegmenter
 import ru.vtext.app.domain.cleanup.CleanupOptions
@@ -33,10 +32,9 @@ class PdfParser : BookParser {
 
                 val pageCount = document.numberOfPages
                 val pageTexts = (1..pageCount).map { page ->
-                    val stripper = PDFTextStripper().apply {
+                    val stripper = PdfTextExtractor().apply {
                         startPage = page
                         endPage = page
-                        sortByPosition = true
                     }
                     runCatching { stripper.getText(document) }.getOrDefault("")
                 }

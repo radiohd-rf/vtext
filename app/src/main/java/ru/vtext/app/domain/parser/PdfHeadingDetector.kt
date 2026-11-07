@@ -23,11 +23,12 @@ class PdfLayoutExtractor : PDFTextStripper() {
     }
 
     override fun writeString(text: String, textPositions: List<TextPosition>) {
-        if (text.isBlank() || textPositions.isEmpty()) return
-        val first = textPositions.first()
-        val normalized = text.replace(WHITESPACE, " ").trim()
+        val visible = textPositions.filterNot { isSymbolFont(it.font?.name) }
+        if (visible.isEmpty()) return
+        val first = visible.first()
+        val normalized = visibleText(visible)
         if (normalized.isEmpty()) return
-        val size = textPositions.maxOf { it.fontSizeInPt }
+        val size = visible.maxOf { it.fontSizeInPt }
         if (size <= 0f) return
         val fontName = first.font?.name.orEmpty().lowercase()
         lines += PdfLineInfo(
@@ -41,7 +42,6 @@ class PdfLayoutExtractor : PDFTextStripper() {
     }
 
     private companion object {
-        val WHITESPACE = Regex("\\s+")
         val BOLD_MARKERS = listOf("bold", "black", "heavy", "semibold", "demi")
     }
 }
