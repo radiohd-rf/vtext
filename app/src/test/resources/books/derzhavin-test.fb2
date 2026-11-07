@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <description>
+    <title-info>
+      <genre>poetry</genre>
+      <author><first-name>Гавриил</first-name><last-name>Державин</last-name></author>
+      <book-title>Духовные оды (тест)</book-title>
+      <lang>ru</lang>
+    </title-info>
+    <document-info>
+      <author><nickname>vtext</nickname></author>
+      <program-used>vtext test data</program-used>
+    </document-info>
+  </description>
+  <body>
+    <section>
+      <title><p>This eBook is for the use of anyone anywhere in the United S</p></title>
+      <epigraph><p><emphasis>Из собрания духовных од</emphasis></p></epigraph>
+      <poem>
+        <stanza>
+        <v>most other parts of the world at no cost and with almost no restrictions</v>
+        <v>whatsoever. You may copy it, give it away or re-use it under the terms</v>
+        <v>of the Project Gutenberg License included with this eBook or online</v>
+        <v>at www.gutenberg.org. If you are not located in the United States,</v>
+        <v>you will have to check the laws of the country where you are located</v>
+        <v>before using this eBook.</v>
+        </stanza>
+      </poem>
+      <p>Сноска к оде<sup>1</sup> и <emphasis>выделенное</emphasis> место.</p>
+    </section>
+    <section>
+      <title><p>Creating the works from print editions not protected by U.S.</p></title>
+      <epigraph><p><emphasis>Из собрания духовных од</emphasis></p></epigraph>
+      <poem>
+        <stanza>
+        <v>law means that no one owns a United States copyright in these works,</v>
+        <v>so the Foundation (and you!) can copy and distribute it in the United</v>
+        <v>States without permission and without paying copyright</v>
+        <v>royalties. Special rules, set forth in the General Terms of Use part</v>
+        <v>of this license, apply to copying and distributing Project</v>
+        <v>Gutenberg™ electronic works to protect the PROJECT GUTENBERG™</v>
+        <v>concept and trademark. Project Gutenberg is a registered trademark,</v>
+        <v>and may not be used if you charge for an eBook, except by following</v>
+        <v>the terms of the trademark license, including paying royalties for use</v>
+        <v>of the Project Gutenberg trademark. If you do not charge anything for</v>
+        <v>copies of this eBook, complying with the trademark license is very</v>
+        <v>easy. You may use this eBook for nearly any purpose such as creation</v>
+        <v>of derivative works, reports, performances and research. Project</v>
+        <v>Gutenberg eBooks may be modified and printed and given away—you may</v>
+        <v>do practically ANYTHING in the United States with eBooks not protected</v>
+        <v>by U.S. copyright law. Redistribution is subject to the trademark</v>
+        <v>license, especially commercial redistribution.</v>
+        </stanza>
+      </poem>
+      <p>Сноска к оде<sup>1</sup> и <emphasis>выделенное</emphasis> место.</p>
+    </section>
+    <section>
+      <title><p>To protect the Project Gutenberg™ mission of promoting the f</p></title>
+      <epigraph><p><emphasis>Из собрания духовных од</emphasis></p></epigraph>
+      <poem>
+        <stanza>
+        <v>distribution of electronic works, by using or distributing this work</v>
+        <v>(or any other work associated in any way with the phrase “Project</v>
+        <v>Gutenberg”), you agree to comply with all the terms of the Full</v>
+        <v>Project Gutenberg License available with this file or online at</v>
+        <v>www.gutenberg.org/license.</v>
+        </stanza>
+      </poem>
+      <p>Сноска к оде<sup>1</sup> и <emphasis>выделенное</emphasis> место.</p>
+    </section>
+    <section>
+      <title><p>1.A. By reading or using any part of this Project Gutenberg</p></title>
+      <epigraph><p><emphasis>Из собрания духовных од</emphasis></p></epigraph>
+      <poem>
+        <stanza>
+        <v>electronic work, you indicate that you have read, understand, agree to</v>
+        <v>and accept all the terms of this license and intellectual property</v>
+        <v>(trademark/copyright) agreement. If you do not agree to abide by all</v>
+        <v>the terms of this agreement, you must cease using and return or</v>
+        <v>destroy all copies of Project Gutenberg electronic works in your</v>
+        <v>possession. If you paid a fee for obtaining a copy of or access to a</v>
+        <v>Project Gutenberg electronic work and you do not agree to be bound</v>
+        <v>by the terms of this agreement, you may obtain a refund from the person</v>
+        <v>or entity to whom you paid the fee as set forth in paragraph 1.E.8.</v>
+        </stanza>
+      </poem>
+      <p>Сноска к оде<sup>1</sup> и <emphasis>выделенное</emphasis> место.</p>
+    </section>
+  </body>
+  <body name="notes">
+    <title><p>Примечания</p></title>
+    <section id="n1">
+      <title><p>1</p></title>
+      <p>Тестовая сноска: этот текст не должен читаться вместе с одой.</p>
+    </section>
+  </body>
+</FictionBook>
