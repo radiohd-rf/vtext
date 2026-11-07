@@ -129,11 +129,71 @@ def save_lite(module, path: str) -> None:
     print(f"  {os.path.basename(path)}: {os.path.getsize(path) // 1048576} МБ")
 
 
+def decapitalize_stress(name: str) -> str:
+    """«зАмок» → «з+амок»: возвращает вариант ударения из имени группы."""
+    for index, char in enumerate(name):
+        if char.isupper():
+            return name[:index] + "+" + name[index:].lower()
+    return name
+
+
+def build_phrases(out: str, package) -> list:
+    """Сохраняет фразовые правила омографов: контекстные словосочетания → вариант."""
+    import json
+    import re
+
+    homosolver = package.accentor.homosolver
+    rules = {}
+    for word, pattern in homosolver.compiled_phrases.items():
+        variants = [
+            decapitalize_stress(name)
+            for name, _ in sorted(pattern.groupindex.items(), key=lambda item: item[1])
+        ]
+        # Имена групп цифрами: Java-регекс не поддерживает кириллицу в именах.
+        source = re.sub(r"\(\?P<[^>]+>", "(", pattern.pattern)
+        rules[word] = {"variants": variants, "pattern": source}
+
+    path = os.path.join(out, "phrases.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(rules, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    print(f"  phrases.json: {os.path.getsize(path) // 1024} КБ, {len(rules)} слов")
+    return ["phrases.json"]
+
+
+def build_homosolver(out: str, package) -> list:
+    """Сохраняет модель омографов, BERT-словарь и словарь вариантов."""
+    import json
+
+    homosolver = package.accentor.homosolver
+    model_path = os.path.join(out, "homosolver.ptl")
+    homosolver.model._save_for_lite_interpreter(model_path)
+    print(f"  homosolver.ptl: {os.path.getsize(model_path) // 1048576} МБ")
+
+    vocab_path = os.path.join(out, "vocab.txt")
+    vocab = homosolver.tokenizer.vocab
+    # Пишем строго по id: [HOMO] и [/HOMO] добавлены через added_tokens.json
+    # и не совпадают с порядком ключей словаря.
+    size = max(vocab.values()) + 1
+    tokens = [""] * size
+    for token, index in vocab.items():
+        tokens[index] = token
+    with open(vocab_path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(tokens))
+    print(f"  vocab.txt: {os.path.getsize(vocab_path) // 1024} КБ ({size} токенов)")
+
+    homodict_path = os.path.join(out, "homodict.json")
+    with open(homodict_path, "w", encoding="utf-8") as handle:
+        json.dump(homosolver.homodict, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    print(f"  homodict.json: {os.path.getsize(homodict_path) // 1024} КБ, {len(homosolver.homodict)} слов")
+    return ["homosolver.ptl", "vocab.txt", "homodict.json"] + build_phrases(out, package)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="build/silero", help="куда сложить результат")
     parser.add_argument("--weights", default=None, help="путь к уже скачанному v5_6_ru.pt")
     parser.add_argument("--no-stress", action="store_true", help="не включать словарь ударений RUAccent")
+    parser.add_argument("--no-homosolver", action="store_true", help="не включать модель омографов")
     args = parser.parse_args()
 
     torch.set_grad_enabled(False)
@@ -169,6 +229,10 @@ def main() -> None:
         json.dump(meta, handle, ensure_ascii=False, indent=1)
 
     files = ["accentor.ptl", "dur.ptl", "pitch.ptl", "tacotron.ptl", "vocoder48.ptl", "meta.json"]
+    if not args.no_homosolver:
+        files += build_homosolver(out, package)
+    else:
+        print("Модель омографов пропущена (--no-homosolver)")
     if not args.no_stress:
         build_stress_dictionary(out)
         files.append(STRESS_FILE)

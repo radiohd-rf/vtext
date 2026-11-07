@@ -64,6 +64,7 @@ class SileroSpeechEngine(
     private var vocoder: Module? = null
     private var meta: SileroMeta? = null
     private var stressDictionary: SileroStressDictionary? = null
+    private var homosolver: SileroHomosolver? = null
 
     private var playbackJob: Job? = null
     private var pending: Pair<String, String>? = null
@@ -101,8 +102,25 @@ class SileroSpeechEngine(
         vocoder = LiteModuleLoader.load(File(modelDir, "vocoder48.ptl").absolutePath)
         stressDictionary = SileroStressDictionary.open(File(modelDir, STRESS_FILE))
         Log.i(TAG, "Словарь ударений: ${if (stressDictionary != null) "подключён" else "нет"}")
+        val solver = loadHomosolver()
+        homosolver = solver
+        Log.i(TAG, "Омографы: ${if (solver != null) "подключены" else "нет"}")
         return meta
     }
+
+    private fun loadHomosolver(): SileroHomosolver? = runCatching {
+        val model = File(modelDir, HOMOSOLVER_FILE)
+        val vocab = File(modelDir, VOCAB_FILE)
+        val dictionary = File(modelDir, HOMODICT_FILE)
+        val phrases = File(modelDir, PHRASES_FILE)
+        if (!model.isFile || !vocab.isFile || !dictionary.isFile) return null
+        SileroHomosolver(
+            module = LiteModuleLoader.load(model.absolutePath),
+            tokenizer = SileroBertTokenizer(vocab),
+            homodict = SileroHomosolver.parseHomodict(dictionary),
+            phrases = if (phrases.isFile) SileroHomosolver.parsePhrases(phrases) else emptyMap(),
+        )
+    }.getOrNull()
 
     override fun setRate(rate: Float) {
         this.rate = rate.coerceIn(MIN_RATE, MAX_RATE)
@@ -161,6 +179,7 @@ class SileroSpeechEngine(
         vocoder = null
         stressDictionary?.close()
         stressDictionary = null
+        homosolver = null
     }
 
     // ----- Воспроизведение -----
@@ -291,8 +310,9 @@ class SileroSpeechEngine(
             val acousticModule = acoustic ?: return@withContext FloatArray(0)
             val vocoderModule = vocoder ?: return@withContext FloatArray(0)
 
+            val homosolved = homosolver?.solve(text) ?: text
             val accented = SileroText.accent(
-                text,
+                homosolved,
                 lookupStress = { word -> stressDictionary?.stressIndex(word) ?: -1 },
             ) { words ->
                 predictStress(accentorModule, words)
@@ -424,6 +444,10 @@ class SileroSpeechEngine(
         private const val TAG = "vtext-tts"
         private const val META_FILE = "meta.json"
         private const val STRESS_FILE = "stress.bin"
+        private const val HOMOSOLVER_FILE = "homosolver.ptl"
+        private const val VOCAB_FILE = "vocab.txt"
+        private const val HOMODICT_FILE = "homodict.json"
+        private const val PHRASES_FILE = "phrases.json"
         const val DICTIONARY_FILE = "silero-dictionary.txt"
         private const val SAMPLE_RATE = 48_000
         private const val MIN_RATE = 0.5f
