@@ -1,7 +1,9 @@
 package ru.vtext.app.tts
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 enum class EngineState { INITIALIZING, READY, ERROR }
 
@@ -25,6 +27,9 @@ interface SpeechEngine {
     val events: SharedFlow<SpeechEvent>
     val voices: StateFlow<List<VoiceInfo>>
     val selectedVoice: StateFlow<String?>
+
+    /** Сигнал о смене движка: текущий фрагмент нужно озвучить заново. */
+    val engineChanges: Flow<Unit> get() = emptyFlow()
 
     fun setRate(rate: Float)
     fun setVoice(name: String?)

@@ -75,6 +75,15 @@ class PlaybackCoordinator(
                 }
             }
         }
+        scope.launch {
+            // Смена движка (системный ↔ нейросетевой): перечитываем текущий фрагмент.
+            engine.engineChanges.collect {
+                val current = _state.value
+                if (current.isPlaying) {
+                    speakAt(current.chapterIndex, current.segmentIndex)
+                }
+            }
+        }
     }
 
     fun load(book: Book, chapterIndex: Int, segmentIndex: Int, autoPlay: Boolean) {

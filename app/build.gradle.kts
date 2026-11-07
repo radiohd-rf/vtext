@@ -14,6 +14,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        ndk {
+            // Нейросетевые движки (sherpa-onnx) поставляются только под ARM.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
@@ -52,6 +57,12 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.4")
     implementation("androidx.media:media:1.7.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+    // Локальный нейросетевой TTS (Piper, Supertonic) на ONNX Runtime.
+    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
+    // Фронтенд piper-phonemize (espeak-ng) для моделей Piper без лексикона.
+    implementation(files("libs/piper-phonemize-v1.5.9.aar"))
+    implementation("org.apache.commons:commons-compress:1.27.1")
 
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.compose.ui:ui")

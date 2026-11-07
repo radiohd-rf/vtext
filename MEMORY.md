@@ -84,7 +84,8 @@
 - Язык: **Kotlin 2.0.21**, AGP 8.7.3, Gradle 8.11.1, JDK 17 (toolchain-совместимо с JDK 21).
 - UI: **Jetpack Compose** (BOM 2024.10.01) + Material 3, одноактивити, Navigation Compose.
 - Архитектура: MVVM, слои UI → ViewModel → domain → data.
-- TTS: `android.speech.tts.TextToSpeech` за интерфейсом `SpeechEngine` (системный движок — единственный вариант).
+- TTS: `android.speech.tts.TextToSpeech` за интерфейсом `SpeechEngine` (системный движок) + локальные нейродвижки **Piper** и **Supertonic 3** через `sherpa-onnx`.
+- Нейро-TTS: `sherpa-onnx 2.0.1` AAR (`app/libs/sherpa-onnx-2.0.1.aar`), `piper-phonemize 1.5.9` AAR для espeak-фонем Piper. Модели скачиваются из GitHub Releases при первом выборе движка.
 - Файлы: SAF (`OpenMultipleDocuments`), файл **копируется** в приватное хранилище `filesDir/books/<id>/source.<ext>`.
 - Форматы: **TXT, FB2, EPUB, PDF, DOCX** (реализованы парсеры). DOCX — ZIP + `word/document.xml`; PDF — PDFBox-Android постранично.
 - Язык: интерфейс и озвучка только на русском; список голосов фильтруется по `locale.language == "ru"`, язык TTS принудительно `ru-RU`.
@@ -95,6 +96,7 @@
 
 Принципы:
 - TTS-движок изолирован интерфейсом — можно заменить или замокать.
+- Единый интерфейс движка: `TtsManager` реализует `SpeechEngine`, переключает системный/нейро-движок и транслирует события в `PlaybackCoordinator`.
 - Текст заранее разбивается на предложения/абзацы; очередь фрагментов — единица воспроизведения и возобновления.
 - Полный текст книги не держим в памяти целиком — читаем потоково, если файл большой.
 - Единый источник правды о воспроизведении — `PlaybackCoordinator` в `Application`; сервис и ViewModel только читают его состояние и вызывают методы.
@@ -122,6 +124,14 @@
 | 2026-11-07 | DOCX своим парсером на ZIP + DOM | Без тяжёлых зависимостей; достаточно `word/document.xml` |
 | 2026-11-07 | Главы PDF = страницы («Страница N») | В PDF нет надёжных глав; страница — естественная единица навигации |
 | 2026-11-07 | Только русский язык и русские голоса | Требование продукта; убирает нерелевантные голоса из настроек |
+| 2026-11-07 | Добавлены нейродвижки Piper и Supertonic 3 одновременно | Пользователь тестирует оба и выбирает лучший; системный TTS остаётся запасным |
+| 2026-11-07 | sherpa-onnx 2.0.1 + piper-phonemize 1.5.9 как локальные AAR в `app/libs/` | В Maven Central нет Android-артефакта sherpa-onnx; сборка воспроизводима без JitPack |
+| 2026-11-07 | Модели скачиваются в `filesDir/tts/<id>/` и распаковываются `commons-compress` | APK не раздувается на 150+ МБ; модели можно менять без переустановки |
+| 2026-11-07 | Piper-модели озвучиваются через `piper-phonemize` (espeak), `dataDir` sherpa-onnx игнорируется | В sherpa-onnx 2.0.1 убран встроенный espeak-фронтенд; без фонем Piper падает/молчит |
+| 2026-11-07 | Supertonic: `GenerationConfig(extra = {lang: ru}, numSteps = 5)` | 5 шагов — компромисс скорости и качества; 8 шагов даёт заметные паузы между фрагментами |
+| 2026-11-07 | Синтез через `generateWithConfig` + запись в `AudioTrack`, без JNI-callback | JNI-callback падал с `NoSuchMethodError` на лямбде; стабильность важнее стриминга |
+| 2026-11-07 | При смене движка `OnnxSpeechEngine` отпускает модель после завершения текущего синтеза | `OfflineTts.release()` во время `generate` — use-after-free и нативный краш |
+| 2026-11-07 | Смена движка во время воспроизведения перечитывает текущий фрагмент | `SpeechEngine.engineChanges` → `PlaybackCoordinator.speakAt` |
 
 ## Соглашения
 
@@ -162,6 +172,13 @@
 - Список голосов TTS фильтруется только по русскому языку; сохранённый ранее нерусский голос игнорируется и заменяется русским по умолчанию.
 - `adb install` на MIUI может падать с `INSTALL_FAILED_USER_RESTRICTED`; рабочий обход — `adb push` APK в `/data/local/tmp` и `adb shell pm install -r`.
 - На этом смартфоне (Redmi Note 13 Pro, MIUI) DocumentsUI ищет файлы по поиску, но `adb shell input text sample.pdf` вставляет пробел после точки; для автоматизации лучше искать `sample`, а нужную строку выбирать по `bounds` из `uiautomator dump`.
+- sherpa-onnx: если модель лежит в `filesDir`, в `OfflineTts` нужно передавать `assetManager = null`. С `application.assets` нативная библиотека считает путь относительным ассету, пишет `Read binary file ... failed` и **убивает процесс** (SIGABRT), а не бросает Java-исключение.
+- sherpa-onnx 2.0.1 не умеет espeak-фронтенд для Piper через `dataDir` — параметр игнорируется. Нужен `piper-phonemize` и `GenerationConfig.phonemeCodepoints`; `piperPhonemizeInitialize(context)` сам распаковывает `espeak-ng-data` в `filesDir`.
+- `generateWithConfigAndCallback` из sherpa-onnx падает на Kotlin-лямбде: JNI ищет `invoke([F)Ljava/lang/Integer;`, а D8 генерирует другой синтетический метод (`NoSuchMethodError` → JNI abort). Используем `generateWithConfig` без callback.
+- `OfflineTts.release()` нельзя вызывать, пока в фоновом потоке выполняется `generate()` — нативный краш. Освобождение откладывается до завершения `Job` через `invokeOnCompletion`.
+- Piper и Supertonic отдают разную частоту дискретизации (22050 и 44100 Гц) — `AudioTrack` создаётся по `GeneratedAudio.sampleRate`, нельзя хардкодить.
+- Supertonic 3 на Redmi Note 13 Pro: память процесса до ~650 МБ в пике, синтез при скорости 1.5× примерно равен реальному времени (при 1× — быстрее). При 8 шагах паузы между фрагментами заметны, при 5 — терпимо.
+- APK с обеими AAR и ABI `arm64-v8a`/`armeabi-v7a` ≈ 96 МБ; при необходимости оставить только `arm64-v8a`.
 
 ## Журнал изменений
 
@@ -169,3 +186,4 @@
 - **2026-11-07** — сгенерирован Android-проект: Kotlin + Compose, парсеры TXT/FB2/EPUB, TTS-обёртка, библиотека, плеер с подсветкой, скорость и таймер сна. Сборка `assembleDebug` успешна, 11 юнит-тестов проходят.
 - **2026-11-07** — фоновое воспроизведение: `PlaybackCoordinator` в `Application`, `PlaybackService` с foreground-уведомлением, действиями play/pause/next/prev/stop и `MediaSessionCompat`; разрешение `POST_NOTIFICATIONS`; переход в книгу по тапу на уведомление. Добавлены настройки голоса TTS (`TtsSettingsStore`, `SettingsScreen`), удаление книг долгим нажатием с подтверждением, возобновление с начала главы. Сборка и юнит-тесты проходят; на устройстве не проверялось.
 - **2026-11-07** — добавлены форматы PDF (PDFBox-Android) и DOCX (свой ZIP+XML парсер); сохранение скорости в `PlaybackSettingsStore`; обработка конца книги с кнопкой «Начать заново»; озвучка и список голосов ограничены русским языком; тесты DOCX-парсера (13 тестов). Проверено на Redmi Note 13 Pro: импорт TXT/DOCX/PDF, главы, TTS, уведомление и foreground-сервис, конец книги и рестарт, сохранение скорости и голоса, удаление книги.
+- **2026-11-07** — локальные нейродвижки: `TtsManager` + `OnnxSpeechEngine` (sherpa-onnx), модели Piper (Ирина/Денис/Дмитрий/Руслан, int8) и Supertonic 3 (int8) скачиваются из GitHub Releases с прогрессом и распаковываются `commons-compress`; `TtsSettingsStore` хранит движок/голос Piper/sid Supertonic; настройки получили карточки движков, загрузку моделей и выбор 10 голосов Supertonic; при отсутствии модели — откат на системный TTS с предупреждением. Проверено на Redmi Note 13 Pro: скачивание и распаковка Piper, синтез Piper, синтез Supertonic (10 голосов), переключение движков без падения, память освобождается после смены движка, юнит-тесты и сборка успешны.
