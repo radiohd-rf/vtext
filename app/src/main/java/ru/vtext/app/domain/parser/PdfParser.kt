@@ -31,8 +31,9 @@ class PdfParser : BookParser {
                 val author = cleanMetadata(info?.author, AUTHOR_PLACEHOLDERS)
 
                 val pageCount = document.numberOfPages
+                val tracker = PdfStyleTracker()
                 val pageTexts = (1..pageCount).map { page ->
-                    val stripper = PdfTextExtractor().apply {
+                    val stripper = PdfTextExtractor(tracker).apply {
                         startPage = page
                         endPage = page
                     }
