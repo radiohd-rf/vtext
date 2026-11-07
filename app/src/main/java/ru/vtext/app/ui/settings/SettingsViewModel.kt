@@ -30,7 +30,6 @@ data class SettingsUiState(
     val pitch: Float = PlaybackSettingsStore.DEFAULT_PITCH,
     val volume: Float = PlaybackSettingsStore.DEFAULT_VOLUME,
     val fragmentPauseMs: Int = PlaybackSettingsStore.DEFAULT_FRAGMENT_PAUSE_MS,
-    val supertonicSteps: Int = PlaybackSettingsStore.DEFAULT_SUPERTONIC_STEPS,
 )
 
 private data class SystemVoicesState(
@@ -43,7 +42,6 @@ private data class VoiceTuning(
     val pitch: Float,
     val volume: Float,
     val fragmentPauseMs: Int,
-    val supertonicSteps: Int,
 )
 
 class SettingsViewModel(
@@ -57,7 +55,6 @@ class SettingsViewModel(
             pitch = playbackSettings.pitch,
             volume = playbackSettings.volume,
             fragmentPauseMs = playbackSettings.fragmentPauseMs,
-            supertonicSteps = playbackSettings.supertonicSteps,
         ),
     )
 
@@ -83,7 +80,6 @@ class SettingsViewModel(
             pitch = voiceTuning.pitch,
             volume = voiceTuning.volume,
             fragmentPauseMs = voiceTuning.fragmentPauseMs,
-            supertonicSteps = voiceTuning.supertonicSteps,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -98,7 +94,6 @@ class SettingsViewModel(
             pitch = playbackSettings.pitch,
             volume = playbackSettings.volume,
             fragmentPauseMs = playbackSettings.fragmentPauseMs,
-            supertonicSteps = playbackSettings.supertonicSteps,
         ),
     )
 
@@ -110,22 +105,19 @@ class SettingsViewModel(
         manager.previewCurrentVoice()
     }
 
-    fun selectPiperModel(id: String) {
+    fun selectSileroVoice(id: String) {
         playback.pause()
-        manager.selectPiperModel(id)
-        if (manager.neuralSettings.value.stateOf(id)?.status == ModelStatus.READY) {
+        manager.selectSileroVoice(id)
+        if (manager.neuralSettings.value.stateOf(NeuralModel.DEFAULT_SILERO)?.status == ModelStatus.READY) {
             manager.previewCurrentVoice()
         }
     }
 
-    fun selectSupertonicSpeaker(speaker: Int) {
-        playback.pause()
-        manager.selectSupertonicSpeaker(speaker)
-        val model = NeuralModel.DEFAULT_SUPERTONIC
-        if (manager.neuralSettings.value.stateOf(model)?.status == ModelStatus.READY) {
-            manager.previewCurrentVoice()
-        }
-    }
+    fun cancelDownload() = manager.cancelDownload()
+
+    fun importModel(id: String, uri: android.net.Uri) = manager.importModel(id, uri)
+
+    fun importSileroDictionary(uri: android.net.Uri) = manager.importSileroDictionary(uri)
 
     fun setVolume(value: Float) {
         val safe = value.coerceIn(PlaybackSettingsStore.MIN_VOLUME, PlaybackSettingsStore.MAX_VOLUME)
@@ -150,37 +142,11 @@ class SettingsViewModel(
         tuning.update { it.copy(fragmentPauseMs = safe) }
     }
 
-    fun setSupertonicSteps(steps: Int) {
-        val safe = steps.coerceIn(
-            PlaybackSettingsStore.MIN_SUPERTONIC_STEPS,
-            PlaybackSettingsStore.MAX_SUPERTONIC_STEPS,
-        )
-        playbackSettings.supertonicSteps = safe
-        manager.setSupertonicSteps(safe)
-        tuning.update { it.copy(supertonicSteps = safe) }
-    }
-
     /** Проигрывает пример текущего голоса с учётом свежих настроек тембра/громкости. */
     fun previewCurrentVoice() {
         playback.pause()
         manager.previewCurrentVoice()
     }
-
-    fun downloadModel(id: String) = manager.downloadModel(id)
-
-    fun importModel(id: String, uri: android.net.Uri) = manager.importModel(id, uri)
-
-    fun importSileroDictionary(uri: android.net.Uri) = manager.importSileroDictionary(uri)
-
-    fun selectSileroVoice(id: String) {
-        playback.pause()
-        manager.selectSileroVoice(id)
-        if (manager.neuralSettings.value.stateOf(NeuralModel.DEFAULT_SILERO)?.status == ModelStatus.READY) {
-            manager.previewCurrentVoice()
-        }
-    }
-
-    fun cancelDownload() = manager.cancelDownload()
 
     companion object {
         fun factory(

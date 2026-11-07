@@ -52,7 +52,6 @@
     <string name="fragment_pause">Пауза между фрагментами</string>
     <string name="fragment_pause_off">Выключена</string>
     <string name="fragment_pause_value">%1$d мс</string>
-    <string name="supertonic_quality_title">Качество Supertonic</string>
     <string name="quality_fast">Быстро</string>
     <string name="quality_fast_desc">3 шага · быстрее, меньше нагрев</string>
     <string name="quality_high">Качественно</string>
@@ -65,10 +64,6 @@
     <string name="engine_title">Движок озвучивания</string>
     <string name="engine_system">Системный TTS</string>
     <string name="engine_system_desc">Голоса Android, ничего не нужно скачивать</string>
-    <string name="engine_piper">Piper</string>
-    <string name="engine_piper_desc">Нейросетевой, ~21 МБ, быстрый</string>
-    <string name="engine_supertonic">Supertonic 3</string>
-    <string name="engine_supertonic_desc">Нейросетевой, ~123 МБ, выразительнее</string>
     <string name="engine_silero">Silero v5</string>
     <string name="engine_silero_desc">Нейросетевой, ~103 МБ, автоударения, 5 голосов</string>
     <string name="silero_model_title">Модель Silero v5</string>
@@ -80,10 +75,6 @@
     <string name="neural_fallback">Модель ещё не скачана — пока используется системный голос.</string>
     <string name="neural_loading">Загрузка нейроголоса…</string>
     <string name="neural_unavailable">Не удалось загрузить нейроголос. Проверьте модель и попробуйте ещё раз.</string>
-    <string name="piper_voices_title">Голос Piper</string>
-    <string name="supertonic_model_title">Модель Supertonic 3</string>
-    <string name="supertonic_speakers_title">Голос Supertonic 3</string>
-    <string name="supertonic_download_hint">Сначала скачайте модель Supertonic 3.</string>
     <string name="download">Скачать</string>
     <string name="retry">Повторить</string>
     <string name="choose">Выбрать</string>
@@ -91,11 +82,8 @@
     <string name="model_downloading">Загрузка %1$d%%</string>
     <string name="model_extracting">Распаковка…</string>
     <string name="model_ready">Готово</string>
-    <string name="speaker_female">Женский %1$d</string>
-    <string name="speaker_male">Мужской %1$d</string>
-    <string name="voices_female_title">Женские голоса</string>
-    <string name="voices_male_title">Мужские голоса</string>
-    <string name="voices_other_title">Другие голоса</string>
     <string name="gender_female">женский</string>
     <string name="gender_male">мужской</string>
+    <string name="voices_female_title">Женские голоса</string>
+    <string name="voices_male_title">Мужские голоса</string>
 </resources>

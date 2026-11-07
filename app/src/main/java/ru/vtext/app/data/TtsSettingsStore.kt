@@ -18,29 +18,11 @@ class TtsSettingsStore(context: Context) {
             editor.apply()
         }
 
-    /** Выбранный движок озвучивания: системный, Piper или Supertonic. */
+    /** Выбранный движок озвучивания: системный или Silero. */
     var engineType: TtsEngineType
         get() = TtsEngineType.fromId(prefs.getString(KEY_ENGINE, null))
         set(value) {
             prefs.edit().putString(KEY_ENGINE, value.id).apply()
-        }
-
-    /** Выбранный голос Piper (отдельная модель на каждый голос). */
-    var piperModelId: String
-        get() = prefs.getString(KEY_PIPER_MODEL, null)
-            ?.let { NeuralModel.byId(it) }
-            ?.takeIf { it.engine == TtsEngineType.PIPER }
-            ?.id
-            ?: NeuralModel.DEFAULT_PIPER.id
-        set(value) {
-            prefs.edit().putString(KEY_PIPER_MODEL, value).apply()
-        }
-
-    /** Выбранный голос Supertonic 3 (sid от 0 до 9). */
-    var supertonicSpeaker: Int
-        get() = prefs.getInt(KEY_SUPERTONIC_SPEAKER, 0).coerceIn(0, SUPER_TONIC_SPEAKERS - 1)
-        set(value) {
-            prefs.edit().putInt(KEY_SUPERTONIC_SPEAKER, value).apply()
         }
 
     /** Выбранный голос Silero v5. */
@@ -56,9 +38,6 @@ class TtsSettingsStore(context: Context) {
     private companion object {
         const val KEY_VOICE = "voice_name"
         const val KEY_ENGINE = "engine_type"
-        const val KEY_PIPER_MODEL = "piper_model"
-        const val KEY_SUPERTONIC_SPEAKER = "supertonic_speaker"
         const val KEY_SILERO_VOICE = "silero_voice"
-        const val SUPER_TONIC_SPEAKERS = 10
     }
 }

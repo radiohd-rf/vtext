@@ -139,8 +139,6 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             when (state.engineType) {
                 TtsEngineType.SYSTEM -> systemVoicesSection(state, viewModel, context)
-                TtsEngineType.PIPER -> piperSection(state, viewModel, context)
-                TtsEngineType.SUPERTONIC -> supertonicSection(state, viewModel, context)
                 TtsEngineType.SILERO -> sileroSection(state, viewModel, context)
             }
         }
@@ -213,32 +211,8 @@ private fun LazyListScope.voiceTuningSection(
             )
         }
     }
-    if (state.engineType == TtsEngineType.SUPERTONIC) {
-        groupHeader(context.getString(R.string.supertonic_quality_title))
-        item {
-            SelectableRow(
-                title = stringResource(R.string.quality_fast),
-                subtitle = stringResource(R.string.quality_fast_desc),
-                selected = state.supertonicSteps == PlaybackSettingsStore.FAST_SUPERTONIC_STEPS,
-                onClick = {
-                    viewModel.setSupertonicSteps(PlaybackSettingsStore.FAST_SUPERTONIC_STEPS)
-                    viewModel.previewCurrentVoice()
-                },
-            )
-        }
-        item {
-            SelectableRow(
-                title = stringResource(R.string.quality_high),
-                subtitle = stringResource(R.string.quality_high_desc),
-                selected = state.supertonicSteps == PlaybackSettingsStore.QUALITY_SUPERTONIC_STEPS,
-                onClick = {
-                    viewModel.setSupertonicSteps(PlaybackSettingsStore.QUALITY_SUPERTONIC_STEPS)
-                    viewModel.previewCurrentVoice()
-                },
-            )
-        }
-    }
 }
+
 
 @Composable
 private fun TuningSlider(
@@ -277,14 +251,10 @@ private fun EngineRow(
 ) {
     val title = when (type) {
         TtsEngineType.SYSTEM -> stringResource(R.string.engine_system)
-        TtsEngineType.PIPER -> stringResource(R.string.engine_piper)
-        TtsEngineType.SUPERTONIC -> stringResource(R.string.engine_supertonic)
         TtsEngineType.SILERO -> stringResource(R.string.engine_silero)
     }
     val subtitle = when (type) {
         TtsEngineType.SYSTEM -> stringResource(R.string.engine_system_desc)
-        TtsEngineType.PIPER -> stringResource(R.string.engine_piper_desc)
-        TtsEngineType.SUPERTONIC -> stringResource(R.string.engine_supertonic_desc)
         TtsEngineType.SILERO -> stringResource(R.string.engine_silero_desc)
     }
     SelectableRow(
@@ -365,106 +335,6 @@ private fun LazyListScope.systemVoicesSection(
             },
             selected = state.systemSelectedVoice == voice.name,
             onClick = { viewModel.selectSystemVoice(voice.name) },
-        )
-    }
-}
-
-private fun LazyListScope.piperSection(
-    state: SettingsUiState,
-    viewModel: SettingsViewModel,
-    context: Context,
-) {
-    sectionHeader(context.getString(R.string.piper_voices_title))
-    val piperModels = state.neural.models.filter { it.model.engine == TtsEngineType.PIPER }
-    val female = piperModels.filter { it.model.gender == VoiceGender.FEMALE }
-    val male = piperModels.filter { it.model.gender == VoiceGender.MALE }
-    val other = piperModels.filter { it.model.gender == VoiceGender.UNKNOWN }
-
-    if (female.isNotEmpty()) {
-        groupHeader(context.getString(R.string.voices_female_title))
-        items(female, key = { it.model.id }) { modelState ->
-            PiperModelRow(state, modelState, viewModel)
-        }
-    }
-    if (male.isNotEmpty()) {
-        groupHeader(context.getString(R.string.voices_male_title))
-        items(male, key = { it.model.id }) { modelState ->
-            PiperModelRow(state, modelState, viewModel)
-        }
-    }
-    if (other.isNotEmpty()) {
-        groupHeader(context.getString(R.string.voices_other_title))
-        items(other, key = { it.model.id }) { modelState ->
-            PiperModelRow(state, modelState, viewModel)
-        }
-    }
-}
-
-@Composable
-private fun PiperModelRow(
-    state: SettingsUiState,
-    modelState: NeuralModelState,
-    viewModel: SettingsViewModel,
-) {
-    ModelRow(
-        item = modelState,
-        selected = state.neural.piperModelId == modelState.model.id,
-        onSelect = { viewModel.selectPiperModel(modelState.model.id) },
-        onDownload = { viewModel.downloadModel(modelState.model.id) },
-        onCancel = viewModel::cancelDownload,
-    )
-}
-
-private fun LazyListScope.supertonicSection(
-    state: SettingsUiState,
-    viewModel: SettingsViewModel,
-    context: Context,
-) {
-    val model = NeuralModel.DEFAULT_SUPERTONIC
-    val modelState = state.neural.stateOf(model)
-    sectionHeader(context.getString(R.string.supertonic_model_title))
-    if (modelState != null) {
-        item(key = modelState.model.id) {
-            ModelRow(
-                item = modelState,
-                selected = state.engineType == TtsEngineType.SUPERTONIC,
-                onSelect = { viewModel.selectEngine(TtsEngineType.SUPERTONIC) },
-                onDownload = { viewModel.downloadModel(modelState.model.id) },
-                onCancel = viewModel::cancelDownload,
-            )
-        }
-    }
-
-    sectionHeader(context.getString(R.string.supertonic_speakers_title))
-    if (modelState?.status != ModelStatus.READY) {
-        item {
-            Text(
-                text = context.getString(R.string.supertonic_download_hint),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(20.dp),
-            )
-        }
-        return
-    }
-    val femaleIds = (0..4).toList()
-    val maleIds = (5..9).toList()
-    groupHeader(context.getString(R.string.voices_female_title))
-    items(femaleIds, key = { "f$it" }) { speaker ->
-        SelectableRow(
-            title = context.getString(R.string.speaker_female, speaker + 1),
-            subtitle = null,
-            selected = state.neural.supertonicSpeaker == speaker,
-            onClick = { viewModel.selectSupertonicSpeaker(speaker) },
-        )
-    }
-    groupHeader(context.getString(R.string.voices_male_title))
-    items(maleIds, key = { "m$it" }) { speaker ->
-        SelectableRow(
-            title = context.getString(R.string.speaker_male, speaker - 4),
-            subtitle = null,
-            selected = state.neural.supertonicSpeaker == speaker,
-            onClick = { viewModel.selectSupertonicSpeaker(speaker) },
         )
     }
 }

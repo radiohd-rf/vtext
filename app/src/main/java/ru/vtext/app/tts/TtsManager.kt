@@ -36,8 +36,6 @@ data class NeuralModelState(
 data class NeuralSettings(
     val engineType: TtsEngineType = TtsEngineType.SYSTEM,
     val models: List<NeuralModelState> = emptyList(),
-    val piperModelId: String = NeuralModel.DEFAULT_PIPER.id,
-    val supertonicSpeaker: Int = 0,
     val sileroVoice: String = SileroSpeechEngine.DEFAULT_VOICE,
     val usingSystemFallback: Boolean = false,
 ) {
@@ -79,8 +77,6 @@ class TtsManager(
         NeuralSettings(
             engineType = _engineType.value,
             models = _models.value,
-            piperModelId = settings.piperModelId,
-            supertonicSpeaker = settings.supertonicSpeaker,
             sileroVoice = settings.sileroVoice,
         ),
     )
@@ -111,7 +107,6 @@ class TtsManager(
     private var previewJob: Job? = null
     private var rate = playbackSettings.speed
     private var volume = playbackSettings.volume
-    private var supertonicSteps = playbackSettings.supertonicSteps
 
     init {
         systemEngine.setRate(rate)
@@ -127,24 +122,6 @@ class TtsManager(
         settings.engineType = type
         _engineType.value = type
         switchActive()
-    }
-
-    fun selectPiperModel(id: String) {
-        val model = NeuralModel.byId(id) ?: return
-        if (model.engine != TtsEngineType.PIPER) return
-        settings.piperModelId = model.id
-        if (_engineType.value == TtsEngineType.PIPER) {
-            switchActive()
-        } else {
-            publish()
-        }
-    }
-
-    fun selectSupertonicSpeaker(speaker: Int) {
-        val safe = speaker.coerceIn(0, 9)
-        settings.supertonicSpeaker = safe
-        neuralEngine?.setVoice(safe.toString())
-        publish()
     }
 
     fun selectSileroVoice(id: String) {
@@ -210,49 +187,6 @@ class TtsManager(
         }
     }
 
-    fun downloadModel(id: String) {
-        val model = NeuralModel.byId(id) ?: return
-        if (downloadJob?.isActive == true) return
-        if (repository.isInstalled(model)) {
-            updateModel(model.id) { it.copy(status = ModelStatus.READY, progress = 1f, error = null) }
-            switchActive()
-            return
-        }
-        downloadJob = scope.launch {
-            updateModel(model.id) {
-                it.copy(status = ModelStatus.DOWNLOADING, progress = 0f, error = null)
-            }
-            try {
-                repository.download(model) { progress ->
-                    if (progress >= 1f) {
-                        updateModel(model.id) {
-                            it.copy(status = ModelStatus.EXTRACTING, progress = 1f)
-                        }
-                    } else {
-                        updateModel(model.id) { it.copy(status = ModelStatus.DOWNLOADING, progress = progress) }
-                    }
-                }
-                updateModel(model.id) {
-                    it.copy(status = ModelStatus.READY, progress = 1f, error = null)
-                }
-                switchActive()
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                updateModel(model.id) {
-                    it.copy(status = ModelStatus.NOT_INSTALLED, progress = 0f, error = null)
-                }
-                throw cancel
-            } catch (error: Throwable) {
-                updateModel(model.id) {
-                    it.copy(
-                        status = ModelStatus.ERROR,
-                        progress = 0f,
-                        error = error.message ?: "Не удалось скачать модель",
-                    )
-                }
-            }
-        }
-    }
-
     fun cancelDownload() {
         downloadJob?.cancel()
         downloadJob = null
@@ -295,11 +229,6 @@ class TtsManager(
         neuralEngine?.setVolume(volume)
     }
 
-    fun setSupertonicSteps(steps: Int) {
-        supertonicSteps = steps
-        (neuralEngine as? OnnxSpeechEngine)?.setSupertonicSteps(steps)
-    }
-
     override fun setVoice(name: String?) {
         if (_active.value === systemEngine) {
             systemEngine.setVoice(name)
@@ -334,8 +263,6 @@ class TtsManager(
 
     private fun selectedNeuralModel(): NeuralModel? = when (_engineType.value) {
         TtsEngineType.SYSTEM -> null
-        TtsEngineType.PIPER -> NeuralModel.byId(settings.piperModelId) ?: NeuralModel.DEFAULT_PIPER
-        TtsEngineType.SUPERTONIC -> NeuralModel.DEFAULT_SUPERTONIC
         TtsEngineType.SILERO -> NeuralModel.DEFAULT_SILERO
     }
 
@@ -363,32 +290,16 @@ class TtsManager(
     private fun resolveEngine(): SpeechEngine {
         val model = selectedNeuralModel() ?: return useSystemEngine()
         if (!repository.isInstalled(model)) return useSystemEngine()
+        val dir = repository.modelDir(model)
         val current = neuralEngine
-        if (current != null && (current as? OnnxSpeechEngine)?.model == model) return current
-        if (current != null && model.engine == TtsEngineType.SILERO &&
-            current is SileroSpeechEngine && current.modelDir == repository.modelDir(model)
-        ) {
-            return current
-        }
+        if (current is SileroSpeechEngine && current.modelDir == dir) return current
         current?.shutdown()
-        val engine: SpeechEngine = if (model.engine == TtsEngineType.SILERO) {
-            SileroSpeechEngine(
-                modelDir = repository.modelDir(model),
-                initialRate = rate,
-                initialVoice = settings.sileroVoice,
-                initialVolume = volume,
-            )
-        } else {
-            OnnxSpeechEngine(
-                context = appContext,
-                model = model,
-                modelDir = repository.modelDir(model),
-                initialRate = rate,
-                initialSpeaker = settings.supertonicSpeaker,
-                initialVolume = volume,
-                supertonicSteps = supertonicSteps,
-            )
-        }
+        val engine = SileroSpeechEngine(
+            modelDir = dir,
+            initialRate = rate,
+            initialVoice = settings.sileroVoice,
+            initialVolume = volume,
+        )
         neuralEngine = engine
         return engine
     }
@@ -410,8 +321,6 @@ class TtsManager(
         _neuralSettings.value = NeuralSettings(
             engineType = _engineType.value,
             models = _models.value,
-            piperModelId = settings.piperModelId,
-            supertonicSpeaker = settings.supertonicSpeaker,
             sileroVoice = settings.sileroVoice,
             usingSystemFallback = _engineType.value != TtsEngineType.SYSTEM && _active.value === systemEngine,
         )

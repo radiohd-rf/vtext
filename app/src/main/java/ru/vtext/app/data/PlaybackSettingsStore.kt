@@ -38,16 +38,6 @@ class PlaybackSettingsStore(context: Context) {
                 .apply()
         }
 
-    /** Число шагов генерации Supertonic: больше — качественнее, но медленнее. */
-    var supertonicSteps: Int
-        get() = prefs.getInt(KEY_SUPERTONIC_STEPS, DEFAULT_SUPERTONIC_STEPS)
-            .coerceIn(MIN_SUPERTONIC_STEPS, MAX_SUPERTONIC_STEPS)
-        set(value) {
-            prefs.edit()
-                .putInt(KEY_SUPERTONIC_STEPS, value.coerceIn(MIN_SUPERTONIC_STEPS, MAX_SUPERTONIC_STEPS))
-                .apply()
-        }
-
     companion object {
         const val MIN_SPEED = 0.5f
         const val MAX_SPEED = 3f
@@ -65,16 +55,10 @@ class PlaybackSettingsStore(context: Context) {
         const val MAX_FRAGMENT_PAUSE_MS = 2_000
         const val DEFAULT_FRAGMENT_PAUSE_MS = 0
 
-        const val MIN_SUPERTONIC_STEPS = 4
-        const val MAX_SUPERTONIC_STEPS = 10
-        const val DEFAULT_SUPERTONIC_STEPS = 3
-        const val FAST_SUPERTONIC_STEPS = 3
-        const val QUALITY_SUPERTONIC_STEPS = 6
 
         private const val KEY_SPEED = "speed"
         private const val KEY_PITCH = "pitch"
         private const val KEY_VOLUME = "volume"
         private const val KEY_FRAGMENT_PAUSE = "fragment_pause_ms"
-        private const val KEY_SUPERTONIC_STEPS = "supertonic_steps"
     }
 }

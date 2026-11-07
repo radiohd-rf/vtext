@@ -62,13 +62,8 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
-    // Локальный нейросетевой TTS (Piper, Supertonic) на ONNX Runtime.
-    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
-    // Фронтенд piper-phonemize (espeak-ng) для моделей Piper без лексикона.
-    implementation(files("libs/piper-phonemize-v1.5.9.aar"))
-    // TorchScript Lite для Silero v5 (Piper/Supertonic его не используют).
+    // TorchScript Lite для Silero v5.
     implementation("org.pytorch:pytorch_android_lite:2.1.0")
-    implementation("org.apache.commons:commons-compress:1.27.1")
 
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.compose.ui:ui")
