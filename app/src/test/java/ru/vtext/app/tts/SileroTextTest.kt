@@ -141,6 +141,15 @@ class SileroTextTest {
     }
 
     @Test
+    fun supportsMultiWordPhrasesInDictionary() {
+        val terms = mapOf("на замок" to "на зам+ок", "старинный замок" to "старинный з+амок")
+        assertEquals(
+            "Повесил на зам+ок старинный з+амок",
+            SileroText.applyUserDictionary("Повесил на замок старинный замок", terms),
+        )
+    }
+
+    @Test
     fun parsesDictionaryWithBom() {
         val terms = SileroText.parseDictionary("\uFEFFкнигу=фолиант\npython=пайтон")
         assertEquals("фолиант", terms["книгу"])
