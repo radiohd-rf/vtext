@@ -61,6 +61,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
@@ -90,6 +92,9 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.refresh()
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<Book?>(null) }
     var pendingImport by remember { mutableStateOf<List<Uri>?>(null) }
@@ -299,7 +304,7 @@ private fun BookRow(book: Book, onClick: () -> Unit, onLongClick: () -> Unit) {
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(64.dp)
                         .clip(RoundedCornerShape(6.dp)),
                 )
                 Spacer(Modifier.width(12.dp))

@@ -38,7 +38,7 @@ class BookRepository(private val context: Context) {
 
     suspend fun listBooks(): List<Book> = withContext(Dispatchers.IO) {
         root.listFiles()
-            ?.mapNotNull { readMeta(it) }
+            ?.mapNotNull { dir -> readMeta(dir)?.let { withCover(dir, it) } }
             ?.sortedByDescending { it.addedAt }
             ?: emptyList()
     }
@@ -103,8 +103,7 @@ class BookRepository(private val context: Context) {
             val book = meta.copy(
                 chapters = chapters,
                 coverPath = coverFile(dir)?.absolutePath,
-            )
-            // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
+            )            // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
             writeChapters(dir, book)
             if (!useCache && chapters.isNotEmpty()) {
                 writeMeta(dir, book)
@@ -181,6 +180,13 @@ class BookRepository(private val context: Context) {
                 coverPath = coverFile(dir)?.absolutePath,
             )
         }.getOrNull()
+    }
+
+    private fun withCover(dir: File, book: Book): Book {
+        coverFile(dir)?.let { return book.copy(coverPath = it.absolutePath) }
+        val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") } ?: return book
+        val cover = CoverExtractor.extract(book.format, source, dir) ?: return book
+        return book.copy(coverPath = cover.absolutePath)
     }
 
     private fun coverFile(dir: File): File? = File(dir, "cover").takeIf { it.isFile }
