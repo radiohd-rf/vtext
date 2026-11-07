@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -91,20 +95,39 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = state.book?.title ?: stringResource(R.string.loading),
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        state.book?.author?.let { author ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val cover = remember(state.book?.coverPath) {
+                            state.book?.coverPath?.let { path ->
+                                val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }
+                                android.graphics.BitmapFactory.decodeFile(path, options)
+                            }
+                        }
+                        if (cover != null) {
+                            Image(
+                                bitmap = cover.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(MaterialTheme.shapes.small),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
+                        Column {
                             Text(
-                                text = author,
-                                style = MaterialTheme.typography.bodySmall,
+                                text = state.book?.title ?: stringResource(R.string.loading),
+                                style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            state.book?.author?.let { author ->
+                                Text(
+                                    text = author,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 },
@@ -348,7 +371,12 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 SpeedMenu(speed = player.speed, onSelect = viewModel::setSpeed)
-                SleepMenu(current = player.sleepTimerMinutes, onSelect = viewModel::setSleepTimer)
+                SleepMenu(
+                    current = player.sleepTimerMinutes,
+                    untilChapterEnd = player.sleepUntilChapterEnd,
+                    onSelect = viewModel::setSleepTimer,
+                    onChapterEnd = viewModel::setSleepUntilChapterEnd,
+                )
             }
         }
     }
@@ -377,15 +405,22 @@ private fun SpeedMenu(speed: Float, onSelect: (Float) -> Unit) {
 }
 
 @Composable
-private fun SleepMenu(current: Int?, onSelect: (Int?) -> Unit) {
+private fun SleepMenu(
+    current: Int?,
+    untilChapterEnd: Boolean,
+    onSelect: (Int?) -> Unit,
+    onChapterEnd: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     val options = listOf(15, 30, 60)
     Box {
         TextButton(onClick = { expanded = true }) {
             Text(
-                text = "${stringResource(R.string.sleep_timer)}: " +
-                    if (current == null) stringResource(R.string.sleep_off)
-                    else stringResource(R.string.sleep_minutes, current),
+                text = "${stringResource(R.string.sleep_timer)}: " + when {
+                    untilChapterEnd -> stringResource(R.string.sleep_chapter_end)
+                    current == null -> stringResource(R.string.sleep_off)
+                    else -> stringResource(R.string.sleep_minutes, current)
+                },
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -393,6 +428,13 @@ private fun SleepMenu(current: Int?, onSelect: (Int?) -> Unit) {
                 text = { Text(stringResource(R.string.sleep_off)) },
                 onClick = {
                     onSelect(null)
+                    expanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.sleep_chapter_end)) },
+                onClick = {
+                    onChapterEnd()
                     expanded = false
                 },
             )

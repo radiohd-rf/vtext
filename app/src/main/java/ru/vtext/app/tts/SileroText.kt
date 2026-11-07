@@ -82,6 +82,52 @@ internal object SileroText {
         }
     }
 
+    /** Единицы измерения: «5 км» → «пять километров». */
+    private val UNIT = Regex(
+        "(?<![\\d.,\\p{L}])(\\d+)\\s*(км|кг|см|мм|мл|мин|м|г|л|ч|с)(?![\\p{L}\\d])",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val UNIT_FORMS = mapOf(
+        "км" to Triple("километр", "километра", "километров"),
+        "кг" to Triple("килограмм", "килограмма", "килограммов"),
+        "см" to Triple("сантиметр", "сантиметра", "сантиметров"),
+        "мм" to Triple("миллиметр", "миллиметра", "миллиметров"),
+        "мл" to Triple("миллилитр", "миллилитра", "миллилитров"),
+        "г" to Triple("грамм", "грамма", "граммов"),
+        "л" to Triple("литр", "литра", "литров"),
+        "м" to Triple("метр", "метра", "метров"),
+        "ч" to Triple("час", "часа", "часов"),
+        "мин" to Triple("минута", "минуты", "минут"),
+        "с" to Triple("секунда", "секунды", "секунд"),
+    )
+
+    fun expandUnits(text: String): String = UNIT.replace(text) { match ->
+        val value = match.groupValues[1].toLongOrNull() ?: return@replace match.value
+        val unit = match.groupValues[2].lowercase()
+        val forms = UNIT_FORMS[unit] ?: return@replace match.value
+        "${spellNumber(value)} ${plural(value, forms.first, forms.second, forms.third)}"
+    }
+
+    /** Инициалы: «А. С. Пушкин» → «а эс Пушкин». */
+    private val INITIALS = Regex("(?<![\\p{L}])([А-ЯЁ])\\.\\s*([А-ЯЁ])\\.")
+
+    private val CYRILLIC_LETTER_NAMES = mapOf(
+        'а' to "а", 'б' to "бэ", 'в' to "вэ", 'г' to "гэ", 'д' to "дэ", 'е' to "е",
+        'ё' to "ё", 'ж' to "жэ", 'з' to "зэ", 'и' to "и", 'й' to "й", 'к' to "ка",
+        'л' to "эль", 'м' to "эм", 'н' to "эн", 'о' to "о", 'п' to "пэ", 'р' to "эр",
+        'с' to "эс", 'т' to "тэ", 'у' to "у", 'ф' to "эф", 'х' to "ха", 'ц' to "цэ",
+        'ч' to "че", 'ш' to "ша", 'щ' to "ща", 'ы' to "ы", 'э' to "э", 'ю' to "ю", 'я' to "я",
+    )
+
+    fun expandInitials(text: String): String = INITIALS.replace(text) { match ->
+        val first = CYRILLIC_LETTER_NAMES[match.groupValues[1].first().lowercaseChar()]
+            ?: return@replace match.value
+        val second = CYRILLIC_LETTER_NAMES[match.groupValues[2].first().lowercaseChar()]
+            ?: return@replace match.value
+        "$first $second"
+    }
+
     private val DECIMAL = Regex("(\\d+)[,.](\\d+)")
 
     /** Полная подготовка текста: словарь, сноски, сокращения, римские числа, годы, латиница, цифры. */
@@ -89,8 +135,10 @@ internal object SileroText {
         var value = stripFootnotes(text)
         value = dropStandaloneRomanLines(value)
         value = expandAbbreviations(value)
+        value = expandInitials(value)
         value = romanNumeralsToWords(value)
         value = yearsWithCase(value)
+        value = expandUnits(value)
         value = applyUserDictionary(value, userTerms)
         value = transliterateLatin(value)
         return spellNumbers(value)

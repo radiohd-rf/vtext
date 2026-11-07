@@ -44,7 +44,7 @@ Kotlin 2.0.21 · Jetpack Compose (Material 3) · Navigation Compose · MVVM · A
 .\gradlew.bat :app:installDebug        # установка на устройство
 ```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`.
+APK: `app/build/outputs/apk/debug/app-debug.apk` (только `arm64-v8a`, ~88 МБ).
 
 ## Silero v5
 

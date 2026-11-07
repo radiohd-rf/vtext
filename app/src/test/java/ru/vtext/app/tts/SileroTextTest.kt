@@ -284,6 +284,14 @@ class SileroTextTest {
     }
 
     @Test
+    fun expandsUnitsAndInitials() {
+        assertEquals("пять километров", SileroText.expandUnits("5 км"))
+        assertEquals("два килограмма", SileroText.expandUnits("2 кг"))
+        assertEquals("двадцать один грамм", SileroText.expandUnits("21 г"))
+        assertEquals("а эс Пушкин", SileroText.expandInitials("А. С. Пушкин"))
+    }
+
+    @Test
     fun splitsLongTextIntoChunks() {
         val text = "Первое предложение. Второе предложение. Третье предложение."
         val chunks = SileroText.chunks(text, 20)

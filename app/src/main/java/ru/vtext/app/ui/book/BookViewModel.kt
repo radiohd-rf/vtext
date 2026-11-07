@@ -67,6 +67,8 @@ class BookViewModel(
     fun setSpeed(speed: Float) = playback.setSpeed(speed)
     fun setSleepTimer(minutes: Int?) = playback.setSleepTimer(minutes)
 
+    fun setSleepUntilChapterEnd() = playback.setSleepUntilChapterEnd()
+
     fun dismissError() {
         _state.update { it.copy(error = null) }
         playback.dismissError()

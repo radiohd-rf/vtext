@@ -31,6 +31,8 @@ data class PlayerState(
     val speed: Float = 1f,
     val fragmentPauseMs: Int = 0,
     val sleepTimerMinutes: Int? = null,
+    /** Таймер сна «до конца главы». */
+    val sleepUntilChapterEnd: Boolean = false,
     val engineState: EngineState = EngineState.INITIALIZING,
     val error: String? = null,
     /** Индекс текущего произносимого слова во фрагменте (для подсветки). */
@@ -218,15 +220,22 @@ class PlaybackCoordinator(
         sleepJob?.cancel()
         sleepJob = null
         if (minutes == null) {
-            _state.update { it.copy(sleepTimerMinutes = null) }
+            _state.update { it.copy(sleepTimerMinutes = null, sleepUntilChapterEnd = false) }
             return
         }
-        _state.update { it.copy(sleepTimerMinutes = minutes) }
+        _state.update { it.copy(sleepTimerMinutes = minutes, sleepUntilChapterEnd = false) }
         sleepJob = scope.launch {
             delay(minutes * 60_000L)
             pause()
             _state.update { it.copy(sleepTimerMinutes = null) }
         }
+    }
+
+    /** Остановиться, когда закончится текущая глава. */
+    fun setSleepUntilChapterEnd() {
+        sleepJob?.cancel()
+        sleepJob = null
+        _state.update { it.copy(sleepTimerMinutes = null, sleepUntilChapterEnd = true) }
     }
 
     fun stop() {
@@ -334,6 +343,20 @@ class PlaybackCoordinator(
         while (chapterIndex < current.chapters.size) {
             val chapter = current.chapters[chapterIndex]
             if (segmentIndex < chapter.segments.size) {
+                // Таймер сна «до конца главы»: дальше не переходим.
+                if (current.sleepUntilChapterEnd && chapterIndex != current.chapterIndex) {
+                    sleepJob?.cancel()
+                    sleepJob = null
+                    engine.stop()
+                    _state.update {
+                        it.copy(
+                            isPlaying = false,
+                            sleepUntilChapterEnd = false,
+                            sleepTimerMinutes = null,
+                        )
+                    }
+                    return
+                }
                 speakAt(chapterIndex, segmentIndex)
                 return
             }

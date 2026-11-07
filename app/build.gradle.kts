@@ -16,8 +16,9 @@ android {
         versionName = "0.1.0"
 
         ndk {
-            // Нейросетевые движки (sherpa-onnx) поставляются только под ARM.
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // Нейродвижок (PyTorch Lite) поставляется только под arm64:
+            // 32-битные библиотеки занимали ещё ~45 МБ APK.
+            abiFilters += listOf("arm64-v8a")
         }
     }
 

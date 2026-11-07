@@ -27,6 +27,7 @@
     <string name="speed">Скорость</string>
     <string name="speed_value">%1$s×</string>
     <string name="sleep_timer">Таймер сна</string>
+    <string name="sleep_chapter_end">до конца главы</string>
     <string name="sleep_off">Выключен</string>
     <string name="sleep_minutes">%1$d мин</string>
     <string name="choose_chapter">Выбрать главу</string>
