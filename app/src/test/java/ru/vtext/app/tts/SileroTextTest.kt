@@ -204,6 +204,9 @@ class SileroTextTest {
     fun stripsFootnoteMarkers() {
         assertEquals("Новый год", SileroText.stripFootnotes("Новый год[12]"))
         assertEquals("без сносок", SileroText.stripFootnotes("без сносок"))
+        assertEquals("comme vous dites. Ну", SileroText.stripFootnotes("comme vous dites.1 Ну"))
+        assertEquals("fais peur, садитесь", SileroText.stripFootnotes("fais peur,2 садитесь"))
+        assertEquals("рост 1,5 метра", SileroText.stripFootnotes("рост 1,5 метра"))
     }
 
     @Test

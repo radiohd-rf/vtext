@@ -326,6 +326,9 @@ internal object SileroText {
     fun stripFootnotes(text: String): String =
         GLUED_NUMBER_RE.replace(FOOTNOTE_RE.replace(text, ""), "")
 
+    /** Текст для показа: без сносок и приклеенных номеров, но с разметкой эмфазы. */
+    fun displayText(text: String): String = stripFootnotes(text)
+
     // ----- Пользовательский словарь -----
 
     /**
@@ -368,8 +371,10 @@ internal object SileroText {
     private val LATIN_WORD = Regex("[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’]*")
     private val FOOTNOTE_RE = Regex("\\[\\d{1,3}]")
 
-    /** Сноски, приклеенные к слову: «mariages.21», «sincipide.6». Годы (4 цифры) не трогаем. */
-    private val GLUED_NUMBER_RE = Regex("(?<=[а-яёa-z][.])\\d{1,2}(?!\\d)|(?<=[а-яёa-z])\\d{1,2}(?!\\d)")
+    /** Сноски, приклеенные к слову: «mariages.21», «dites.1», «peur,2». Годы (4 цифры) не трогаем. */
+    private val GLUED_NUMBER_RE = Regex(
+        "(?<=[а-яёa-z][.,!?;:…])\\d{1,2}(?!\\d)|(?<=[а-яёa-z])\\d{1,2}(?!\\d)",
+    )
 
     private val LETTER_NAMES = mapOf(
         'a' to "эй", 'b' to "би", 'c' to "си", 'd' to "ди", 'e' to "и", 'f' to "эф",

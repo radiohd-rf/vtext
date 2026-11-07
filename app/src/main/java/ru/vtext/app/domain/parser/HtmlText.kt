@@ -7,6 +7,7 @@ object HtmlText {
     private val imageTag = Regex("(?is)<img\\b[^>]*>")
     private val altAttribute = Regex("""(?is)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')""")
     private val lineBreak = Regex("(?i)<br\\s*/?>")
+    private val noteref = Regex("(?is)<a\\b[^>]*epub:type\\s*=\\s*[\"']noteref[\"'][^>]*>.*?</a>")
     private val boldTag = Regex("(?is)<(b|strong)\\b[^>]*>(.*?)</\\1>")
     private val italicTag = Regex("(?is)<(i|em|cite)\\b[^>]*>(.*?)</\\1>")
     private val blockEnd = Regex("(?i)</(p|div|h[1-6]|li|tr|blockquote|section|article)>")
@@ -22,6 +23,7 @@ object HtmlText {
             if (alt.isEmpty()) " " else "\n${decodeEntities(alt)}\n"
         }
         // Выделения автора сохраняем разметкой: Silero читает их с нажимом.
+        text = noteref.replace(text, " ")
         text = boldTag.replace(text) { match -> "**${match.groupValues[2]}**" }
         text = italicTag.replace(text) { match -> "*${match.groupValues[2]}*" }
         text = lineBreak.replace(text, "\n")

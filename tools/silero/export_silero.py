@@ -66,16 +66,17 @@ def build_stress_dictionary(out: str) -> None:
         if position < 0 or position > 254:
             skipped += 1
             continue
-        records.append((fnv1a64(word), position))
+        # 48 бит вместо 64: файл меньше на ~6 МБ, коллизий практически нет.
+        records.append((fnv1a64(word) & 0xFFFFFFFFFFFF, position))
     records.sort()
     print(f"  без ударения/слишком длинные: {skipped}")
 
     target = os.path.join(out, STRESS_FILE)
     with open(target, "wb") as handle:
         handle.write(STRESS_MAGIC)
-        handle.write(struct.pack("<II", 2, len(records)))
+        handle.write(struct.pack("<II", 3, len(records)))
         for hash_value, position in records:
-            handle.write(struct.pack("<Q", hash_value))
+            handle.write(struct.pack("<Q", hash_value)[:6])
             handle.write(bytes((position,)))
     print(f"  {STRESS_FILE}: {os.path.getsize(target) // 1048576} МБ ({len(records)} записей)")
 

@@ -216,7 +216,9 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
                         color = if (current) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         shape = shape,
                     ) {
-                        val displayText = ru.vtext.app.domain.TextMarkup.strip(segment)
+                        val displayText = ru.vtext.app.domain.TextMarkup.strip(
+                            ru.vtext.app.tts.SileroText.displayText(segment),
+                        )
                         val wordRange = if (current) {
                             remember(displayText, player.currentWord) {
                                 wordRangeAt(displayText, player.currentWord)

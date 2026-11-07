@@ -336,7 +336,7 @@ class SileroSpeechEngine(
         playbackContext = PlaybackContext(text, utteranceId)
         synchronized(chunkLock) { chunkEnds.clear() }
         val userTerms = loadUserTerms()
-        val tracker = SileroText.WordTracker(text)
+        val tracker = SileroText.WordTracker(SileroText.displayText(text))
         // Пропущенные куски всё равно «прогоняем» через трекер, чтобы подсветка не сбилась.
         for (index in 0 until firstChunk) {
             tracker.advance(SileroText.simpleWords(SileroText.normalizeForSpeech(chunks[index].text, userTerms)))
