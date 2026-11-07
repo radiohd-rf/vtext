@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -41,6 +40,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
@@ -49,7 +49,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,6 +78,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -134,6 +135,20 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
                     }
                 },
                 actions = {
+                    SpeedAction(
+                        speed = state.player.speed,
+                        onSelect = viewModel::setSpeed,
+                    )
+                    VoiceAction(
+                        current = state.player.sileroVoice,
+                        onSelect = viewModel::setVoice,
+                    )
+                    SleepAction(
+                        current = state.player.sleepTimerMinutes,
+                        untilChapterEnd = state.player.sleepUntilChapterEnd,
+                        onSelect = viewModel::setSleepTimer,
+                        onChapterEnd = viewModel::setSleepUntilChapterEnd,
+                    )
                     var bookmarksOpen by remember { mutableStateOf(false) }
                     IconButton(onClick = { bookmarksOpen = true }) {
                         Icon(
@@ -441,42 +456,6 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(
-                        R.string.segment_of,
-                        player.segmentIndex + 1,
-                        chapter.segments.size,
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = stringResource(R.string.speed_value, formatSpeed(player.speed)),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            val progress = if (chapter.segments.isEmpty()) {
-                0f
-            } else {
-                (player.segmentIndex + 1f) / chapter.segments.size
-            }
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(CircleShape),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                drawStopIndicator = {},
-            )
-            Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
@@ -524,25 +503,23 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                     )
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Box(Modifier.weight(1f)) {
-                    SpeedChip(speed = player.speed, onSelect = viewModel::setSpeed)
-                }
-                Box(Modifier.weight(1f)) {
-                    VoiceChip(current = player.sileroVoice, onSelect = viewModel::setVoice)
-                }
-                Box(Modifier.weight(1f)) {
-                    SleepChip(
-                        current = player.sleepTimerMinutes,
-                        untilChapterEnd = player.sleepUntilChapterEnd,
-                        onSelect = viewModel::setSleepTimer,
-                        onChapterEnd = viewModel::setSleepUntilChapterEnd,
-                    )
-                }
+            Spacer(Modifier.height(22.dp))
+            val progress = if (chapter.segments.isEmpty()) {
+                0f
+            } else {
+                (player.segmentIndex + 1f) / chapter.segments.size
             }
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(CircleShape),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                drawStopIndicator = {},
+            )
+            Spacer(Modifier.height(6.dp))
             if (player.isFinished) {
                 Text(
                     text = stringResource(R.string.book_finished),
@@ -749,66 +726,77 @@ private fun BookmarksDialog(
 }
 
 @Composable
-private fun SpeedChip(speed: Float, onSelect: (Float) -> Unit) {
+private fun SpeedAction(speed: Float, onSelect: (Float) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val options = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+    val description = stringResource(R.string.speed_action, formatSpeed(speed))
     Box {
-        FilterChip(
-            selected = false,
-            onClick = { expanded = true },
-            label = {
-                Text(
-                    text = "${formatSpeed(speed)}×",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            },
-            leadingIcon = { Icon(Icons.Filled.Speed, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text("${formatSpeed(option)}×") },
-                    onClick = {
-                        onSelect(option)
-                        expanded = false
-                    },
-                    trailingIcon = if (option == speed) {
-                        { Icon(Icons.Filled.Check, contentDescription = null) }
-                    } else {
-                        null
-                    },
-                )
-            }
+        Row(
+            modifier = Modifier
+                .clip(CircleShape)
+                .clickable { expanded = true }
+                .semantics(mergeDescendants = true) { contentDescription = description }
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Speed,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = "${formatSpeed(speed)}\u00d7",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
+        }
+        SpeedMenu(expanded = expanded, speed = speed, options = options, onDismiss = { expanded = false }, onSelect = onSelect)
+    }
+}
+
+@Composable
+private fun SpeedMenu(
+    expanded: Boolean,
+    speed: Float,
+    options: List<Float>,
+    onDismiss: () -> Unit,
+    onSelect: (Float) -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        options.forEach { option ->
+            DropdownMenuItem(
+                text = { Text("${formatSpeed(option)}\u00d7") },
+                onClick = {
+                    onSelect(option)
+                    onDismiss()
+                },
+                trailingIcon = if (option == speed) {
+                    { Icon(Icons.Filled.Check, contentDescription = null) }
+                } else {
+                    null
+                },
+            )
         }
     }
 }
 
 @Composable
-private fun VoiceChip(current: String?, onSelect: (String) -> Unit) {
+private fun VoiceAction(current: String?, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val voice = ru.vtext.app.tts.SileroVoice.fromId(current)
+    val description = stringResource(R.string.voice_action, voice.title)
     Box {
-        FilterChip(
-            selected = false,
-            onClick = { expanded = true },
-            label = {
-                Text(
-                    text = voice.title,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            },
-            leadingIcon = {
-                Icon(Icons.Filled.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(18.dp))
-            },
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                Icons.Filled.RecordVoiceOver,
+                contentDescription = description,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             ru.vtext.app.tts.SileroVoice.entries.forEach { item ->
                 DropdownMenuItem(
@@ -829,7 +817,7 @@ private fun VoiceChip(current: String?, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun SleepChip(
+private fun SleepAction(
     current: Int?,
     untilChapterEnd: Boolean,
     onSelect: (Int?) -> Unit,
@@ -837,28 +825,24 @@ private fun SleepChip(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val active = current != null || untilChapterEnd
-    val label = when {
-        untilChapterEnd -> stringResource(R.string.sleep_chip_chapter)
-        current != null -> stringResource(R.string.sleep_chip_minutes, current)
-        else -> stringResource(R.string.sleep_chip_off)
+    val description = when {
+        untilChapterEnd -> stringResource(R.string.sleep_action_chapter)
+        current != null -> stringResource(R.string.sleep_action_minutes, current)
+        else -> stringResource(R.string.sleep_action_off)
     }
     val options = listOf(15, 30, 60)
     Box {
-        FilterChip(
-            selected = active,
-            onClick = { expanded = true },
-            label = {
-                Text(
-                    text = label,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            },
-            leadingIcon = { Icon(Icons.Filled.Bedtime, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            shape = CircleShape,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                Icons.Filled.Schedule,
+                contentDescription = description,
+                tint = if (active) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.sleep_off)) },

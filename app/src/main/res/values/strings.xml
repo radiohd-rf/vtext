@@ -23,10 +23,6 @@
     <string name="book_finished">Книга дочитана</string>
     <string name="restart">Начать заново</string>
     <string name="chapter_of">Глава %1$d из %2$d</string>
-    <string name="segment_of">Фрагмент %1$d из %2$d</string>
-    <string name="speed">Скорость</string>
-    <string name="speed_value">%1$s×</string>
-    <string name="sleep_timer">Таймер сна</string>
     <string name="sleep_chapter_end">до конца главы</string>
     <string name="sleep_off">Выключен</string>
     <string name="sleep_minutes">%1$d мин</string>
@@ -120,9 +116,11 @@
         <item quantity="many">%1$d разделов</item>
         <item quantity="other">%1$d разделов</item>
     </plurals>
-    <string name="sleep_chip_off">Сон</string>
-    <string name="sleep_chip_minutes">%1$d мин</string>
-    <string name="sleep_chip_chapter">Глава</string>
+    <string name="speed_action">Скорость %1$s</string>
+    <string name="voice_action">Голос: %1$s</string>
+    <string name="sleep_action_off">Таймер сна выключен</string>
+    <string name="sleep_action_minutes">Таймер сна: %1$d мин</string>
+    <string name="sleep_action_chapter">Таймер сна: до конца главы</string>
 
     <!-- Оформление -->
     <string name="appearance_title">Оформление</string>
