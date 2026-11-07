@@ -70,6 +70,16 @@ class SileroSpeechEngine(
     private var pending: Pair<String, String>? = null
     private var generation = 0
 
+    // Предсинтез первого куска следующего фрагмента.
+    private val prefetchLock = Any()
+    private var prefetchJob: Job? = null
+    private var activePrefetchId: String? = null
+    private var pendingPrefetch: PrefetchRequest? = null
+    private var prefetched: Prefetched? = null
+
+    @Volatile
+    private var pipelineGenerating = false
+
     @Volatile
     private var activeTrack: AudioTrack? = null
 
@@ -123,7 +133,11 @@ class SileroSpeechEngine(
     }.getOrNull()
 
     override fun setRate(rate: Float) {
-        this.rate = rate.coerceIn(MIN_RATE, MAX_RATE)
+        val value = rate.coerceIn(MIN_RATE, MAX_RATE)
+        if (this.rate != value) {
+            this.rate = value
+            invalidatePrefetch()
+        }
     }
 
     override fun setVolume(volume: Float) {
@@ -132,7 +146,11 @@ class SileroSpeechEngine(
     }
 
     override fun setVoice(name: String?) {
-        speaker = SileroVoice.fromId(name).index
+        val index = SileroVoice.fromId(name).index
+        if (speaker != index) {
+            speaker = index
+            invalidatePrefetch()
+        }
         selectedVoice.value = SileroVoice.fromIndex(speaker).id
     }
 
@@ -146,9 +164,105 @@ class SileroSpeechEngine(
             }
             return
         }
+        cancelPrefetch(except = utteranceId)
         playbackJob?.cancel()
         val token = ++generation
+        pipelineGenerating = true
         playbackJob = ioScope.launch { play(token, text, utteranceId) }
+    }
+
+    override fun prefetch(text: String, utteranceId: String) {
+        if (text.isBlank()) return
+        val config = meta ?: return
+        val chunk = SileroText
+            .chunkPlan(SileroText.normalizeForSpeech(text, loadUserTerms()), CHUNK_CHARS)
+            .firstOrNull() ?: return
+        synchronized(prefetchLock) {
+            if (prefetched?.utteranceId == utteranceId) return
+            pendingPrefetch = PrefetchRequest(utteranceId, chunk.text, chunk)
+        }
+        startPrefetchIfIdle()
+    }
+
+    /** Синтез идёт только когда текущий фрагмент уже полностью сгенерирован. */
+    private fun startPrefetchIfIdle() {
+        if (pipelineGenerating) return
+        val request = synchronized(prefetchLock) {
+            pendingPrefetch?.also { pendingPrefetch = null }
+        } ?: return
+        if (prefetchJob?.isActive == true) {
+            synchronized(prefetchLock) { pendingPrefetch = request }
+            return
+        }
+        val config = meta ?: return
+        prefetchJob = ioScope.launch {
+            try {
+                synchronized(prefetchLock) { activePrefetchId = request.utteranceId }
+                val audio = synthesize(config, request.text)
+                if (audio.isEmpty()) return@launch
+                synchronized(prefetchLock) {
+                    prefetched = Prefetched(request.utteranceId, request.text, audio)
+                }
+                Log.i(TAG, "prefetch ${request.utteranceId}: ${"%.2f".format(audio.size / SAMPLE_RATE.toFloat())} c")
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                Log.w(TAG, "prefetch ${request.utteranceId} не удался", error)
+            } finally {
+                synchronized(prefetchLock) {
+                    if (activePrefetchId == request.utteranceId) activePrefetchId = null
+                }
+            }
+        }
+    }
+
+    /** Отменяет предсинтез, кроме того, что нужен для [except]. */
+    private fun cancelPrefetch(except: String? = null) {
+        val job = synchronized(prefetchLock) {
+            if (activePrefetchId != null && activePrefetchId != except) prefetchJob else null
+        }
+        job?.cancel()
+        if (job != null) prefetchJob = null
+    }
+
+    private fun invalidatePrefetch() {
+        synchronized(prefetchLock) {
+            prefetched = null
+            pendingPrefetch = null
+        }
+        prefetchJob?.cancel()
+        prefetchJob = null
+    }
+
+    private fun takePrefetched(utteranceId: String): Prefetched? = synchronized(prefetchLock) {
+        val value = prefetched
+        if (value != null && value.utteranceId == utteranceId) {
+            prefetched = null
+            value
+        } else {
+            null
+        }
+    }
+
+    /** Если предсинтез этого фрагмента ещё идёт — дожидаемся его вместо повторного синтеза. */
+    private suspend fun awaitPrefetch(utteranceId: String): Prefetched? {
+        val job = synchronized(prefetchLock) {
+            if (activePrefetchId == utteranceId) prefetchJob else null
+        }
+        job?.join()
+        return takePrefetched(utteranceId)
+    }
+
+    private fun onPipelineFinished() {
+        pipelineGenerating = false
+        startPrefetchIfIdle()
+    }
+
+    /** Фрагмент почти готов: можно начинать предсинтез следующего. */
+    private fun onPipelineNearlyFinished() {
+        if (!pipelineGenerating) return
+        pipelineGenerating = false
+        startPrefetchIfIdle()
     }
 
     override fun stop() {
@@ -167,6 +281,8 @@ class SileroSpeechEngine(
 
     override fun shutdown() {
         stop()
+        cancelPrefetch()
+        invalidatePrefetch()
         scope.cancel()
         ioScope.cancel()
         listOfNotNull(accentor, durationPredictor, pitchPredictor, acoustic, vocoder).forEach {
@@ -188,9 +304,16 @@ class SileroSpeechEngine(
         val config = meta ?: return
         val chunks = SileroText.chunkPlan(SileroText.normalizeForSpeech(text, loadUserTerms()), CHUNK_CHARS)
         if (chunks.isEmpty()) {
+            onPipelineFinished()
             _events.tryEmit(SpeechEvent.Done(utteranceId))
             return
         }
+        val cached = awaitPrefetch(utteranceId)?.takeIf { it.text == chunks.first().text }
+        if (cached != null) Log.i(TAG, "cache hit $utteranceId")
+        synchronized(prefetchLock) {
+            if (pendingPrefetch?.utteranceId == utteranceId) pendingPrefetch = null
+        }
+        val firstToGenerate = if (cached != null) 1 else 0
         val audioChannel = kotlinx.coroutines.channels.Channel<Rendered>(capacity = 2)
         var track: AudioTrack? = null
         var written = 0L
@@ -199,14 +322,21 @@ class SileroSpeechEngine(
             kotlinx.coroutines.coroutineScope {
                 val producer = launch(Dispatchers.Default) {
                     try {
-                        for (chunk in chunks) {
+                        if (cached != null) {
+                            audioChannel.send(Rendered(cached.audio, chunks.first().pauseMs))
+                        }
+                        for (index in firstToGenerate until chunks.size) {
                             if (token != generation) break
+                            val chunk = chunks[index]
                             val audio = synthesize(config, chunk.text)
                             if (token != generation) break
                             if (audio.isNotEmpty()) audioChannel.send(Rendered(audio, chunk.pauseMs))
+                            // К концу фрагмента освобождаем CPU под предсинтез следующего.
+                            if (chunks.size - 1 - index <= NEAR_END_CHUNKS) onPipelineNearlyFinished()
                         }
                     } finally {
                         audioChannel.close()
+                        onPipelineFinished()
                     }
                 }
                 try {
@@ -310,6 +440,10 @@ class SileroSpeechEngine(
     // ----- Синтез -----
 
     private class Rendered(val audio: FloatArray, val pauseMs: Int)
+
+    private class PrefetchRequest(val utteranceId: String, val text: String, val chunk: SileroText.Chunk)
+
+    private class Prefetched(val utteranceId: String, val text: String, val audio: FloatArray)
 
     /** Словарь произношения читается при каждом фрагменте: правки применяются без перезапуска. */
     private fun loadUserTerms(): Map<String, String> = runCatching {
@@ -486,6 +620,7 @@ class SileroSpeechEngine(
         private const val CHUNK_CHARS = 220
         private const val BUFFER_BYTES = 32_768
         private const val WRITE_CHUNK = 4096
+        private const val NEAR_END_CHUNKS = 3
         const val DEFAULT_VOICE = "xenia"
     }
 }
