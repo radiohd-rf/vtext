@@ -95,7 +95,6 @@ import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.player.PlayerState
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.SileroText
-import ru.vtext.app.ui.components.BookCover
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -305,42 +304,32 @@ private fun BookHeader(
     chapter: Chapter,
     onClickChapter: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.Top,
     ) {
-        BookCover(
-            book = book,
-            modifier = Modifier.width(64.dp).height(96.dp),
-            corner = 8.dp,
-            showFormat = false,
+        Text(
+            text = book.title,
+            style = MaterialTheme.typography.headlineSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
+        book.author?.let { author ->
+            Spacer(Modifier.height(2.dp))
             Text(
-                text = book.title,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 2,
+                text = author,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            book.author?.let { author ->
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = author,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            ChapterButton(
-                chapter = chapter,
-                index = player.chapterIndex,
-                total = book.chapters.size,
-                onClick = onClickChapter,
-            )
         }
+        Spacer(Modifier.height(10.dp))
+        ChapterButton(
+            chapter = chapter,
+            index = player.chapterIndex,
+            total = book.chapters.size,
+            onClick = onClickChapter,
+        )
     }
 }
 
