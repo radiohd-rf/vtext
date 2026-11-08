@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -46,12 +49,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import android.content.Intent
 import android.os.Build
+import androidx.core.content.FileProvider
+import java.io.File
+import java.util.Locale
 import kotlin.math.roundToInt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import ru.vtext.app.BuildConfig
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 import ru.vtext.app.data.PlaybackSettingsStore
@@ -75,9 +83,11 @@ fun SettingsScreen(onBack: () -> Unit) {
             container.playback,
             container.playbackSettings,
             container.appearance,
+            container.updates,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val update by viewModel.updateState.collectAsStateWithLifecycle()
     var modelPrompt by remember { mutableStateOf(false) }
     val modelPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -180,6 +190,17 @@ fun SettingsScreen(onBack: () -> Unit) {
             if (state.engineType == TtsEngineType.SILERO) {
                 sileroDictionarySection(state, viewModel, context)
             }
+
+            aboutSection(
+                context = context,
+                version = BuildConfig.VERSION_NAME,
+                update = update,
+                onCheck = viewModel::checkUpdates,
+                onDownload = viewModel::downloadUpdate,
+                onInstall = {
+                    viewModel.downloadedUpdate()?.let { installUpdate(context, it) }
+                },
+            )
         }
     }
     }
@@ -556,6 +577,131 @@ private fun LazyListScope.sileroDictionarySection(
             }
         }
     }
+}
+
+private fun LazyListScope.aboutSection(
+    context: Context,
+    version: String,
+    update: UpdateState,
+    onCheck: () -> Unit,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+) {
+    sectionHeader(context.getString(R.string.about_title))
+    item(key = "about") {
+        SettingsCard(selected = false, onClick = null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.about_version),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = version,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                when (update) {
+                    UpdateState.Idle, is UpdateState.UpToDate, is UpdateState.Failed -> {
+                        if (update is UpdateState.UpToDate) {
+                            Text(
+                                text = stringResource(R.string.update_latest, update.version),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (update is UpdateState.Failed) {
+                            Text(
+                                text = update.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        TextButton(onClick = onCheck) {
+                            Text(
+                                stringResource(
+                                    if (update is UpdateState.Failed) {
+                                        R.string.retry_update
+                                    } else {
+                                        R.string.check_updates
+                                    },
+                                ),
+                            )
+                        }
+                    }
+
+                    UpdateState.Checking -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = stringResource(R.string.update_checking),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    is UpdateState.Available -> {
+                        Text(
+                            text = stringResource(
+                                R.string.update_available,
+                                update.version,
+                                formatSize(update.sizeBytes),
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(onClick = onDownload) {
+                            Text(stringResource(R.string.update_download))
+                        }
+                    }
+
+                    is UpdateState.Downloading -> {
+                        Text(
+                            text = stringResource(
+                                R.string.update_downloading,
+                                (update.progress * 100).roundToInt(),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { update.progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    is UpdateState.Ready -> {
+                        Text(
+                            text = stringResource(R.string.update_ready, update.version),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onInstall) {
+                            Text(stringResource(R.string.update_install))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatSize(bytes: Long): String {
+    if (bytes <= 0L) return ""
+    val megabytes = bytes / (1024.0 * 1024.0)
+    return String.format(Locale.getDefault(), "%.1f МБ", megabytes)
+}
+
+private fun installUpdate(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
 }
 
 @Composable

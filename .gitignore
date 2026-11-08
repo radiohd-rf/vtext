@@ -62,3 +62,7 @@ app/release/
 .mypy_cache/
 .ruff_cache/
 coverage/
+
+# Личные заметки проекта (не публикуем)
+AGENTS.md
+MEMORY.md

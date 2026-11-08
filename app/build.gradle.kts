@@ -12,8 +12,9 @@ android {
         applicationId = "ru.vtext.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // В CI версия приходит из тега (v0.2.0 → 0.2.0 / 200).
+        versionCode = System.getenv("VTEXT_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("VTEXT_VERSION_NAME") ?: "0.1.0"
 
         ndk {
             // Нейродвижок (PyTorch Lite) поставляется только под arm64:
@@ -22,9 +23,24 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("VTEXT_KEYSTORE_PATH")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("VTEXT_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VTEXT_KEY_ALIAS")
+                keyPassword = System.getenv("VTEXT_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (!System.getenv("VTEXT_KEYSTORE_PATH").isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -43,6 +59,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

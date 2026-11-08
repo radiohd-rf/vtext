@@ -25,6 +25,7 @@ class VtextApp : Application() {
 class AppContainer(application: Application) {
     val repository = BookRepository(application)
     val progressStore = ProgressStore(application)
+    val updates = ru.vtext.app.data.UpdateRepository(application)
     val appearance = ru.vtext.app.data.AppearanceSettingsStore(application)
     val ttsSettings = TtsSettingsStore(application)
     val playbackSettings = PlaybackSettingsStore(application)

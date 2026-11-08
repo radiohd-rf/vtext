@@ -4,14 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import ru.vtext.app.BuildConfig
 import ru.vtext.app.data.AppearanceSettingsStore
 import ru.vtext.app.data.PlaybackSettingsStore
+import ru.vtext.app.data.UpdateInfo
+import ru.vtext.app.data.UpdateRepository
 import ru.vtext.app.player.PlaybackCoordinator
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.ModelStatus
@@ -20,6 +26,17 @@ import ru.vtext.app.tts.NeuralSettings
 import ru.vtext.app.tts.TtsEngineType
 import ru.vtext.app.tts.TtsManager
 import ru.vtext.app.tts.VoiceInfo
+
+/** Состояние проверки обновления из GitHub Releases. */
+sealed interface UpdateState {
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    data class UpToDate(val version: String) : UpdateState
+    data class Available(val version: String, val sizeBytes: Long) : UpdateState
+    data class Downloading(val progress: Float) : UpdateState
+    data class Ready(val version: String) : UpdateState
+    data class Failed(val message: String) : UpdateState
+}
 
 data class SettingsUiState(
     val engineType: TtsEngineType = TtsEngineType.SYSTEM,
@@ -51,7 +68,14 @@ class SettingsViewModel(
     private val playback: PlaybackCoordinator,
     private val playbackSettings: PlaybackSettingsStore,
     private val appearance: AppearanceSettingsStore,
+    private val updates: UpdateRepository,
 ) : ViewModel() {
+
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    private var pendingUpdate: UpdateInfo? = null
+    private var downloadedApk: File? = null
 
     private val tuning = MutableStateFlow(
         VoiceTuning(
@@ -156,14 +180,64 @@ class SettingsViewModel(
 
     fun setDynamicColor(enabled: Boolean) = appearance.setDynamicColor(enabled)
 
+    // ----- Обновления -----
+
+    fun checkUpdates() {
+        val current = _updateState.value
+        if (current is UpdateState.Checking || current is UpdateState.Downloading) return
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Checking
+            runCatching { updates.latest() }
+                .onSuccess { info ->
+                    if (info != null && UpdateRepository.isNewer(info.version, BuildConfig.VERSION_NAME)) {
+                        pendingUpdate = info
+                        _updateState.value = UpdateState.Available(info.version, info.sizeBytes)
+                    } else {
+                        pendingUpdate = null
+                        _updateState.value = UpdateState.UpToDate(BuildConfig.VERSION_NAME)
+                    }
+                }
+                .onFailure { error ->
+                    _updateState.value = UpdateState.Failed(
+                        error.message ?: "Не удалось проверить обновления",
+                    )
+                }
+        }
+    }
+
+    fun downloadUpdate() {
+        val info = pendingUpdate ?: return
+        if (_updateState.value is UpdateState.Downloading) return
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Downloading(0f)
+            runCatching {
+                updates.download(info) { progress ->
+                    _updateState.value = UpdateState.Downloading(progress)
+                }
+            }
+                .onSuccess { file ->
+                    downloadedApk = file
+                    _updateState.value = UpdateState.Ready(info.version)
+                }
+                .onFailure { error ->
+                    _updateState.value = UpdateState.Failed(
+                        error.message ?: "Не удалось скачать обновление",
+                    )
+                }
+        }
+    }
+
+    fun downloadedUpdate(): File? = downloadedApk
+
     companion object {
         fun factory(
             manager: TtsManager,
             playback: PlaybackCoordinator,
             playbackSettings: PlaybackSettingsStore,
             appearance: AppearanceSettingsStore,
+            updates: UpdateRepository,
         ) = viewModelFactory {
-            initializer { SettingsViewModel(manager, playback, playbackSettings, appearance) }
+            initializer { SettingsViewModel(manager, playback, playbackSettings, appearance, updates) }
         }
     }
 }

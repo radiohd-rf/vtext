@@ -835,7 +835,7 @@ private fun PlayerOptionsSheet(
     }
 }
 
-/** Шторка скорости: горизонтальная шкала 0.5–3.0 с шагом 0.1, как в плеере Bookmate. */
+/** Шторка скорости: горизонтальная шкала 0.5–2.0 с шагом 0.1. */
 @Composable
 private fun SpeedSheet(speed: Float, onSelect: (Float) -> Unit) {
     val values = remember(speed) {

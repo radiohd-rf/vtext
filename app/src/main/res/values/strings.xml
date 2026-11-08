@@ -117,4 +117,17 @@
     <string name="dynamic_color_title">Цвета системы</string>
     <string name="dynamic_color_desc">Material You: палитра под обои</string>
     <string name="dynamic_color_unavailable">Доступно на Android 12 и новее</string>
+
+    <!-- О приложении -->
+    <string name="about_title">О приложении</string>
+    <string name="about_version">Версия</string>
+    <string name="check_updates">Проверить обновления</string>
+    <string name="retry_update">Повторить</string>
+    <string name="update_checking">Проверяем обновления…</string>
+    <string name="update_latest">Установлена последняя версия (%1$s)</string>
+    <string name="update_available">Доступна версия %1$s · %2$s</string>
+    <string name="update_download">Скачать и установить</string>
+    <string name="update_downloading">Скачивание… %1$d%%</string>
+    <string name="update_ready">Версия %1$s скачана</string>
+    <string name="update_install">Установить</string>
 </resources>
