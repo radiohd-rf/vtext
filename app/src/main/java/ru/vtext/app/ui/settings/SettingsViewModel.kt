@@ -18,6 +18,7 @@ import ru.vtext.app.data.AppearanceSettingsStore
 import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.data.UpdateInfo
 import ru.vtext.app.data.UpdateRepository
+import ru.vtext.app.data.updateErrorMessage
 import ru.vtext.app.player.PlaybackCoordinator
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.ModelStatus
@@ -199,7 +200,7 @@ class SettingsViewModel(
                 }
                 .onFailure { error ->
                     _updateState.value = UpdateState.Failed(
-                        error.message ?: "Не удалось проверить обновления",
+                        updateErrorMessage(error),
                     )
                 }
         }
@@ -221,7 +222,7 @@ class SettingsViewModel(
                 }
                 .onFailure { error ->
                     _updateState.value = UpdateState.Failed(
-                        error.message ?: "Не удалось скачать обновление",
+                        updateErrorMessage(error),
                     )
                 }
         }

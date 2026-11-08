@@ -1,12 +1,12 @@
 package ru.vtext.app.data
 
 import android.content.Context
+import android.util.Log
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 data class UpdateInfo(
     val version: String,
@@ -14,36 +14,38 @@ data class UpdateInfo(
     val downloadUrl: String,
 )
 
-/** Проверка и скачивание APK из GitHub Releases публичного репозитория. */
+/**
+ * Проверка и скачивание APK из GitHub Releases.
+ *
+ * Вместо api.github.com (лимит запросов, 5xx) используем редирект
+ * `github.com/<repo>/releases/latest` → `/releases/tag/vX.Y.Z`:
+ * он не требует токена и не упирается в квоту API.
+ */
 class UpdateRepository(private val context: Context) {
 
     suspend fun latest(): UpdateInfo? = withContext(Dispatchers.IO) {
-        val connection = URL(LATEST_RELEASE).openConnection() as HttpURLConnection
+        val connection = URL("$REPO_URL/releases/latest").openConnection() as HttpURLConnection
         connection.apply {
-            connectTimeout = 10_000
+            instanceFollowRedirects = false
+            connectTimeout = 15_000
             readTimeout = 15_000
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "vtext-updater")
+            setRequestProperty("User-Agent", USER_AGENT)
         }
         try {
-            if (connection.responseCode != 200) return@withContext null
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(body)
-            val version = json.optString("tag_name")
-                .removePrefix("v")
-                .ifBlank { return@withContext null }
-            val assets = json.optJSONArray("assets") ?: return@withContext null
-            for (index in 0 until assets.length()) {
-                val asset = assets.getJSONObject(index)
-                if (asset.optString("name").endsWith(".apk", ignoreCase = true)) {
-                    return@withContext UpdateInfo(
-                        version = version,
-                        sizeBytes = asset.optLong("size"),
-                        downloadUrl = asset.optString("browser_download_url"),
-                    )
-                }
-            }
-            null
+            val code = connection.responseCode
+            Log.d(TAG, "releases/latest → $code")
+            if (code !in 300..399) error("GitHub ответил $code")
+            val location = connection.getHeaderField("Location")
+                ?: error("GitHub не вернул адрес релиза")
+            val tag = location.substringAfterLast("/tag/", missingDelimiterValue = "")
+            val version = tag.removePrefix("v")
+            if (version.isBlank()) error("Не удалось определить версию релиза")
+            val downloadUrl = "$REPO_URL/releases/download/v$version/vtext-$version.apk"
+            UpdateInfo(
+                version = version,
+                sizeBytes = sizeOf(downloadUrl),
+                downloadUrl = downloadUrl,
+            )
         } finally {
             connection.disconnect()
         }
@@ -58,7 +60,7 @@ class UpdateRepository(private val context: Context) {
             connection.apply {
                 connectTimeout = 15_000
                 readTimeout = 30_000
-                setRequestProperty("User-Agent", "vtext-updater")
+                setRequestProperty("User-Agent", USER_AGENT)
             }
             try {
                 if (connection.responseCode !in 200..299) {
@@ -86,9 +88,29 @@ class UpdateRepository(private val context: Context) {
             }
         }
 
+    /** Размер APK для подписи «84 МБ»: HEAD-запрос, при ошибке — 0. */
+    private fun sizeOf(url: String): Long = runCatching {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.apply {
+            requestMethod = "HEAD"
+            instanceFollowRedirects = true
+            connectTimeout = 10_000
+            readTimeout = 10_000
+            setRequestProperty("User-Agent", USER_AGENT)
+        }
+        try {
+            if (connection.responseCode in 200..299) connection.contentLengthLong else 0L
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrDefault(0L)
+
     companion object {
-        private const val LATEST_RELEASE =
-            "https://api.github.com/repos/radiohd-rf/vtext/releases/latest"
+        private const val TAG = "UpdateRepository"
+        private const val OWNER = "radiohd-rf"
+        private const val REPO = "vtext"
+        private const val REPO_URL = "https://github.com/$OWNER/$REPO"
+        private const val USER_AGENT = "vtext-updater"
 
         /** true, если [remote] новее [current] (сравнение по числовым частям версии). */
         fun isNewer(remote: String, current: String): Boolean {
