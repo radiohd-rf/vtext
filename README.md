@@ -1,3 +1,5 @@
+[![Android CI](https://github.com/radiohd-rf/vtext/actions/workflows/android.yml/badge.svg)](https://github.com/radiohd-rf/vtext/actions/workflows/android.yml)
+
 # vtext
 
 Android-приложение, которое читает вслух текстовые файлы и книги, загруженные пользователем, с помощью TTS (text-to-speech).
