@@ -29,12 +29,15 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -49,6 +52,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -75,6 +79,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -82,7 +87,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
+import ru.vtext.app.data.YandexDiskLinks
 import ru.vtext.app.domain.model.Book
+import ru.vtext.app.domain.model.BookKind
 import ru.vtext.app.domain.model.TextPreset
 import ru.vtext.app.ui.components.BookCover
 
@@ -96,9 +103,25 @@ private val bookMimeTypes = arrayOf(
     "*/*",
 )
 
+private val audioMimeTypes = arrayOf(
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/flac",
+    "audio/ogg",
+    "audio/opus",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/*",
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
+fun LibraryScreen(
+    onOpenBook: (String) -> Unit,
+    onOpenAudio: (String) -> Unit,
+    onSettings: () -> Unit,
+) {
     val context = LocalContext.current
     val container = (context.applicationContext as VtextApp).container
     val viewModel: LibraryViewModel = viewModel(
@@ -106,6 +129,8 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
             repository = container.repository,
             progressStore = container.progressStore,
             playback = container.playback,
+            audioRepository = container.audioRepository,
+            audioProgress = container.audioProgress,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -115,7 +140,15 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<Book?>(null) }
     var pendingImport by remember { mutableStateOf<List<Uri>?>(null) }
+    var pendingAudio by remember { mutableStateOf<List<Uri>?>(null) }
+    var showYandexDialog by remember { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf(TextPreset.AUTO) }
+
+    val audioPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty()) pendingAudio = uris
+    }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -155,6 +188,18 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showYandexDialog = true }) {
+                        Icon(
+                            Icons.Default.Link,
+                            contentDescription = stringResource(R.string.audio_by_link),
+                        )
+                    }
+                    IconButton(onClick = { audioPicker.launch(audioMimeTypes) }) {
+                        Icon(
+                            Icons.Default.Headphones,
+                            contentDescription = "Добавить аудиокнигу",
+                        )
+                    }
                     IconButton(onClick = onSettings) {
                         Icon(
                             Icons.Default.Settings,
@@ -205,7 +250,10 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
                     else -> BookGrid(
                         books = state.visibleBooks,
                         positions = state.positions,
-                        onOpen = onOpenBook,
+                        onOpen = { id ->
+                            val target = state.visibleBooks.firstOrNull { it.id == id }
+                            if (target?.kind == BookKind.AUDIO) onOpenAudio(id) else onOpenBook(id)
+                        },
                         onLongPress = { pendingDelete = it },
                     )
                 }
@@ -219,8 +267,66 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
         }
     }
 
-    pendingDelete?.let { book ->
+    if (showYandexDialog) {
+        var link by remember { mutableStateOf("") }
+        var linkError by remember { mutableStateOf<String?>(null) }
         AlertDialog(
+            onDismissRequest = { showYandexDialog = false },
+            title = { Text(stringResource(R.string.audio_by_link)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.audio_link_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = link,
+                        onValueChange = { value ->
+                            // Ссылки не содержат пробелов: автозамена клавиатуры иногда их вставляет.
+                            link = value.filterNot { it.isWhitespace() }
+                            linkError = null
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        placeholder = { Text("https://disk.yandex.ru/d/…") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    linkError?.let { message ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val publicKey = YandexDiskLinks.normalize(link)
+                        if (publicKey == null) {
+                            linkError = context.getString(R.string.audio_link_invalid)
+                        } else {
+                            showYandexDialog = false
+                            viewModel.importYandex(publicKey)
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.audio_link_add))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showYandexDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    pendingDelete?.let { book ->        AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.delete_book)) },
             text = { Text(stringResource(R.string.delete_book_message, book.title)) },
@@ -237,6 +343,49 @@ fun LibraryScreen(onOpenBook: (String) -> Unit, onSettings: () -> Unit) {
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
                     Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    pendingAudio?.let { uris ->
+        AlertDialog(
+            onDismissRequest = { pendingAudio = null },
+            title = { Text("Добавить аудиокнигу") },
+            text = {
+                Text(
+                    if (uris.size > 1) {
+                        "Выбрано файлов: ${uris.size}. Это одна книга (дорожки по порядку) " +
+                            "или несколько отдельных?"
+                    } else {
+                        "Файл будет добавлен как аудиокнига."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.importAudio(uris, asOneBook = true)
+                        pendingAudio = null
+                    },
+                ) {
+                    Text(if (uris.size > 1) "Одна книга" else "Добавить")
+                }
+            },
+            dismissButton = {
+                if (uris.size > 1) {
+                    TextButton(
+                        onClick = {
+                            viewModel.importAudio(uris, asOneBook = false)
+                            pendingAudio = null
+                        },
+                    ) {
+                        Text("Отдельные книги")
+                    }
+                } else {
+                    TextButton(onClick = { pendingAudio = null }) {
+                        Text(stringResource(R.string.cancel))
+                    }
                 }
             },
         )
@@ -467,10 +616,19 @@ private fun BookCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        val online = book.audioPublicKey != null
         Text(
-            text = book.author ?: stringResource(R.string.unknown_author),
+            text = if (online) {
+                stringResource(R.string.audio_online)
+            } else {
+                book.author ?: stringResource(R.string.unknown_author)
+            },
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (online) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

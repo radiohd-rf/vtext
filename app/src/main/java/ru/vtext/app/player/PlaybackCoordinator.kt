@@ -117,8 +117,7 @@ class PlaybackCoordinator(
         val safeSegment = segmentIndex.coerceIn(0, (segmentCount - 1).coerceAtLeast(0))
         advanceJob?.cancel()
         engine.stop()
-        val bookSpeed = (bookSettings.speed(book.id) ?: settings.speed)
-            .coerceIn(PlaybackSettingsStore.MIN_SPEED, PlaybackSettingsStore.MAX_SPEED)
+        val bookSpeed = ru.vtext.app.player.audio.SpeedPolicy.snap(settings.speed)
         val bookVoice = bookSettings.voice(book.id)
         if (bookVoice != null) tts?.applySileroVoice(bookVoice)
         engine.setRate(bookSpeed)
@@ -215,9 +214,9 @@ class PlaybackCoordinator(
     }
 
     fun setSpeed(speed: Float) {
-        val safeSpeed = speed.coerceIn(PlaybackSettingsStore.MIN_SPEED, PlaybackSettingsStore.MAX_SPEED)
-        val bookId = _state.value.bookId
-        if (bookId != null) bookSettings.setSpeed(bookId, safeSpeed) else settings.speed = safeSpeed
+        // Скорость общая для всего приложения: аудио и чтение текста меняют одно значение.
+        val safeSpeed = ru.vtext.app.player.audio.SpeedPolicy.snap(speed)
+        settings.speed = safeSpeed
         engine.setRate(safeSpeed)
         _state.update { it.copy(speed = safeSpeed) }
     }

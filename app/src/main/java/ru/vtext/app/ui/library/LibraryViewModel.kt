@@ -11,9 +11,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import ru.vtext.app.data.AudioProgressStore
+import ru.vtext.app.data.AudioRepository
 import ru.vtext.app.data.BookRepository
 import ru.vtext.app.data.ProgressStore
 import ru.vtext.app.domain.model.Book
+import ru.vtext.app.domain.model.BookKind
 import ru.vtext.app.domain.model.TextPreset
 import ru.vtext.app.player.PlaybackCoordinator
 
@@ -67,6 +70,8 @@ class LibraryViewModel(
     private val repository: BookRepository,
     private val progressStore: ProgressStore,
     private val playback: PlaybackCoordinator,
+    private val audioRepository: AudioRepository,
+    private val audioProgress: AudioProgressStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
@@ -111,10 +116,62 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Импорт аудиокниг.
+     *
+     * @param asOneBook true — все выбранные файлы станут дорожками одной книги.
+     */
+    fun importAudio(uris: List<android.net.Uri>, asOneBook: Boolean) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _state.update { it.copy(importing = true, error = null) }
+            val error = try {
+                audioRepository.import(uris, asOneBook)
+                null
+            } catch (exception: Exception) {
+                exception.message ?: "Не удалось импортировать аудиокнигу"
+            }
+            val books = repository.listBooks()
+            _state.update {
+                it.copy(
+                    importing = false,
+                    loading = false,
+                    books = books,
+                    positions = readPositions(books),
+                    error = error,
+                )
+            }
+        }
+    }
+
+    /** Онлайн-аудиокнига из публичной папки Яндекс.Диска: файлы не скачиваются. */
+    fun importYandex(publicKey: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(importing = true, error = null) }
+            val error = try {
+                audioRepository.importFromYandex(publicKey)
+                null
+            } catch (exception: Exception) {
+                exception.message ?: "Не удалось добавить аудиокнигу по ссылке"
+            }
+            val books = repository.listBooks()
+            _state.update {
+                it.copy(
+                    importing = false,
+                    loading = false,
+                    books = books,
+                    positions = readPositions(books),
+                    error = error,
+                )
+            }
+        }
+    }
+
     fun delete(book: Book) {
         viewModelScope.launch {
             repository.delete(book.id)
             progressStore.clear(book.id)
+            audioProgress.clear(book.id)
             playback.clearIfBook(book.id)
             val books = repository.listBooks()
             _state.update { it.copy(books = books, positions = readPositions(books)) }
@@ -135,8 +192,13 @@ class LibraryViewModel(
 
     private fun readPositions(books: List<Book>): Map<String, ReadingPosition> =
         books.associate { book ->
-            val (chapter, segment) = progressStore.load(book.id)
-            book.id to ReadingPosition(chapter, segment)
+            if (book.kind == BookKind.AUDIO) {
+                val saved = audioProgress.get(book.id)
+                book.id to ReadingPosition(saved?.chapterIndex ?: 0, 0)
+            } else {
+                val (chapter, segment) = progressStore.load(book.id)
+                book.id to ReadingPosition(chapter, segment)
+            }
         }
 
     companion object {
@@ -144,8 +206,18 @@ class LibraryViewModel(
             repository: BookRepository,
             progressStore: ProgressStore,
             playback: PlaybackCoordinator,
+            audioRepository: AudioRepository,
+            audioProgress: AudioProgressStore,
         ) = viewModelFactory {
-            initializer { LibraryViewModel(repository, progressStore, playback) }
+            initializer {
+                LibraryViewModel(
+                    repository,
+                    progressStore,
+                    playback,
+                    audioRepository,
+                    audioProgress,
+                )
+            }
         }
     }
 }

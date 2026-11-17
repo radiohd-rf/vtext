@@ -130,4 +130,11 @@
     <string name="update_downloading">Скачивание… %1$d%%</string>
     <string name="update_ready">Версия %1$s скачана</string>
     <string name="update_install">Установить</string>
+
+    <!-- Онлайн-аудиокниги -->
+    <string name="audio_by_link">Аудиокнига по ссылке</string>
+    <string name="audio_link_hint">Публичная ссылка на папку Яндекс.Диска с аудиофайлами. Файлы не скачиваются — книга играет онлайн.</string>
+    <string name="audio_link_add">Добавить</string>
+    <string name="audio_link_invalid">Нужна публичная ссылка вида https://disk.yandex.ru/d/…</string>
+    <string name="audio_online">Онлайн · Яндекс.Диск</string>
 </resources>

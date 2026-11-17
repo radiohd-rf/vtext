@@ -1,5 +1,8 @@
 package ru.vtext.app.domain.model
 
+/** Чем книга является для приложения: текстом для озвучки или готовым аудио. */
+enum class BookKind { TEXT, AUDIO }
+
 enum class BookFormat { TXT, FB2, EPUB, PDF, DOCX }
 
 /** Глава книги, разбитая на короткие фрагменты — единицы озвучивания. */
@@ -14,13 +17,18 @@ data class Book(
     val id: String,
     val title: String,
     val author: String?,
-    val format: BookFormat,
+    /** Для аудиокниг формат текста отсутствует: у них есть дорожки. */
+    val format: BookFormat? = null,
     val addedAt: Long,
     val chapters: List<Chapter> = emptyList(),
     val preset: TextPreset = TextPreset.AUTO,
     val coverPath: String? = null,
     /** Число глав из meta.json: нужно библиотеке, где сами главы не загружаются. */
     val chapterCount: Int = 0,
+    /** Вид книги. У книг, добавленных до появления поля, читается как TEXT. */
+    val kind: BookKind = BookKind.TEXT,
+    /** Для онлайн-аудиокниг — публичная ссылка Яндекс.Диска, откуда берутся дорожки. */
+    val audioPublicKey: String? = null,
 )
 
 /** Результат разбора файла до сохранения в библиотеку. */

@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.BookFormat
+import ru.vtext.app.domain.model.BookKind
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.domain.model.TextPreset
 import ru.vtext.app.domain.parser.BookParser
@@ -85,9 +86,16 @@ class BookRepository(private val context: Context) {
             val dir = File(root, id)
             if (!dir.isDirectory) return@run null
             val meta = readMeta(dir) ?: return@run null
+            if (meta.kind == BookKind.AUDIO) {
+                // Аудиокнигу разбирает AudioRepository: здесь только метаданные.
+                val book = meta.copy(chapterCount = meta.chapterCount)
+                cache[id] = book
+                return@run book
+            }
+            val format = meta.format ?: return@run null
             val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") }
             if (coverFile(dir) == null && source != null) {
-                CoverExtractor.extract(meta.format, source, dir)
+                CoverExtractor.extract(format, source, dir)
             }
             val cachedChapters = readChapters(dir)
             val cachedVersion = readSegmentVersion(dir)
@@ -96,7 +104,7 @@ class BookRepository(private val context: Context) {
                 cachedChapters
             } else {
                 source ?: return@run null
-                val parsed = parsers.getValue(meta.format).parse(source, meta.title, meta.preset).chapters
+                val parsed = parsers.getValue(format).parse(source, meta.title, meta.preset).chapters
                 // Если повторный разбор не удался, лучше оставить старый кэш.
                 parsed.ifEmpty { cachedChapters ?: emptyList() }
             }
@@ -119,6 +127,15 @@ class BookRepository(private val context: Context) {
         File(root, id).deleteRecursively()
         cache.remove(id)
         Unit
+    }
+
+    /** Папка книги — нужна [AudioRepository] для файлов и tracks.json. */
+    fun bookDir(id: String): File = File(root, id).apply { mkdirs() }
+
+    /** Запись meta.json для аудиокниг (импорт идёт через [AudioRepository]). */
+    fun saveMeta(book: Book) {
+        writeMeta(bookDir(book.id), book)
+        cache[book.id] = book
     }
 
     private fun detectFormat(name: String, mime: String?): BookFormat? {
@@ -154,11 +171,15 @@ class BookRepository(private val context: Context) {
             .put("id", book.id)
             .put("title", book.title)
             .put("author", book.author)
-            .put("format", book.format.name)
+            .put("format", book.format?.name ?: "")
+            .put("kind", book.kind.name)
             .put("addedAt", book.addedAt)
             .put("segmentVersion", SEGMENT_VERSION)
             .put("preset", book.preset.id)
             .put("chapterCount", book.chapterCount.coerceAtLeast(book.chapters.size))
+        if (book.audioPublicKey != null) {
+            json.put("audioPublicKey", book.audioPublicKey)
+        }
         File(dir, "meta.json").writeText(json.toString())
     }
 
@@ -173,23 +194,29 @@ class BookRepository(private val context: Context) {
         if (!file.isFile) return null
         return runCatching {
             val json = JSONObject(file.readText())
+            val kind = runCatching { BookKind.valueOf(json.optString("kind", "")) }
+                .getOrDefault(BookKind.TEXT)
             Book(
                 id = json.optString("id", dir.name),
                 title = json.optString("title", "Без названия"),
                 author = json.optString("author").ifBlank { null },
-                format = BookFormat.valueOf(json.optString("format", BookFormat.TXT.name)),
+                format = json.optString("format").ifBlank { null }
+                    ?.let { runCatching { BookFormat.valueOf(it) }.getOrNull() },
                 addedAt = json.optLong("addedAt", 0L),
                 preset = TextPreset.fromId(json.optString("preset", TextPreset.AUTO.id)),
                 coverPath = coverFile(dir)?.absolutePath,
                 chapterCount = json.optInt("chapterCount", 0),
+                kind = kind,
+                audioPublicKey = json.optString("audioPublicKey").ifBlank { null },
             )
         }.getOrNull()
     }
 
     private fun withCover(dir: File, book: Book): Book {
         coverFile(dir)?.let { return book.copy(coverPath = it.absolutePath) }
+        val format = book.format ?: return book
         val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") } ?: return book
-        val cover = CoverExtractor.extract(book.format, source, dir) ?: return book
+        val cover = CoverExtractor.extract(format, source, dir) ?: return book
         return book.copy(coverPath = cover.absolutePath)
     }
 

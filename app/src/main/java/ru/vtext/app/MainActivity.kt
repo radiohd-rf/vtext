@@ -14,12 +14,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.ui.platform.LocalContext
 import ru.vtext.app.player.PlaybackService
+import ru.vtext.app.ui.audio.AudioPlayerScreen
+import ru.vtext.app.ui.audio.AudioPlayerViewModel
 import ru.vtext.app.ui.book.BookScreen
 import ru.vtext.app.ui.library.LibraryScreen
 import ru.vtext.app.ui.settings.SettingsScreen
@@ -79,6 +83,7 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
         composable("library") {
             LibraryScreen(
                 onOpenBook = { bookId -> navController.navigate("book/$bookId") },
+                onOpenAudio = { bookId -> navController.navigate("audio/$bookId") },
                 onSettings = { navController.navigate("settings") },
             )
         }
@@ -88,6 +93,22 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
         ) { entry ->
             val bookId = entry.arguments?.getString("bookId").orEmpty()
             BookScreen(bookId = bookId, onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = "audio/{bookId}",
+            arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
+        ) { entry ->
+            val bookId = entry.arguments?.getString("bookId").orEmpty()
+            val context = LocalContext.current
+            val container = (context.applicationContext as VtextApp).container
+            val audioViewModel: AudioPlayerViewModel = viewModel(
+                factory = AudioPlayerViewModel.factory(container.audioPlayback),
+            )
+            AudioPlayerScreen(
+                bookId = bookId,
+                viewModel = audioViewModel,
+                onBack = { navController.popBackStack() },
+            )
         }
         composable("settings") {
             SettingsScreen(onBack = { navController.popBackStack() })

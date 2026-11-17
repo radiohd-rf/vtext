@@ -10,8 +10,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import ru.vtext.app.domain.model.BookKind
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -65,10 +70,14 @@ fun BookCover(
                 CoverFallback(book, corner)
             }
             if (showFormat) {
-                FormatBadge(
-                    text = book.format.name,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
-                )
+                if (book.kind == BookKind.AUDIO) {
+                    AudioBadge(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp))
+                } else {
+                    FormatBadge(
+                        text = book.format?.name ?: "TXT",
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                    )
+                }
             }
         }
     }
@@ -122,6 +131,23 @@ private fun FormatBadge(text: String, modifier: Modifier = Modifier) {
             text = text,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+/** Аудиокнига: наушники вместо текста формата. */
+@Composable
+private fun AudioBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Headphones,
+            contentDescription = "Аудиокнига",
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp).size(14.dp),
         )
     }
 }

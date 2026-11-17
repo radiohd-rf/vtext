@@ -80,6 +80,10 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
+    // Аудиокниги: ExoPlayer + MediaSession (фоновое воспроизведение, наушники).
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-session:1.4.1")
+
     // TorchScript Lite для Silero v5.
     implementation("org.pytorch:pytorch_android_lite:2.1.0")
 

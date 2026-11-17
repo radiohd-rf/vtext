@@ -101,6 +101,7 @@ import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.SileroText
 import ru.vtext.app.tts.SileroVoice
 import ru.vtext.app.tts.VoiceGender
+import ru.vtext.app.ui.components.SpeedSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -823,7 +824,14 @@ private fun PlayerOptionsSheet(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         when (sheet) {
-            PlayerSheet.SPEED -> SpeedSheet(speed = player.speed, onSelect = onSpeed)
+            PlayerSheet.SPEED -> SpeedSheet(
+                current = player.speed,
+                onChange = onSpeed,
+                onDismiss = onDismiss,
+                allowFine = true,
+                applyLive = true,
+                applyDelayMs = 350,
+            )
             PlayerSheet.VOICE -> VoiceSheet(current = player.sileroVoice, onSelect = onVoice)
             PlayerSheet.SLEEP -> SleepSheet(
                 current = player.sleepTimerMinutes,
@@ -831,80 +839,6 @@ private fun PlayerOptionsSheet(
                 onSelect = onSleep,
                 onChapterEnd = onSleepChapter,
             )
-        }
-    }
-}
-
-/** Шторка скорости: горизонтальная шкала 0.5–2.0 с шагом 0.1. */
-@Composable
-private fun SpeedSheet(speed: Float, onSelect: (Float) -> Unit) {
-    val values = remember(speed) {
-        val base = (5..20).map { it / 10f }
-        if (base.any { abs(it - speed) < 0.001f }) {
-            base
-        } else {
-            (base + speed).sorted()
-        }
-    }
-    val selectedIndex = values
-        .indexOfFirst { abs(it - speed) < 0.001f }
-        .coerceAtLeast(0)
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = (selectedIndex - 2).coerceAtLeast(0),
-    )
-    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
-        Text(
-            text = stringResource(R.string.sheet_speed_title),
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(14.dp))
-        LazyRow(
-            state = listState,
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 28.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            itemsIndexed(values) { _, value ->
-                val selected = abs(value - speed) < 0.001f
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .clip(MaterialTheme.shapes.small)
-                        .clickable { onSelect(value) }
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        text = "${formatSpeedScale(value)}\u00d7",
-                        style = if (selected) {
-                            MaterialTheme.typography.headlineMedium
-                        } else {
-                            MaterialTheme.typography.titleLarge
-                        },
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Box(
-                        Modifier
-                            .size(6.dp)
-                            .background(
-                                if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    Color.Transparent
-                                },
-                                CircleShape,
-                            ),
-                    )
-                }
-            }
         }
     }
 }
