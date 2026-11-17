@@ -36,8 +36,6 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -52,6 +50,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -63,6 +62,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -142,6 +142,7 @@ fun LibraryScreen(
     var pendingImport by remember { mutableStateOf<List<Uri>?>(null) }
     var pendingAudio by remember { mutableStateOf<List<Uri>?>(null) }
     var showYandexDialog by remember { mutableStateOf(false) }
+    var showAddSheet by remember { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf(TextPreset.AUTO) }
 
     val audioPicker = rememberLauncherForActivityResult(
@@ -188,18 +189,6 @@ fun LibraryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showYandexDialog = true }) {
-                        Icon(
-                            Icons.Default.Link,
-                            contentDescription = stringResource(R.string.audio_by_link),
-                        )
-                    }
-                    IconButton(onClick = { audioPicker.launch(audioMimeTypes) }) {
-                        Icon(
-                            Icons.Default.Headphones,
-                            contentDescription = "Добавить аудиокнигу",
-                        )
-                    }
                     IconButton(onClick = onSettings) {
                         Icon(
                             Icons.Default.Settings,
@@ -217,7 +206,7 @@ fun LibraryScreen(
             // На пустой библиотеке кнопка уже есть в центре — FAB не дублируем.
             if (state.books.isNotEmpty()) {
                 ExtendedFloatingActionButton(
-                    onClick = launchPicker,
+                    onClick = { showAddSheet = true },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
                     text = { Text(stringResource(R.string.add_book)) },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -241,7 +230,7 @@ fun LibraryScreen(
                         CircularProgressIndicator(Modifier.align(Alignment.Center))
                     state.books.isEmpty() -> EmptyLibrary(
                         modifier = Modifier.align(Alignment.Center).padding(32.dp),
-                        onAdd = launchPicker,
+                        onAdd = { showAddSheet = true },
                     )
                     state.visibleBooks.isEmpty() -> NoResults(
                         query = state.query,
@@ -263,6 +252,48 @@ fun LibraryScreen(
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
+            }
+        }
+    }
+
+    if (showAddSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAddSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
+                Text(
+                    text = stringResource(R.string.add_book),
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(12.dp))
+                AddOption(
+                    title = stringResource(R.string.add_text_book),
+                    subtitle = stringResource(R.string.add_text_book_hint),
+                    onClick = {
+                        showAddSheet = false
+                        launchPicker()
+                    },
+                )
+                AddOption(
+                    title = stringResource(R.string.add_audio_book),
+                    subtitle = stringResource(R.string.add_audio_book_hint),
+                    onClick = {
+                        showAddSheet = false
+                        audioPicker.launch(audioMimeTypes)
+                    },
+                )
+                AddOption(
+                    title = stringResource(R.string.add_audio_link),
+                    subtitle = stringResource(R.string.add_audio_link_hint),
+                    onClick = {
+                        showAddSheet = false
+                        showYandexDialog = true
+                    },
+                )
             }
         }
     }
@@ -675,6 +706,23 @@ private fun ImportBanner(modifier: Modifier = Modifier) {
             text = stringResource(R.string.importing),
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AddOption(title: String, subtitle: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+    ) {
+        Text(text = title, style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

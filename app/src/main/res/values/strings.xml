@@ -137,4 +137,10 @@
     <string name="audio_link_add">Добавить</string>
     <string name="audio_link_invalid">Нужна публичная ссылка вида https://disk.yandex.ru/d/…</string>
     <string name="audio_online">Онлайн · Яндекс.Диск</string>
+    <string name="add_text_book">Печатная книга</string>
+    <string name="add_text_book_hint">TXT, FB2, EPUB, PDF, DOCX</string>
+    <string name="add_audio_book">Аудиокнига с телефона</string>
+    <string name="add_audio_book_hint">MP3, M4A, FLAC, OGG, WAV</string>
+    <string name="add_audio_link">Аудиокнига по ссылке</string>
+    <string name="add_audio_link_hint">Публичная папка Яндекс.Диска</string>
 </resources>
