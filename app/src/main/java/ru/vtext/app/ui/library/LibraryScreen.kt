@@ -321,7 +321,12 @@ fun LibraryScreen(
                         },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        placeholder = { Text("https://disk.yandex.ru/d/…") },
+                        placeholder = {
+                            Text(
+                                text = "https://disk.yandex.ru/d/…",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     linkError?.let { message ->
