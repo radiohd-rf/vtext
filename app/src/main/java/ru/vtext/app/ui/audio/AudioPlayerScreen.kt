@@ -125,8 +125,7 @@ fun AudioPlayerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp),
+                .padding(padding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(8.dp))
@@ -159,14 +158,15 @@ fun AudioPlayerScreen(
             )
 
             Spacer(Modifier.weight(1f))
-            Progress(state, onSeek = viewModel::seekTo)
-            Spacer(Modifier.height(12.dp))
-            Transport(state, viewModel)
+            Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                Transport(state, viewModel)
+            }
             Spacer(Modifier.height(18.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 AssistChip(
                     onClick = { showSpeed = true },
@@ -188,6 +188,10 @@ fun AudioPlayerScreen(
                     label = { Text("Сон") },
                     leadingIcon = { Icon(Icons.Default.Bedtime, null, Modifier.size(18.dp)) },
                 )
+            }
+            Spacer(Modifier.height(14.dp))
+            Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                Progress(state, onSeek = viewModel::seekTo)
             }
             Spacer(Modifier.height(20.dp))
         }
