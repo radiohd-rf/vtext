@@ -80,7 +80,7 @@ fun SpeedSheet(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = SpeedPolicy.format(value),
+                text = SpeedPolicy.chipLabel(value),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
