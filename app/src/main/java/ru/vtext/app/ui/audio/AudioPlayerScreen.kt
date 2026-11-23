@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -811,23 +812,29 @@ private fun formatBookRemaining(millis: Long): String {
 private fun formatTrackSize(bytes: Long): String =
     String.format(java.util.Locale.getDefault(), "%.1f МБ", bytes / (1024.0 * 1024.0))
 
-/** Кнопка перемотки: круглая стрелка с числом секунд внутри. */
+/** Кнопка перемотки: круговая стрелка, под ней — выбранный интервал в секундах. */
 @Composable
 private fun SeekButton(seconds: Int, forward: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                Icons.Default.Replay,
-                contentDescription = if (forward) "Вперёд $seconds секунд" else "Назад $seconds секунд",
-                modifier = Modifier
-                    .size(30.dp)
-                    .graphicsLayer { scaleX = if (forward) -1f else 1f },
-            )
-            Text(
-                text = "$seconds",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                color = LocalContentColor.current,
-            )
-        }
+    Column(
+        modifier = Modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            Icons.Default.Replay,
+            contentDescription = if (forward) "Вперёд $seconds секунд" else "Назад $seconds секунд",
+            modifier = Modifier
+                .size(26.dp)
+                .graphicsLayer { scaleX = if (forward) -1f else 1f },
+        )
+        Text(
+            text = "$seconds",
+            style = MaterialTheme.typography.labelSmall,
+            color = LocalContentColor.current,
+        )
     }
 }
