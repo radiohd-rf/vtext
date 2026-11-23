@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.data.ProgressStore
+import ru.vtext.app.domain.bookPercent
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.Chapter
 import ru.vtext.app.tts.EngineState
@@ -430,6 +431,11 @@ class PlaybackCoordinator(
     private fun saveProgress() {
         val current = _state.value
         val bookId = current.bookId ?: return
-        progressStore.save(bookId, current.chapterIndex, current.segmentIndex)
+        progressStore.save(
+            bookId,
+            current.chapterIndex,
+            current.segmentIndex,
+            bookPercent(current.chapters, current.chapterIndex, current.segmentIndex),
+        )
     }
 }

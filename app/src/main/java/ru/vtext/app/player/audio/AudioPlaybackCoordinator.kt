@@ -34,6 +34,7 @@ import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.data.YandexDiskClient
 import ru.vtext.app.domain.model.AudioTrack
 import ru.vtext.app.domain.model.Book
+import kotlin.math.roundToInt
 
 /** Состояние аудиоплеера. Отдельный тип: у TTS-плеера своя модель (глава + фрагмент). */
 data class AudioPlayerState(
@@ -176,6 +177,11 @@ class AudioPlaybackCoordinator(
     /** Открыть книгу и, при необходимости, начать воспроизведение. */
     fun load(bookId: String, autoPlay: Boolean) {
         durationProbe?.cancel()
+        // Позицию прошлой книги сохраняем до пересборки плейлиста: иначе события
+        // нового плейлиста успевают записаться под старым bookId.
+        savePosition()
+        stopTicker()
+        _state.value = AudioPlayerState()
         scope.launch {
             val book = books.loadBook(bookId) ?: return@launch
             val tracks = if (book.audioPublicKey != null) {
@@ -530,8 +536,37 @@ class AudioPlaybackCoordinator(
     private fun savePosition() {
         val current = _state.value
         val bookId = current.bookId ?: return
-        progress.save(bookId, current.chapterIndex, current.positionMs)
+        progress.save(
+            bookId,
+            current.chapterIndex,
+            current.positionMs,
+            bookPercent(current),
+        )
         lastSavedMs = current.positionMs
+    }
+
+    /**
+     * Процент книги: суммарное время до текущей позиции к общему времени дорожек.
+     * Если длительности известны не у всех дорожек (онлайн-книга ещё не открывалась),
+     * считаем по номеру главы и доле внутри текущей.
+     */
+    private fun bookPercent(state: AudioPlayerState): Int {
+        val tracks = state.tracks
+        if (tracks.isEmpty()) return 0
+        val total = tracks.sumOf { it.durationMs }
+        val allKnown = total > 0L && tracks.all { it.durationMs > 0L }
+        if (allKnown) {
+            val before = tracks.take(state.chapterIndex).sumOf { it.durationMs }
+            val done = (before + state.positionMs.coerceAtLeast(0L)).coerceIn(0L, total)
+            return (done * 100.0 / total).roundToInt().coerceIn(0, 100)
+        }
+        val currentDuration = state.durationMs
+        val inside = if (currentDuration > 0L) {
+            (state.positionMs.toFloat() / currentDuration).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        return ((state.chapterIndex + inside) * 100.0 / tracks.size).roundToInt().coerceIn(0, 99)
     }
 
     private suspend fun fadeOutAndPause() {

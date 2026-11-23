@@ -6,6 +6,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import java.text.Collator
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,8 +22,8 @@ import ru.vtext.app.domain.model.TextPreset
 import ru.vtext.app.player.PlaybackCoordinator
 
 /** Позиция чтения для карточки в библиотеке: глава и фрагмент. */
-data class ReadingPosition(val chapter: Int, val segment: Int) {
-    val started: Boolean get() = chapter > 0 || segment > 0
+data class ReadingPosition(val chapter: Int, val segment: Int, val percent: Int = 0) {
+    val started: Boolean get() = percent > 0 || chapter > 0 || segment > 0
 }
 
 enum class LibrarySort {
@@ -194,12 +195,26 @@ class LibraryViewModel(
         books.associate { book ->
             if (book.kind == BookKind.AUDIO) {
                 val saved = audioProgress.get(book.id)
-                book.id to ReadingPosition(saved?.chapterIndex ?: 0, 0)
+                val chapter = saved?.chapterIndex ?: 0
+                val percent = saved?.percent?.takeIf { it > 0 }
+                    ?: fallbackPercent(chapter, book.chapterCount)
+                book.id to ReadingPosition(chapter, 0, percent)
             } else {
                 val (chapter, segment) = progressStore.load(book.id)
-                book.id to ReadingPosition(chapter, segment)
+                val percent = progressStore.percent(book.id)
+                    ?: fallbackPercent(chapter, book.chapterCount)
+                book.id to ReadingPosition(chapter, segment, percent)
             }
         }
+
+    /**
+     * Оценка для старых записей без процента: сколько глав пройдено.
+     * Точный процент пишется плеером и читалкой при сохранении позиции.
+     */
+    private fun fallbackPercent(chapter: Int, chapterCount: Int): Int {
+        if (chapter <= 0 || chapterCount <= 0) return 0
+        return (chapter * 100.0 / chapterCount).roundToInt().coerceIn(1, 99)
+    }
 
     companion object {
         fun factory(

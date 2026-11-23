@@ -644,14 +644,33 @@ private fun BookRow(
             .padding(horizontal = 4.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BookCover(
-            book = book,
+        Box(
             modifier = Modifier
                 .size(ListPosterWidth, ListPosterHeight)
                 .clip(RoundedCornerShape(6.dp)),
-            corner = 6.dp,
-            showFormat = false,
-        )
+        ) {
+            BookCover(
+                book = book,
+                modifier = Modifier.fillMaxSize(),
+                corner = 6.dp,
+                showFormat = false,
+            )
+            if (position != null && position.started) {
+                Surface(
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    shape = RoundedCornerShape(topEnd = 6.dp, bottomStart = 6.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Text(
+                        text = "${position.percent.coerceIn(1, 100)}%",
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -670,16 +689,6 @@ private fun BookRow(
             )
             Spacer(Modifier.height(7.dp))
             BookKindBadge(book)
-        }
-        if (position != null && position.chapter > 0 && book.chapterCount > 0) {
-            Spacer(Modifier.width(10.dp))
-            val chapter = (position.chapter + 1).coerceIn(1, book.chapterCount)
-            Text(
-                text = stringResource(R.string.chapter_of, chapter, book.chapterCount),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-            )
         }
     }
 }

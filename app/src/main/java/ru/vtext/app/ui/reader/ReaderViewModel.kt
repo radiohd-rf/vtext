@@ -16,6 +16,7 @@ import ru.vtext.app.data.BookmarkStore
 import ru.vtext.app.data.ProgressStore
 import ru.vtext.app.data.ReaderSettingsStore
 import ru.vtext.app.domain.TextMarkup
+import ru.vtext.app.domain.bookPercent
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.tts.SileroText
 
@@ -120,7 +121,14 @@ class ReaderViewModel(
         }
         val samePlace = resolved.first == current.chapterIndex && resolved.second == current.segmentIndex
         if (samePlace && index == current.positionIndex) return
-        if (!samePlace) progressStore.save(bookId, resolved.first, resolved.second)
+        if (!samePlace) {
+            progressStore.save(
+                bookId,
+                resolved.first,
+                resolved.second,
+                bookPercent(current.book?.chapters.orEmpty(), resolved.first, resolved.second),
+            )
+        }
         _state.update {
             it.copy(
                 chapterIndex = resolved.first,
@@ -144,7 +152,12 @@ class ReaderViewModel(
     /** Явный переход (оглавление, закладка): фиксируем главу/абзац без опоры на прокрутку. */
     fun selectPosition(chapterIndex: Int, segmentIndex: Int) {
         val index = itemIndexFor(chapterIndex, segmentIndex)
-        progressStore.save(bookId, chapterIndex, segmentIndex)
+        progressStore.save(
+            bookId,
+            chapterIndex,
+            segmentIndex,
+            bookPercent(_state.value.book?.chapters.orEmpty(), chapterIndex, segmentIndex),
+        )
         _state.update {
             it.copy(
                 chapterIndex = chapterIndex,
