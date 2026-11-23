@@ -186,7 +186,8 @@ fun PdfViewerScreen(
     var fitWidth by rememberSaveable(bookId) {
         mutableStateOf(prefs.getFloat("scale_$bookId", 1f) <= MIN_SCALE)
     }
-    // Фиксация: текущий масштаб остаётся прежним, пока не снять замок.
+    // Фиксация: текущий масштаб и горизонтальный сдвиг остаются прежними,
+    // пока не снять замок.
     var zoomLocked by rememberSaveable(bookId) {
         mutableStateOf(prefs.getBoolean("locked_$bookId", false))
     }
@@ -346,7 +347,7 @@ fun PdfViewerScreen(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .horizontalScroll(horizontalScroll)
+                    .horizontalScroll(horizontalScroll, enabled = !zoomLocked)
                     .pointerInput(renderer) {
                         detectTapGestures(
                             onDoubleTap = doubleTap@{ offset ->
