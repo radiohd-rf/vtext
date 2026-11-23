@@ -74,6 +74,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.vtext.app.R
@@ -193,15 +194,30 @@ fun PdfViewerScreen(
     }
     val snackbar = remember { SnackbarHostState() }
 
-    // Масштаб переживает уход из просмотра. Пишем с задержкой, чтобы не трогать
-    // настройки на каждом кадре щипка.
+    // Горизонтальный сдвиг восстанавливаем один раз после раскладки: до неё
+    // максимальная прокрутка ещё нулевая.
+    var restoreDone by remember { mutableStateOf(false) }
     LaunchedEffect(bookId) {
-        snapshotFlow { Triple(scale, zoomLocked, fitWidth) }
-            .collectLatest { (savedScale, savedLock, _) ->
+        val saved = prefs.getInt("hscroll_$bookId", 0)
+        if (saved > 0) {
+            snapshotFlow { horizontalScroll.maxValue }
+                .first { it > 0 }
+            horizontalScroll.scrollTo(saved.coerceAtMost(horizontalScroll.maxValue))
+        }
+        restoreDone = true
+    }
+
+    // Масштаб, замок и сдвиг переживают уход из просмотра. Пишем с задержкой,
+    // чтобы не трогать настройки на каждом кадре щипка.
+    LaunchedEffect(bookId) {
+        snapshotFlow { Triple(scale, zoomLocked, horizontalScroll.value) }
+            .collectLatest { (savedScale, savedLock, savedShift) ->
+                if (!restoreDone) return@collectLatest
                 delay(300)
                 prefs.edit()
                     .putFloat("scale_$bookId", savedScale)
                     .putBoolean("locked_$bookId", savedLock)
+                    .putInt("hscroll_$bookId", savedShift)
                     .apply()
             }
     }
