@@ -165,6 +165,14 @@ fun ReaderScreen(
                                 )
                             }
                         },
+                        actions = {
+                            IconButton(onClick = { showToc = true }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.List,
+                                    contentDescription = stringResource(R.string.reader_toc),
+                                )
+                            }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = colors.background,
                             titleContentColor = colors.text,
@@ -172,13 +180,8 @@ fun ReaderScreen(
                             navigationIconContentColor = colors.text,
                         ),
                     )
-                    ReaderHeader(
-                        chapterTitle = state.chapterTitle,
-                        chapterIndex = state.chapterIndex,
-                        chapterCount = state.chapterCount,
-                        progress = state.progress,
+                    ReaderActions(
                         isPdf = state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF,
-                        onToc = { showToc = true },
                         onListen = { onListen(state.chapterIndex, state.segmentIndex) },
                         onOpenPdf = {
                             val page = state.book?.chapters
@@ -304,18 +307,10 @@ private fun ReaderParagraph(text: String, style: ReaderStyle, verse: Boolean) {
     )
 }
 
-/**
- * Блок под верхней панелью: название главы и счётчик слева, оглавление справа.
- * Ниже — строка действий: оригинал PDF, «Слушать», оформление текста, закладки.
- */
+/** Строка действий под верхней панелью: PDF, «Слушать», оформление, закладки. */
 @Composable
-private fun ReaderHeader(
-    chapterTitle: String?,
-    chapterIndex: Int,
-    chapterCount: Int,
-    progress: Float,
+private fun ReaderActions(
     isPdf: Boolean,
-    onToc: () -> Unit,
     onListen: () -> Unit,
     onOpenPdf: () -> Unit,
     onAppearance: () -> Unit,
@@ -323,39 +318,6 @@ private fun ReaderHeader(
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = chapterTitle?.takeIf { it.isNotBlank() }
-                        ?: stringResource(R.string.reader_chapter_short, chapterIndex + 1),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = colors.onBackground,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = stringResource(
-                        R.string.reader_chapter_of,
-                        chapterIndex + 1,
-                        chapterCount,
-                    ) + " · " + (progress * 100).toInt() + "%",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = onToc) {
-                Icon(
-                    Icons.AutoMirrored.Filled.List,
-                    contentDescription = stringResource(R.string.reader_toc),
-                )
-            }
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
