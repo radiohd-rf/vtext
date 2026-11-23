@@ -77,6 +77,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 
@@ -200,9 +201,12 @@ fun PdfViewerScreen(
     LaunchedEffect(bookId) {
         val saved = prefs.getInt("hscroll_$bookId", 0)
         if (saved > 0) {
-            snapshotFlow { horizontalScroll.maxValue }
-                .first { it > 0 }
-            horizontalScroll.scrollTo(saved.coerceAtMost(horizontalScroll.maxValue))
+            // Ждём раскладку с ненулевой прокруткой, но не бесконечно: при масштабе
+            // 100 % диапазона может не быть вовсе (например, остался старый сдвиг).
+            withTimeoutOrNull(1500) {
+                snapshotFlow { horizontalScroll.maxValue }.first { it > 0 }
+                horizontalScroll.scrollTo(saved.coerceAtMost(horizontalScroll.maxValue))
+            }
         }
         restoreDone = true
     }
