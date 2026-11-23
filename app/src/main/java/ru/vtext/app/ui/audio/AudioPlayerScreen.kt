@@ -93,6 +93,7 @@ fun AudioPlayerScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val speedFactor = state.speed.coerceAtLeast(0.1f)
     val chapterRemaining = (state.durationMs - state.positionMs).coerceAtLeast(0L)
     val currentDuration = state.durationMs.takeIf { it > 0L }
         ?: state.tracks.getOrNull(state.chapterIndex)?.durationMs
@@ -187,7 +188,8 @@ fun AudioPlayerScreen(
             }
             if (showBookRemaining) {
                 Text(
-                    text = "До конца книги: " + formatBookRemaining(bookRemaining),
+                    text = "До конца книги: " +
+                        formatBookRemaining((bookRemaining / speedFactor).toLong()),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp),
@@ -226,7 +228,7 @@ fun AudioPlayerScreen(
                             state.sleepTimerMinutes != null ->
                                 Text(formatCountdown(sleepRemaining))
                             state.sleepUntilChapterEnd ->
-                                Text(formatCountdown(chapterRemaining))
+                                Text(formatCountdown((chapterRemaining / speedFactor).toLong()))
                             else -> Icon(
                                 Icons.Default.Alarm,
                                 contentDescription = "Сон",
