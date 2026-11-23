@@ -105,7 +105,12 @@ import ru.vtext.app.ui.components.SpeedSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookScreen(bookId: String, onBack: () -> Unit) {
+fun BookScreen(
+    bookId: String,
+    startChapter: Int = -1,
+    startSegment: Int = -1,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val container = (context.applicationContext as VtextApp).container
     val viewModel: BookViewModel = viewModel(
@@ -115,6 +120,8 @@ fun BookScreen(bookId: String, onBack: () -> Unit) {
             repository = container.repository,
             progressStore = container.progressStore,
             playback = container.playback,
+            startChapter = startChapter,
+            startSegment = startSegment,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()

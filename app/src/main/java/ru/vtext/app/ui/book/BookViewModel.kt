@@ -30,6 +30,8 @@ class BookViewModel(
     private val repository: BookRepository,
     private val progressStore: ProgressStore,
     private val playback: PlaybackCoordinator,
+    private val startChapter: Int = -1,
+    private val startSegment: Int = -1,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(BookUiState())
@@ -48,7 +50,11 @@ class BookViewModel(
                 _state.update { it.copy(loading = false, error = "Книга не найдена") }
                 return@launch
             }
-            if (playback.state.value.bookId != bookId) {
+            if (startSegment >= 0) {
+                // Переход из читалки: продолжаем ровно с того абзаца, где читали.
+                val chapter = startChapter.coerceIn(0, (book.chapters.size - 1).coerceAtLeast(0))
+                playback.load(book, chapter, startSegment.coerceAtLeast(0), autoPlay = false)
+            } else if (playback.state.value.bookId != bookId) {
                 val (savedChapter, _) = progressStore.load(bookId)
                 val chapter = savedChapter.coerceIn(0, (book.chapters.size - 1).coerceAtLeast(0))
                 // Возобновляем с начала главы, а не с середины фрагмента.
@@ -90,8 +96,19 @@ class BookViewModel(
             repository: BookRepository,
             progressStore: ProgressStore,
             playback: PlaybackCoordinator,
+            startChapter: Int = -1,
+            startSegment: Int = -1,
         ) = viewModelFactory {
-            initializer { BookViewModel(bookId, repository, progressStore, playback) }
+            initializer {
+                BookViewModel(
+                    bookId,
+                    repository,
+                    progressStore,
+                    playback,
+                    startChapter,
+                    startSegment,
+                )
+            }
         }
     }
 }

@@ -40,6 +40,7 @@ class AppContainer(application: Application) {
     val progressStore = ProgressStore(application)
     val updates = ru.vtext.app.data.UpdateRepository(application)
     val appearance = ru.vtext.app.data.AppearanceSettingsStore(application)
+    val readerSettings = ru.vtext.app.data.ReaderSettingsStore(application)
     val ttsSettings = TtsSettingsStore(application)
     val playbackSettings = PlaybackSettingsStore(application)
     val bookSettings = ru.vtext.app.data.BookSettingsStore(application)

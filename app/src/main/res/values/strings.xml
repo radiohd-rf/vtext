@@ -143,4 +143,23 @@
     <string name="add_audio_book_hint">MP3, M4A, FLAC, OGG, WAV</string>
     <string name="add_audio_link">Аудиокнига по ссылке</string>
     <string name="add_audio_link_hint">Публичная папка Яндекс.Диска</string>
+
+    <!-- Читалка -->
+    <string name="reader_toc">Оглавление</string>
+    <string name="reader_appearance">Оформление текста</string>
+    <string name="reader_listen">Слушать</string>
+    <string name="reader_chapter_short">Глава %1$d</string>
+    <string name="reader_chapter_of">Глава %1$d из %2$d</string>
+    <string name="reader_theme">Тема</string>
+    <string name="reader_theme_paper">Бумага</string>
+    <string name="reader_theme_sepia">Сепия</string>
+    <string name="reader_theme_night">Ночь</string>
+    <string name="reader_font">Шрифт</string>
+    <string name="reader_font_serif">С засечками</string>
+    <string name="reader_font_sans">Без засечек</string>
+    <string name="reader_font_size">Размер текста</string>
+    <string name="reader_line_height">Межстрочный интервал</string>
+    <string name="reader_margins">Поля</string>
+    <string name="reader_brightness">Яркость</string>
+    <string name="reader_brightness_system">Как в системе</string>
 </resources>

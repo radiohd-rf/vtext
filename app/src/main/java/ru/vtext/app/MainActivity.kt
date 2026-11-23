@@ -26,6 +26,7 @@ import ru.vtext.app.ui.audio.AudioPlayerScreen
 import ru.vtext.app.ui.audio.AudioPlayerViewModel
 import ru.vtext.app.ui.book.BookScreen
 import ru.vtext.app.ui.library.LibraryScreen
+import ru.vtext.app.ui.reader.ReaderScreen
 import ru.vtext.app.ui.settings.SettingsScreen
 import ru.vtext.app.ui.theme.VtextTheme
 
@@ -82,17 +83,41 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
     NavHost(navController = navController, startDestination = "library") {
         composable("library") {
             LibraryScreen(
-                onOpenBook = { bookId -> navController.navigate("book/$bookId") },
+                onOpenBook = { bookId -> navController.navigate("reader/$bookId") },
                 onOpenAudio = { bookId -> navController.navigate("audio/$bookId") },
                 onSettings = { navController.navigate("settings") },
             )
         }
         composable(
-            route = "book/{bookId}",
+            route = "reader/{bookId}",
             arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
         ) { entry ->
             val bookId = entry.arguments?.getString("bookId").orEmpty()
-            BookScreen(bookId = bookId, onBack = { navController.popBackStack() })
+            ReaderScreen(
+                bookId = bookId,
+                onBack = { navController.popBackStack() },
+                onListen = { chapter, segment ->
+                    navController.navigate("book/$bookId?chapter=$chapter&segment=$segment")
+                },
+            )
+        }
+        composable(
+            route = "book/{bookId}?chapter={chapter}&segment={segment}",
+            arguments = listOf(
+                navArgument("bookId") { type = NavType.StringType },
+                navArgument("chapter") { type = NavType.IntType; defaultValue = -1 },
+                navArgument("segment") { type = NavType.IntType; defaultValue = -1 },
+            ),
+        ) { entry ->
+            val bookId = entry.arguments?.getString("bookId").orEmpty()
+            val chapter = entry.arguments?.getInt("chapter") ?: -1
+            val segment = entry.arguments?.getInt("segment") ?: -1
+            BookScreen(
+                bookId = bookId,
+                startChapter = chapter,
+                startSegment = segment,
+                onBack = { navController.popBackStack() },
+            )
         }
         composable(
             route = "audio/{bookId}",
