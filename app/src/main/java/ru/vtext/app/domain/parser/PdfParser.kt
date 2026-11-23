@@ -208,11 +208,31 @@ class PdfParser : BookParser {
      * там тире в конце строки может быть авторским.
      */
     private fun joinPages(pages: List<String>, preset: TextPreset): String {
-        val text = pages.joinToString("\n\n")
-        if (preset == TextPreset.POETRY) return text
-        return CROSS_PAGE_HYPHEN.replace(text) { match ->
+        if (pages.size <= 1) return pages.joinToString("\n\n")
+        val text = StringBuilder()
+        pages.forEachIndexed { index, page ->
+            if (index > 0) {
+                // Абзац, разрезанный краем страницы, склеиваем: иначе каждая
+                // страница начинала бы новый фрагмент посреди предложения.
+                val continues = continuesOnNextPage(pages[index - 1], page, preset)
+                text.append(if (continues) "\n" else "\n\n")
+            }
+            text.append(page)
+        }
+        if (preset == TextPreset.POETRY) return text.toString()
+        return CROSS_PAGE_HYPHEN.replace(text.toString()) { match ->
             match.groupValues[1] + match.groupValues[2]
         }
+    }
+
+    private fun continuesOnNextPage(previous: String, next: String, preset: TextPreset): Boolean {
+        if (preset == TextPreset.POETRY) return false
+        val lastLine = previous.lines().lastOrNull { it.isNotBlank() }?.trimEnd() ?: return false
+        val firstLine = next.lines().firstOrNull { it.isNotBlank() }?.trimStart() ?: return false
+        val lastChar = lastLine.lastOrNull() ?: return false
+        val firstChar = firstLine.firstOrNull() ?: return false
+        val openEnded = lastChar.isLetterOrDigit() || lastChar in ",;:" || lastChar == '—' || lastChar == '–'
+        return openEnded && firstChar.isLowerCase()
     }
 
     /** PDF-генераторы часто оставляют заглушки вроде «untitled»/«anonymous». */
