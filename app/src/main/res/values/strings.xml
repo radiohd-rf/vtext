@@ -162,4 +162,8 @@
     <string name="reader_margins">Поля</string>
     <string name="reader_brightness">Яркость</string>
     <string name="reader_brightness_system">Как в системе</string>
+    <string name="pdf_original">Оригинал PDF</string>
+    <string name="pdf_page_of">Страница %1$d из %2$d</string>
+    <string name="pdf_text_mode">Текст</string>
+    <string name="pdf_open_error">Не удалось открыть PDF</string>
 </resources>

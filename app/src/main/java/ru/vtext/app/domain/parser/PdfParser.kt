@@ -5,6 +5,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import java.io.File
+import ru.vtext.app.domain.PoetryDetector
 import ru.vtext.app.domain.TextSegmenter
 import ru.vtext.app.domain.cleanup.CleanupOptions
 import ru.vtext.app.domain.cleanup.ImportTextCleaner
@@ -44,29 +45,43 @@ class PdfParser : BookParser {
                     pageTexts,
                     CleanupOptions(joinHyphenation = preset != TextPreset.POETRY),
                 ).pages
+                // Стихи в PDF не размечены: определяем по длине строк (Онегин — 24 символа,
+                // проза — 80–100). Пользовательский выбор BOOK/POETRY важнее.
+                val effectivePreset = if (
+                    preset == TextPreset.AUTO &&
+                    PoetryDetector.isPoetry(cleanedPages.joinToString("\n\n"))
+                ) {
+                    TextPreset.POETRY
+                } else {
+                    preset
+                }
                 val outline = readOutline(document)
                 val fromOutline = if (outline.size >= MIN_OUTLINE_ENTRIES) {
-                    chaptersFromOutline(cleanedPages, outline, preset)
+                    chaptersFromOutline(cleanedPages, outline, effectivePreset)
                 } else {
                     emptyList()
                 }
                 val chapters = when {
                     fromOutline.size >= 2 -> fromOutline
-                    preset == TextPreset.POETRY -> {
-                        val fromHeadings = chaptersFromHeadings(document, cleanedPages, preset)
+                    effectivePreset == TextPreset.POETRY -> {
+                        val fromHeadings = chaptersFromHeadings(document, cleanedPages, effectivePreset)
                         if (fromHeadings.size >= 2) {
                             fromHeadings
                         } else {
                             listOf(
                                 Chapter(
                                     "Стихи",
-                                    TextSegmenter.segmentFor(cleanedPages.joinToString("\n\n"), preset),
+                                    TextSegmenter.segmentFor(
+                                        joinPages(cleanedPages, effectivePreset),
+                                        effectivePreset,
+                                    ),
+                                    page = 0,
                                 ),
                             )
                         }
                     }
-                    else -> chaptersFromHeadings(document, cleanedPages, preset).ifEmpty {
-                        chaptersFromPages(cleanedPages, preset)
+                    else -> chaptersFromHeadings(document, cleanedPages, effectivePreset).ifEmpty {
+                        chaptersFromPages(cleanedPages, effectivePreset)
                     }
                 }
                 ParsedBook(title, author, chapters)
@@ -129,10 +144,10 @@ class PdfParser : BookParser {
                 ?: pages.size
             val safeEnd = endPage.coerceAtMost(pages.size)
             if (startPage < safeEnd) {
-                val text = pages.subList(startPage, safeEnd).joinToString("\n\n")
+                val text = joinPages(pages.subList(startPage, safeEnd), preset)
                 val segments = TextSegmenter.segmentFor(text, preset)
                 if (segments.isNotEmpty()) {
-                    chapters += Chapter(title, segments, depth)
+                    chapters += Chapter(title, segments, depth, startPage)
                 }
             }
             index = next
@@ -143,7 +158,7 @@ class PdfParser : BookParser {
     private fun chaptersFromPages(pages: List<String>, preset: TextPreset): List<Chapter> =
         pages.mapIndexedNotNull { index, text ->
             val segments = TextSegmenter.segmentFor(text, preset)
-            if (segments.isEmpty()) null else Chapter("Страница ${index + 1}", segments)
+            if (segments.isEmpty()) null else Chapter("Страница ${index + 1}", segments, page = index)
         }
 
     private fun chaptersFromHeadings(
@@ -175,16 +190,29 @@ class PdfParser : BookParser {
             val safeEnd = endPage.coerceAtMost(pages.size)
             if (startPage < safeEnd) {
                 val segments = TextSegmenter.segmentFor(
-                    pages.subList(startPage, safeEnd).joinToString("\n\n"),
+                    joinPages(pages.subList(startPage, safeEnd), preset),
                     preset,
                 )
                 if (segments.isNotEmpty()) {
-                    chapters += Chapter(title, segments, depth)
+                    chapters += Chapter(title, segments, depth, startPage)
                 }
             }
             index = next
         }
         return chapters
+    }
+
+    /**
+     * Склеивает страницы главы. В PDF слово часто переносится через край страницы
+     * («сек-» / «ретарем»), поэтому такой перенос соединяем. В стихах не трогаем:
+     * там тире в конце строки может быть авторским.
+     */
+    private fun joinPages(pages: List<String>, preset: TextPreset): String {
+        val text = pages.joinToString("\n\n")
+        if (preset == TextPreset.POETRY) return text
+        return CROSS_PAGE_HYPHEN.replace(text) { match ->
+            match.groupValues[1] + match.groupValues[2]
+        }
     }
 
     /** PDF-генераторы часто оставляют заглушки вроде «untitled»/«anonymous». */
@@ -198,6 +226,7 @@ class PdfParser : BookParser {
         val TITLE_PLACEHOLDERS = setOf("untitled", "без названия", "unknown")
         val AUTHOR_PLACEHOLDERS = setOf("anonymous", "unknown", "user", "admin")
         val WHITESPACE = Regex("\\s+")
+        val CROSS_PAGE_HYPHEN = Regex("([\\p{L}])-[ \\t]*\\n\\s*\\n[ \\t]*([\\p{L}])")
         const val MIN_OUTLINE_ENTRIES = 3
         const val MAX_DEPTH = 2
     }

@@ -44,6 +44,8 @@ data class ReaderUiState(
     val bookmarks: List<Bookmark> = emptyList(),
     /** Индекс видимого элемента — по нему считаем прогресс. */
     val positionIndex: Int = 0,
+    /** Стихи: строки идут отдельными абзацами, между ними нужен меньший отступ. */
+    val verse: Boolean = false,
     val error: String? = null,
 ) {
     val chapterCount: Int get() = book?.chapters?.size ?: 0
@@ -75,6 +77,16 @@ class ReaderViewModel(
                 return@launch
             }
             val items = buildItems(book)
+            // Стихи собираем в отдельные строки; в читалке между ними нужен меньший отступ.
+            // Стихи определяем по строкам только для PDF: у остальных форматов
+            // абзацы уже размечены, и пресет задаёт пользователь.
+            val verse = book.preset == ru.vtext.app.domain.model.TextPreset.POETRY ||
+                (book.format == ru.vtext.app.domain.model.BookFormat.PDF &&
+                    ru.vtext.app.domain.PoetryDetector.isPoetry(
+                        book.chapters.take(3).joinToString("\n") { chapter ->
+                            chapter.segments.joinToString("\n")
+                        },
+                    ))
             val (chapter, segment) = progressStore.load(bookId)
             val safeChapter = chapter.coerceIn(0, (book.chapters.size - 1).coerceAtLeast(0))
             val startIndex = items.indexOfFirst {
@@ -93,6 +105,7 @@ class ReaderViewModel(
                 style = settings.toStyle(),
                 bookmarks = bookmarks.list(bookId),
                 positionIndex = startIndex,
+                verse = verse,
             )
         }
     }

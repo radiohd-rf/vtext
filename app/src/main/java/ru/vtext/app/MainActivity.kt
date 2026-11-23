@@ -26,6 +26,7 @@ import ru.vtext.app.ui.audio.AudioPlayerScreen
 import ru.vtext.app.ui.audio.AudioPlayerViewModel
 import ru.vtext.app.ui.book.BookScreen
 import ru.vtext.app.ui.library.LibraryScreen
+import ru.vtext.app.ui.pdf.PdfViewerScreen
 import ru.vtext.app.ui.reader.ReaderScreen
 import ru.vtext.app.ui.settings.SettingsScreen
 import ru.vtext.app.ui.theme.VtextTheme
@@ -96,9 +97,28 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
             ReaderScreen(
                 bookId = bookId,
                 onBack = { navController.popBackStack() },
+                onOpenPdf = { page ->
+                    navController.navigate("pdf/$bookId?page=$page")
+                },
                 onListen = { chapter, segment ->
                     navController.navigate("book/$bookId?chapter=$chapter&segment=$segment")
                 },
+            )
+        }
+        composable(
+            route = "pdf/{bookId}?page={page}",
+            arguments = listOf(
+                navArgument("bookId") { type = NavType.StringType },
+                navArgument("page") { type = NavType.IntType; defaultValue = -1 },
+            ),
+        ) { entry ->
+            val bookId = entry.arguments?.getString("bookId").orEmpty()
+            val page = entry.arguments?.getInt("page") ?: -1
+            PdfViewerScreen(
+                bookId = bookId,
+                startPage = page,
+                onBack = { navController.popBackStack() },
+                onText = { navController.popBackStack() },
             )
         }
         composable(

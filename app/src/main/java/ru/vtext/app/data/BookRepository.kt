@@ -231,7 +231,8 @@ class BookRepository(private val context: Context) {
                 JSONObject()
                     .put("title", chapter.title)
                     .put("segments", segments)
-                    .put("depth", chapter.depth),
+                    .put("depth", chapter.depth)
+                    .put("page", chapter.page),
             )
         }
         File(dir, "chapters.json").writeText(chapters.toString())
@@ -249,6 +250,7 @@ class BookRepository(private val context: Context) {
                     title = obj.optString("title", "Глава ${index + 1}"),
                     segments = (0 until segments.length()).map { segments.getString(it) },
                     depth = obj.optInt("depth", 0),
+                    page = obj.optInt("page", -1),
                 )
             }
         }.getOrNull()
@@ -257,6 +259,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 11
+        const val SEGMENT_VERSION = 18
     }
 }

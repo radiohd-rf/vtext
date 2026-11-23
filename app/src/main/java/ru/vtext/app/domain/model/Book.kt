@@ -11,6 +11,8 @@ data class Chapter(
     val segments: List<String>,
     /** 0 — глава/раздел верхнего уровня, 1+ — подглава из оглавления PDF. */
     val depth: Int = 0,
+    /** Номер страницы PDF (с нуля), если глава пришла из PDF; -1 для остальных форматов. */
+    val page: Int = -1,
 )
 
 data class Book(

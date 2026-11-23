@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -83,6 +84,7 @@ fun ReaderScreen(
     bookId: String,
     onBack: () -> Unit,
     onListen: (chapterIndex: Int, segmentIndex: Int) -> Unit,
+    onOpenPdf: (page: Int) -> Unit,
 ) {
     val context = LocalContext.current
     val container = (context.applicationContext as VtextApp).container
@@ -159,6 +161,20 @@ fun ReaderScreen(
                         }
                     },
                     actions = {
+                        if (state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF) {
+                            IconButton(
+                                onClick = {
+                                    val page = state.book?.chapters
+                                        ?.getOrNull(state.chapterIndex)?.page ?: -1
+                                    onOpenPdf(page)
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Filled.PictureAsPdf,
+                                    contentDescription = stringResource(R.string.pdf_original),
+                                )
+                            }
+                        }
                         IconButton(onClick = { showToc = true }) {
                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.reader_toc))
                         }
@@ -210,7 +226,7 @@ fun ReaderScreen(
                     ) { _, item ->
                         when (item) {
                             is ReaderItem.Header -> ReaderHeader(item.title, style)
-                            is ReaderItem.Paragraph -> ReaderParagraph(item.text, style)
+                            is ReaderItem.Paragraph -> ReaderParagraph(item.text, style, state.verse)
                         }
                     }
                 }
@@ -284,13 +300,13 @@ private fun ReaderHeader(title: String, style: ReaderStyle) {
 }
 
 @Composable
-private fun ReaderParagraph(text: String, style: ReaderStyle) {
+private fun ReaderParagraph(text: String, style: ReaderStyle, verse: Boolean) {
     val colors = style.theme.colors
     Text(
         text = text,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = style.marginDp.dp, vertical = 7.dp),
+            .padding(horizontal = style.marginDp.dp, vertical = if (verse) 6.dp else 7.dp),
         color = colors.text,
         style = TextStyle(
             fontFamily = style.font.family,

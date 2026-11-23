@@ -3,6 +3,7 @@ package ru.vtext.app.domain.parser
 import com.tom_roush.pdfbox.pdmodel.font.PDFont
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
+import kotlin.math.roundToInt
 
 /** Счётчик разметки на весь документ: если «выделен» почти весь текст, эмфазу отключаем. */
 class PdfStyleTracker {
@@ -21,6 +22,27 @@ class PdfTextExtractor(
     private val tracker: PdfStyleTracker = PdfStyleTracker(),
 ) : PDFTextStripper() {
 
+    /** Слово страницы с координатами: нужно, чтобы собрать строки и отсеять сноски. */
+    private data class PageWord(
+        val text: String,
+        val startX: Float,
+        val endX: Float,
+        val y: Float,
+        val size: Float,
+    )
+
+    private data class PageLine(
+        val text: String,
+        val startX: Float,
+        val endX: Float,
+        val y: Float,
+        val size: Float,
+        var newParagraph: Boolean = false,
+    )
+
+    private val pageWords = ArrayList<PageWord>()
+    private var bufferedPage = -1
+
     init {
         sortByPosition = true
     }
@@ -36,7 +58,138 @@ class PdfTextExtractor(
             visibleTextWithEmphasis(withoutMarkers, tracker)
         }
         if (cleaned.isBlank()) return
-        super.writeString(cleaned)
+
+        val page = currentPageNo
+        if (page != bufferedPage) {
+            pageWords.clear()
+            bufferedPage = page
+        }
+        pageWords += PageWord(
+            text = cleaned,
+            startX = withoutMarkers.first().xDirAdj,
+            endX = withoutMarkers.maxOf { it.xDirAdj + it.widthDirAdj },
+            y = withoutMarkers.first().yDirAdj,
+            size = withoutMarkers.first().fontSizeInPt.takeIf { it > 0f } ?: 10f,
+        )
+    }
+
+    override fun writePageEnd() {
+        if (pageWords.isNotEmpty()) {
+            emitPage()
+        }
+        pageWords.clear()
+        super.writePageEnd()
+    }
+
+    /**
+     * Собирает строки страницы и размечает абзацы. Текст сносок внизу страницы
+     * (заметно мельче основного) отбрасывается: он не относится к основному
+     * тексту, а в постраничном извлечении ещё и разрывает перенос слова.
+     */
+    private fun emitPage() {
+        val bodySize = bodyFontSize(pageWords)
+        val bodyBottom = pageWords
+            .filter { it.size >= bodySize * 0.95f }
+            .maxOfOrNull { it.y }
+        val words = if (bodyBottom == null) {
+            pageWords
+        } else {
+            pageWords.filterNot {
+                it.size < bodySize * FOOTNOTE_SIZE_RATIO &&
+                    it.y > bodyBottom + bodySize * 0.1f
+            }
+        }
+        if (words.isEmpty()) return
+
+        val lines = buildLines(words)
+        markParagraphs(lines)
+
+        val text = StringBuilder()
+        lines.forEachIndexed { index, line ->
+            if (index > 0) {
+                text.append(if (line.newParagraph) "\n\n" else "\n")
+            }
+            text.append(line.text)
+        }
+        super.writeString(text.toString())
+    }
+
+    /** Основной кегль страницы: размер, которым набрано больше всего символов. */
+    private fun bodyFontSize(words: List<PageWord>): Float {
+        val weights = HashMap<Int, Int>()
+        for (word in words) {
+            val key = (word.size * 10f).roundToInt()
+            weights[key] = (weights[key] ?: 0) + word.text.length
+        }
+        val best = weights.maxByOrNull { it.value }?.key ?: 100
+        return best / 10f
+    }
+
+    private fun buildLines(words: List<PageWord>): List<PageLine> {
+        val lines = ArrayList<PageLine>()
+        val text = StringBuilder()
+        var startX = 0f
+        var endX = 0f
+        var y = Float.NaN
+        var size = 0f
+
+        fun flush() {
+            if (text.isEmpty()) return
+            lines += PageLine(text.toString(), startX, endX, y, size)
+            text.setLength(0)
+        }
+
+        for (word in words) {
+            val sameLine = !y.isNaN() && kotlin.math.abs(word.y - y) < word.size * 0.4f
+            if (!sameLine) {
+                flush()
+                startX = word.startX
+                endX = word.endX
+                y = word.y
+                size = word.size
+            } else {
+                endX = maxOf(endX, word.endX)
+            }
+            if (text.isNotEmpty()) text.append(' ')
+            text.append(word.text)
+        }
+        flush()
+        return lines
+    }
+
+    /**
+     * Абзац начинается с отступа, после короткой строки или через увеличенный интервал.
+     * В стихах короткая строка — это строка стихотворения, а не конец абзаца,
+     * поэтому там разрывы даёт только отступ, тире и увеличенный интервал (строфы).
+     */
+    private fun markParagraphs(lines: List<PageLine>) {
+        if (lines.size < 2) return
+        val leftMargin = lines.minOf { it.startX }
+        val rightEdge = lines.maxOf { it.endX }
+        val lengths = lines.map { it.text.length }.sorted()
+        val medianLength = lengths[lengths.size / 2]
+        val verse = lines.size >= MIN_VERSE_LINES && medianLength <= MAX_VERSE_LINE_LENGTH
+        // Обычный межстрочный интервал — медиана всех разрывов на странице.
+        // Сравнение с предыдущим разрывом сбивалось, если страница начинается
+        // с крупного заголовка или строфы.
+        val gaps = (1 until lines.size)
+            .map { lines[it].y - lines[it - 1].y }
+            .filter { it > 0f }
+            .sorted()
+        val lineGap = if (gaps.isEmpty()) 0f else gaps[gaps.size / 2]
+        for (index in 1 until lines.size) {
+            val line = lines[index]
+            val previous = lines[index - 1]
+            val gap = line.y - previous.y
+            val indent = maxOf(4f, line.size * 0.6f)
+            val shortBefore = !verse &&
+                previous.endX < rightEdge - line.size * 2.5f &&
+                startsParagraph(line.text)
+            val largeGap = lineGap > 0f && gap > lineGap * 1.45f
+            val dashStarts = line.text.startsWith("—") || line.text.startsWith("–")
+            line.newParagraph = line.startX > leftMargin + indent ||
+                shortBefore || largeGap || dashStarts
+        }
     }
 
     /** Убирает верхние индексы-номера сносок, оставляя остальной текст строки. */
@@ -87,12 +240,25 @@ private fun median(values: FloatArray): Float {
     return if (sorted.size % 2 == 0) (sorted[middle - 1] + sorted[middle]) / 2f else sorted[middle]
 }
 
+/** Стихи: средняя длина строки на странице заметно меньше прозы. */
+private const val MIN_VERSE_LINES = 4
+private const val MAX_VERSE_LINE_LENGTH = 55
+
+/** Текст мельче этого отношения к основному кеглю внизу страницы - сноска. */
+private const val FOOTNOTE_SIZE_RATIO = 0.88f
+
 private const val SUPERSCRIPT_SIZE_RATIO = 0.8f
 private const val SUPERSCRIPT_RAISE_RATIO = 0.15f
 
 internal fun isSymbolFont(name: String?): Boolean {
     val value = name?.lowercase().orEmpty()
     return SYMBOL_FONT_MARKERS.any { it in value }
+}
+
+/** Похоже ли начало строки на начало нового абзаца: заглавная, цифра, кавычка, тире. */
+internal fun startsParagraph(text: String): Boolean {
+    val first = text.firstOrNull() ?: return false
+    return first.isUpperCase() || first.isDigit() || first in "«\"'([—–-*•"
 }
 
 internal fun visibleText(positions: List<TextPosition>): String = buildString {
