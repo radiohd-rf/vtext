@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import ru.vtext.app.BuildConfig
 import ru.vtext.app.data.AppearanceSettingsStore
 import ru.vtext.app.data.PlaybackSettingsStore
+import ru.vtext.app.data.ThemeMode
 import ru.vtext.app.data.UpdateInfo
 import ru.vtext.app.data.UpdateRepository
 import ru.vtext.app.data.updateErrorMessage
@@ -50,7 +51,10 @@ data class SettingsUiState(
     val volume: Float = PlaybackSettingsStore.DEFAULT_VOLUME,
     val fragmentPauseMs: Int = PlaybackSettingsStore.DEFAULT_FRAGMENT_PAUSE_MS,
     val dynamicColor: Boolean = false,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
 )
+
+private data class AppearanceState(val dynamicColor: Boolean, val themeMode: ThemeMode)
 
 private data class SystemVoicesState(
     val voices: List<VoiceInfo>,
@@ -92,13 +96,18 @@ class SettingsViewModel(
         manager.systemEngine.state,
     ) { voices, selected, engineState -> SystemVoicesState(voices, selected, engineState) }
 
+    private val appearanceState = combine(
+        appearance.dynamicColor,
+        appearance.themeMode,
+    ) { dynamicColor, themeMode -> AppearanceState(dynamicColor, themeMode) }
+
     val state: StateFlow<SettingsUiState> = combine(
         manager.neuralSettings,
         manager.state,
         systemVoices,
         tuning,
-        appearance.dynamicColor,
-    ) { neural, engineState, system, voiceTuning, dynamicColor ->
+        appearanceState,
+    ) { neural, engineState, system, voiceTuning, look ->
         SettingsUiState(
             engineType = neural.engineType,
             engineState = engineState,
@@ -109,7 +118,8 @@ class SettingsViewModel(
             pitch = voiceTuning.pitch,
             volume = voiceTuning.volume,
             fragmentPauseMs = voiceTuning.fragmentPauseMs,
-            dynamicColor = dynamicColor,
+            dynamicColor = look.dynamicColor,
+            themeMode = look.themeMode,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -125,6 +135,7 @@ class SettingsViewModel(
             volume = playbackSettings.volume,
             fragmentPauseMs = playbackSettings.fragmentPauseMs,
             dynamicColor = appearance.dynamicColor.value,
+            themeMode = appearance.themeMode.value,
         ),
     )
 
@@ -180,6 +191,8 @@ class SettingsViewModel(
     }
 
     fun setDynamicColor(enabled: Boolean) = appearance.setDynamicColor(enabled)
+
+    fun setThemeMode(mode: ThemeMode) = appearance.setThemeMode(mode)
 
     // ----- Обновления -----
 

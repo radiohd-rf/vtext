@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +32,7 @@ import ru.vtext.app.ui.pdf.PdfViewerScreen
 import ru.vtext.app.ui.reader.ReaderScreen
 import ru.vtext.app.ui.settings.SettingsScreen
 import ru.vtext.app.ui.update.UpdatePrompt
+import ru.vtext.app.data.ThemeMode
 import ru.vtext.app.ui.theme.VtextTheme
 
 class MainActivity : ComponentActivity() {
@@ -46,7 +48,13 @@ class MainActivity : ComponentActivity() {
         val appearance = (application as VtextApp).container.appearance
         setContent {
             val dynamicColor by appearance.dynamicColor.collectAsStateWithLifecycle()
-            VtextTheme(dynamicColor = dynamicColor) {
+            val themeMode by appearance.themeMode.collectAsStateWithLifecycle()
+            val darkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            VtextTheme(darkTheme = darkTheme, dynamicColor = dynamicColor) {
                 VtextNavHost(
                     pendingBookId = pendingBookId,
                     onBookConsumed = { pendingBookId = null },

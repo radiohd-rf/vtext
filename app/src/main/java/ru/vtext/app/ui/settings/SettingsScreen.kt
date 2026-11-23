@@ -2,6 +2,7 @@ package ru.vtext.app.ui.settings
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,6 +65,7 @@ import ru.vtext.app.BuildConfig
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 import ru.vtext.app.data.PlaybackSettingsStore
+import ru.vtext.app.data.ThemeMode
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.ModelStatus
 import ru.vtext.app.tts.NeuralModel
@@ -266,6 +269,38 @@ private fun LazyListScope.appearanceSection(
     context: Context,
 ) {
     sectionHeader(context.getString(R.string.appearance_title))
+    item {
+        SettingsCard(selected = false, onClick = null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.theme_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = state.themeMode == mode,
+                            onClick = { viewModel.setThemeMode(mode) },
+                            label = {
+                                Text(
+                                    when (mode) {
+                                        ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
+                                        ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+                                        ThemeMode.DARK -> stringResource(R.string.theme_dark)
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
     item {
         val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         SettingsCard(selected = false, onClick = null) {

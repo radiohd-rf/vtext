@@ -188,4 +188,8 @@
     <string name="player_settings_back">Кнопка «Назад»</string>
     <string name="player_settings_forward">Кнопка «Вперёд»</string>
     <string name="player_settings_hint">Кнопки перемотки вокруг кнопки Play в плеере аудиокниг.</string>
+    <string name="theme_title">Тема</string>
+    <string name="theme_system">Системная</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
 </resources>
