@@ -112,6 +112,14 @@ fun ReaderScreen(
 
     val activity = context.findActivity()
     var rotationLocked by rememberSaveable { mutableStateOf(false) }
+    // Состояние применяется и после пересоздания Activity (смена темы, шрифта).
+    LaunchedEffect(rotationLocked) {
+        activity?.requestedOrientation = if (rotationLocked) {
+            ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
     // Покидая читалку, возвращаем системе обычное поведение поворота.
     DisposableEffect(Unit) {
         onDispose {
@@ -196,15 +204,7 @@ fun ReaderScreen(
                     ReaderActions(
                         isPdf = state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF,
                         rotationLocked = rotationLocked,
-                        onToggleRotation = {
-                            val next = !rotationLocked
-                            rotationLocked = next
-                            activity?.requestedOrientation = if (next) {
-                                ActivityInfo.SCREEN_ORIENTATION_LOCKED
-                            } else {
-                                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                            }
-                        },
+                        onToggleRotation = { rotationLocked = !rotationLocked },
                         onListen = { onListen(state.chapterIndex, state.segmentIndex) },
                         onOpenPdf = {
                             val page = state.book?.chapters
