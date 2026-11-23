@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -323,6 +325,7 @@ private fun Cover(state: AudioPlayerState, modifier: Modifier = Modifier) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Progress(state: AudioPlayerState, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf(false) }
@@ -344,9 +347,39 @@ private fun Progress(state: AudioPlayerState, onSeek: (Long) -> Unit) {
                 onSeek(dragValue.toLong())
             },
             valueRange = 0f..duration.toFloat(),
+            thumb = {
+                Box(
+                    Modifier
+                        .size(14.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                )
+            },
+            track = { sliderState ->
+                val range = sliderState.valueRange.endInclusive - sliderState.valueRange.start
+                val fraction = if (range > 0f) {
+                    ((sliderState.value - sliderState.valueRange.start) / range).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            },
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
             ),
         )
         Row(
@@ -359,7 +392,7 @@ private fun Progress(state: AudioPlayerState, onSeek: (Long) -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = AudioBookmarkStore.formatTime(duration),
+                text = "-" + AudioBookmarkStore.formatTime((duration - shown).coerceAtLeast(0L)),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
