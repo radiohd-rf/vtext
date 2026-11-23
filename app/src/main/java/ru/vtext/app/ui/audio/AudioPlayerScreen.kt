@@ -205,12 +205,17 @@ fun AudioPlayerScreen(
                             Text(formatCountdown(sleepRemaining))
                         }
                     },
-                    leadingIcon = {
-                        Icon(
-                            if (sleepActive) Icons.Default.Timer else Icons.Default.Alarm,
-                            contentDescription = "Сон",
-                            modifier = Modifier.size(18.dp),
-                        )
+                    // Пока идёт отсчёт, иконка не нужна — только время.
+                    leadingIcon = if (state.sleepTimerMinutes == null) {
+                        {
+                            Icon(
+                                if (sleepActive) Icons.Default.Timer else Icons.Default.Alarm,
+                                contentDescription = "Сон",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        null
                     },
                     colors = AssistChipDefaults.assistChipColors(
                         labelColor = if (sleepActive) {
