@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +37,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -49,6 +51,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -346,57 +349,71 @@ private fun ReaderActions(
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onToggleRotation) {
-                Icon(
-                    if (rotationLocked) Icons.Filled.ScreenLockRotation else Icons.Filled.ScreenRotation,
-                    contentDescription = stringResource(
-                        if (rotationLocked) R.string.reader_rotation_unlock
-                        else R.string.reader_rotation_lock,
-                    ),
-                    tint = if (rotationLocked) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        LocalContentColor.current
-                    },
-                )
-            }
-            if (isPdf) {
-                IconButton(onClick = onOpenPdf) {
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides COMPACT_ACTION_SIZE) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onToggleRotation, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
                     Icon(
-                        Icons.Filled.PictureAsPdf,
-                        contentDescription = stringResource(R.string.pdf_original),
+                        if (rotationLocked) {
+                            Icons.Filled.ScreenLockRotation
+                        } else {
+                            Icons.Filled.ScreenRotation
+                        },
+                        contentDescription = stringResource(
+                            if (rotationLocked) R.string.reader_rotation_unlock
+                            else R.string.reader_rotation_lock,
+                        ),
+                        modifier = Modifier.size(20.dp),
+                        tint = if (rotationLocked) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            LocalContentColor.current
+                        },
                     )
                 }
-            }
-            IconButton(onClick = onListen) {
-                Icon(
-                    Icons.Filled.Headphones,
-                    contentDescription = stringResource(R.string.reader_listen),
-                )
-            }
-            IconButton(onClick = onAppearance) {
-                Icon(
-                    Icons.Filled.TextFields,
-                    contentDescription = stringResource(R.string.reader_appearance),
-                )
-            }
-            IconButton(onClick = onBookmarks) {
-                Icon(
-                    Icons.Filled.BookmarkBorder,
-                    contentDescription = stringResource(R.string.bookmarks),
-                )
+                if (isPdf) {
+                    IconButton(onClick = onOpenPdf, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                        Icon(
+                            Icons.Filled.PictureAsPdf,
+                            contentDescription = stringResource(R.string.pdf_original),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                IconButton(onClick = onListen, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                    Icon(
+                        Icons.Filled.Headphones,
+                        contentDescription = stringResource(R.string.reader_listen),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(onClick = onAppearance, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                    Icon(
+                        Icons.Filled.TextFields,
+                        contentDescription = stringResource(R.string.reader_appearance),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(onClick = onBookmarks, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                    Icon(
+                        Icons.Filled.BookmarkBorder,
+                        contentDescription = stringResource(R.string.bookmarks),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
         HorizontalDivider(color = colors.outlineVariant)
     }
 }
+
+/** Высота кнопок строки действий: компактнее стандартных 48 dp. */
+private val COMPACT_ACTION_SIZE = 36.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
