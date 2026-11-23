@@ -110,59 +110,85 @@ class AudioRepository(
     }
 
     /**
-     * Демо-книга из assets: добавляется при первом запуске. Звук не скачивается,
-     * поэтому книга доступна сразу, а при открытии список сверяется с папкой.
+     * Встроенные онлайн-книги из assets: добавляются при запуске, если их ещё нет.
+     * Звук не скачивается, поэтому книги доступны сразу; при открытии список
+     * сверяется с папкой. Удалённую пользователем книгу повторно не возвращаем.
      */
-    suspend fun seedDefaultOnlineBook(): Book? = withContext(Dispatchers.IO) {
-        val defaults = readBundledBook() ?: return@withContext null
-        if (books.listBooks().any { it.audioPublicKey == defaults.publicKey }) {
-            return@withContext null
-        }
-        val id = UUID.randomUUID().toString()
-        val dir = books.bookDir(id)
-        val tracks = defaults.tracks.map { (title, path) ->
-            AudioTrack(title = title, path = path, durationMs = 0L, remote = true)
-        }
-        if (tracks.isEmpty()) return@withContext null
+    suspend fun seedDefaultOnlineBooks(): Int = withContext(Dispatchers.IO) {
+        val defaults = readBundledBooks()
+        if (defaults.isEmpty()) return@withContext 0
 
-        val book = Book(
-            id = id,
-            title = defaults.title,
-            author = null,
-            format = null,
-            addedAt = System.currentTimeMillis(),
-            chapterCount = tracks.size,
-            kind = BookKind.AUDIO,
-            audioPublicKey = defaults.publicKey,
-        )
-        writeTracks(dir, tracks)
-        books.saveMeta(book)
-        book
+        val prefs = context.getSharedPreferences("library", Context.MODE_PRIVATE)
+        val seeded = prefs.getStringSet(KEY_SEEDED, emptySet()).orEmpty().toMutableSet()
+        val existing = books.listBooks().mapNotNull { it.audioPublicKey }.toSet()
+        var added = 0
+
+        defaults.forEach { bundled ->
+            if (bundled.publicKey in seeded) return@forEach
+            if (bundled.publicKey in existing) {
+                seeded += bundled.publicKey
+                return@forEach
+            }
+            val id = UUID.randomUUID().toString()
+            val tracks = bundled.tracks.map { (title, path) ->
+                AudioTrack(title = title, path = path, durationMs = 0L, remote = true)
+            }
+            if (tracks.isEmpty()) return@forEach
+
+            val book = Book(
+                id = id,
+                title = bundled.title,
+                author = null,
+                format = null,
+                addedAt = System.currentTimeMillis(),
+                chapterCount = tracks.size,
+                kind = BookKind.AUDIO,
+                audioPublicKey = bundled.publicKey,
+            )
+            writeTracks(books.bookDir(id), tracks)
+            books.saveMeta(book)
+            seeded += bundled.publicKey
+            added++
+        }
+
+        prefs.edit().putStringSet(KEY_SEEDED, seeded).apply()
+        added
     }
 
-    private fun readBundledBook(): BundledBook? = runCatching {
-        val text = context.assets.open("default_online_book.json")
+    private fun readBundledBooks(): List<BundledBook> = runCatching {
+        val text = context.assets.open("default_online_books.json")
             .bufferedReader()
             .use { it.readText() }
-        val json = JSONObject(text)
-        val publicKey = json.optString("publicKey")
-        val title = json.optString("title").ifBlank { "Аудиокнига" }
-        val array = json.getJSONArray("tracks")
-        val tracks = (0 until array.length()).map { index ->
-            val item = array.getJSONObject(index)
-            val path = item.optString("path")
-            val trackTitle = item.optString("title")
-                .ifBlank { TrackNaming.titleFromFileName(path.substringAfterLast('/')) }
-            trackTitle to path
-        }.filter { (_, path) -> path.isNotBlank() }
-        if (publicKey.isBlank() || tracks.isEmpty()) null else BundledBook(publicKey, title, tracks)
-    }.getOrNull()
+        val array = JSONArray(text)
+        (0 until array.length()).mapNotNull { index ->
+            val json = array.optJSONObject(index) ?: return@mapNotNull null
+            val publicKey = json.optString("publicKey")
+            val title = json.optString("title").ifBlank { "Аудиокнига" }
+            val tracksJson = json.optJSONArray("tracks") ?: return@mapNotNull null
+            val tracks = (0 until tracksJson.length()).map { trackIndex ->
+                val item = tracksJson.getJSONObject(trackIndex)
+                val path = item.optString("path")
+                val trackTitle = item.optString("title")
+                    .ifBlank { TrackNaming.titleFromFileName(path.substringAfterLast('/')) }
+                trackTitle to path
+            }.filter { (_, path) -> path.isNotBlank() }
+            if (publicKey.isBlank() || tracks.isEmpty()) {
+                null
+            } else {
+                BundledBook(publicKey, title, tracks)
+            }
+        }
+    }.getOrDefault(emptyList())
 
     private data class BundledBook(
         val publicKey: String,
         val title: String,
         val tracks: List<Pair<String, String>>,
     )
+
+    private companion object {
+        const val KEY_SEEDED = "defaults_seeded_keys"
+    }
 
     suspend fun tracks(bookId: String): List<AudioTrack> = withContext(Dispatchers.IO) {
         val file = File(books.bookDir(bookId), "tracks.json")
@@ -231,13 +257,14 @@ class AudioRepository(
 
         val known = current.associateBy { it.path }
         val merged = folder.files.map { file ->
-            known[file.path]?.copy(title = TrackNaming.titleFromFileName(file.name))
-                ?: AudioTrack(
-                    title = TrackNaming.titleFromFileName(file.name),
-                    path = file.path,
-                    durationMs = 0L,
-                    remote = true,
-                )
+            // Название из tracks.json сохраняем: встроенные книги размечены вручную
+            // («Часть 001»), а не по имени файла («Luchko 001»).
+            known[file.path] ?: AudioTrack(
+                title = TrackNaming.titleFromFileName(file.name),
+                path = file.path,
+                durationMs = 0L,
+                remote = true,
+            )
         }
         val changed = merged.map { it.path } != current.map { it.path }
         if (changed) {
