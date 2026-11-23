@@ -72,6 +72,8 @@ fun SpeedSheet(
                 .padding(bottom = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // Шторка открывается чуть выше, чтобы не выглядывала кнопка play.
+            Spacer(Modifier.height(24.dp))
             Text(
                 text = "Скорость",
                 style = MaterialTheme.typography.titleLarge,
