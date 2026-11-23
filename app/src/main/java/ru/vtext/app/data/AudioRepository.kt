@@ -274,6 +274,11 @@ class AudioRepository(
         merged
     }
 
+    /** Сохраняет дорожки (например, после того как узнали их длительности). */
+    fun saveTracks(bookId: String, tracks: List<AudioTrack>) {
+        writeTracks(books.bookDir(bookId), tracks)
+    }
+
     private fun writeTracks(dir: File, tracks: List<AudioTrack>) {
         val array = JSONArray()
         tracks.forEach { track ->

@@ -94,6 +94,13 @@ fun AudioPlayerScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val chapterRemaining = (state.durationMs - state.positionMs).coerceAtLeast(0L)
+    val currentDuration = state.durationMs.takeIf { it > 0L }
+        ?: state.tracks.getOrNull(state.chapterIndex)?.durationMs
+        ?: 0L
+    val laterTracksKnown = state.tracks.drop(state.chapterIndex + 1).all { it.durationMs > 0L }
+    val bookRemaining = (currentDuration - state.positionMs).coerceAtLeast(0L) +
+        state.tracks.drop(state.chapterIndex + 1).sumOf { it.durationMs.coerceAtLeast(0L) }
+    val showBookRemaining = currentDuration > 0L && laterTracksKnown
 
     // Обратный отсчёт таймера сна: обновляем раз в секунду, пока он задан.
     var sleepRemaining by remember { mutableLongStateOf(0L) }
@@ -176,6 +183,14 @@ fun AudioPlayerScreen(
                     text = state.author.orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (showBookRemaining) {
+                Text(
+                    text = "До конца книги: " + formatBookRemaining(bookRemaining),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
 
@@ -678,4 +693,12 @@ private fun formatCountdown(millis: Long): String {
         totalSeconds / 60,
         totalSeconds % 60,
     )
+}
+
+/** «9 ч 44 мин» или «17 мин» — остаток до конца книги. */
+private fun formatBookRemaining(millis: Long): String {
+    val totalMinutes = (millis / 60_000L).coerceAtLeast(0L)
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) "$hours ч $minutes мин" else "$minutes мин"
 }

@@ -1,6 +1,7 @@
 package ru.vtext.app.player.audio
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -13,9 +14,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -109,6 +112,7 @@ class AudioPlaybackCoordinator(
 
     private var ticker: Job? = null
     private var sleepJob: Job? = null
+    private var durationProbe: Job? = null
     private var pauseAtChapterEnd = false
     private var lastSavedMs = 0L
     private var retriedRemote = false
@@ -170,7 +174,9 @@ class AudioPlaybackCoordinator(
     }
 
     /** Открыть книгу и, при необходимости, начать воспроизведение. */
-    fun load(bookId: String, autoPlay: Boolean) {        scope.launch {
+    fun load(bookId: String, autoPlay: Boolean) {
+        durationProbe?.cancel()
+        scope.launch {
             val book = books.loadBook(bookId) ?: return@launch
             val tracks = if (book.audioPublicKey != null) {
                 // Перед открытием перечитываем папку: в неё могли добавить файлы.
@@ -210,6 +216,7 @@ class AudioPlaybackCoordinator(
                 audioPublicKey = book.audioPublicKey,
             )
 
+            book.audioPublicKey?.let { probeDurations(bookId, it) }
             if (autoPlay) player.play()
         }
     }
@@ -244,6 +251,56 @@ class AudioPlaybackCoordinator(
                 )
             }
             if (wasPlaying) player.play()
+        }
+    }
+
+    /**
+     * У онлайн-книг длительности дорожек неизвестны, пока их не проиграешь.
+     * Дозапрашиваем метаданные в фоне, чтобы счётчик «до конца книги» был точным,
+     * и сохраняем результат в tracks.json.
+     */
+    private fun probeDurations(bookId: String, publicKey: String) {
+        durationProbe?.cancel()
+        durationProbe = scope.launch(Dispatchers.IO) {
+            val pending = _state.value.tracks.mapIndexedNotNull { index, track ->
+                if (track.durationMs <= 0L) index to track else null
+            }
+            if (pending.isEmpty()) return@launch
+            var changed = false
+            for ((index, track) in pending) {
+                if (!isActive) break
+                val duration = runCatching {
+                    val href = yandex.resolveHref(publicKey, track.path)
+                    readDurationMs(href)
+                }.getOrDefault(0L)
+                if (duration > 0L) {
+                    _state.update { state ->
+                        if (state.bookId != bookId) return@update state
+                        val list = state.tracks.toMutableList()
+                        if (index in list.indices) {
+                            list[index] = list[index].copy(durationMs = duration)
+                        }
+                        state.copy(tracks = list)
+                    }
+                    changed = true
+                }
+            }
+            if (changed && _state.value.bookId == bookId) {
+                audio.saveTracks(bookId, _state.value.tracks)
+            }
+        }
+    }
+
+    private fun readDurationMs(href: String): Long {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(href, emptyMap<String, String>())
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()
+                ?.takeIf { it > 0L }
+                ?: 0L
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 
@@ -424,6 +481,7 @@ class AudioPlaybackCoordinator(
         savePosition()
         ticker?.cancel()
         sleepJob?.cancel()
+        durationProbe?.cancel()
         controller?.release()
         controller = null
         player.release()
