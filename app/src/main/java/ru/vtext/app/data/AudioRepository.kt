@@ -87,6 +87,7 @@ class AudioRepository(
                 title = meta.title ?: TrackNaming.titleFromFileName(name),
                 path = target.absolutePath,
                 durationMs = meta.durationMs,
+                sizeBytes = target.length(),
             )
             onProgress(index + 1, files.size)
         }
@@ -203,6 +204,7 @@ class AudioRepository(
                     durationMs = item.optLong("durationMs", 0L),
                     startMs = item.optLong("startMs", 0L),
                     remote = item.optBoolean("remote", false),
+                    sizeBytes = item.optLong("sizeBytes", 0L),
                 )
             }.filter { it.path.isNotBlank() && (it.remote || File(it.path).isFile) }
         }.getOrDefault(emptyList())
@@ -224,6 +226,7 @@ class AudioRepository(
                 path = file.path,
                 durationMs = 0L,
                 remote = true,
+                sizeBytes = file.sizeBytes,
             )
         }
 
@@ -259,11 +262,12 @@ class AudioRepository(
         val merged = folder.files.map { file ->
             // Название из tracks.json сохраняем: встроенные книги размечены вручную
             // («Часть 001»), а не по имени файла («Luchko 001»).
-            known[file.path] ?: AudioTrack(
+            known[file.path]?.copy(sizeBytes = file.sizeBytes) ?: AudioTrack(
                 title = TrackNaming.titleFromFileName(file.name),
                 path = file.path,
                 durationMs = 0L,
                 remote = true,
+                sizeBytes = file.sizeBytes,
             )
         }
         val changed = merged.map { it.path } != current.map { it.path }
@@ -288,7 +292,8 @@ class AudioRepository(
                     .put("path", track.path)
                     .put("durationMs", track.durationMs)
                     .put("startMs", track.startMs)
-                    .put("remote", track.remote),
+                    .put("remote", track.remote)
+                    .put("sizeBytes", track.sizeBytes),
             )
         }
         File(dir, "tracks.json").writeText(array.toString())

@@ -51,6 +51,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
@@ -70,6 +71,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -216,7 +218,7 @@ fun AudioPlayerScreen(
                 )
                 AssistChip(
                     onClick = { showChapters = true },
-                    label = { Text("Главы") },
+                    label = { Text("Глава ${state.chapterIndex + 1}") },
                     leadingIcon = { Icon(Icons.Default.List, null, Modifier.size(18.dp)) },
                 )
                 val sleepActive =
@@ -449,39 +451,85 @@ private fun ChaptersSheet(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        LazyColumn(Modifier.heightIn(max = 420.dp)) {
-            items(state.tracks) { track ->
-                val index = state.tracks.indexOf(track)
-                val active = index == state.chapterIndex
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (active) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        modifier = Modifier.weight(1f),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    if (track.durationMs > 0) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        // Небольшой зазор сверху: за верхний край удобно тянуть шторку вниз.
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
+            Text(
+                text = "Содержание",
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                itemsIndexed(state.tracks) { index, track ->
+                    val active = index == state.chapterIndex
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (active) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                } else {
+                                    Color.Transparent
+                                },
+                            )
+                            .clickable { onSelect(index) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
                         Text(
-                            text = AudioBookmarkStore.formatTime(track.durationMs),
+                            text = "${index + 1}",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (active) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier
+                                .width(34.dp)
+                                .padding(top = 3.dp),
                         )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = track.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (active) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            val details = buildString {
+                                if (track.durationMs > 0L) {
+                                    append(AudioBookmarkStore.formatTime(track.durationMs))
+                                }
+                                if (track.sizeBytes > 0L) {
+                                    if (isNotEmpty()) append(" · ")
+                                    append(formatTrackSize(track.sizeBytes))
+                                }
+                            }
+                            if (details.isNotEmpty()) {
+                                Text(
+                                    text = details,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = { onSelect(index) }) { Text("Слушать") }
                 }
             }
         }
@@ -704,3 +752,7 @@ private fun formatBookRemaining(millis: Long): String {
     val minutes = totalMinutes % 60
     return if (hours > 0) "$hours ч $minutes мин" else "$minutes мин"
 }
+
+/** «12,3 МБ» — размер аудиофайла. */
+private fun formatTrackSize(bytes: Long): String =
+    String.format(java.util.Locale.getDefault(), "%.1f МБ", bytes / (1024.0 * 1024.0))

@@ -8,4 +8,6 @@ data class AudioTrack(
     val startMs: Long = 0,
     /** true — path это путь внутри публичной папки Яндекс.Диска, а не файл на устройстве. */
     val remote: Boolean = false,
+    /** Размер файла в байтах; 0 — неизвестен. */
+    val sizeBytes: Long = 0L,
 )
