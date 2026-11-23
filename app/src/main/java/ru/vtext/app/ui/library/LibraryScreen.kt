@@ -212,8 +212,7 @@ fun LibraryScreen(
                     sort = state.sort,
                     onQueryChange = viewModel::setQuery,
                     onSortChange = viewModel::setSort,
-                    textCount = state.books.count { it.kind == BookKind.TEXT },
-                    audioCount = state.books.count { it.kind == BookKind.AUDIO },
+                    bookCount = state.books.size,
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -485,8 +484,7 @@ private fun LibraryToolbar(
     sort: LibrarySort,
     onQueryChange: (String) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
-    textCount: Int,
-    audioCount: Int,
+    bookCount: Int,
 ) {
     Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
     Row(
@@ -553,28 +551,14 @@ private fun LibraryToolbar(
         Spacer(Modifier.width(8.dp))
         SortButton(sort = sort, onSortChange = onSortChange)
     }
-    // Счётчики книг: всего, текстовые и аудио — под полем поиска.
+    // Общее количество книг — под полем поиска.
     Text(
-        text = libraryCounts(textCount, audioCount),
+        text = pluralStringResource(R.plurals.books_count, bookCount, bookCount),
         modifier = Modifier.padding(start = 24.dp, top = 6.dp),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     }
-}
-
-/** «3 книги · 1 текстовая · 2 аудиокниги»; нулевые части не показываем. */
-@Composable
-private fun libraryCounts(textCount: Int, audioCount: Int): String {
-    val total = textCount + audioCount
-    val parts = mutableListOf(pluralStringResource(R.plurals.books_count, total, total))
-    if (textCount > 0) {
-        parts += pluralStringResource(R.plurals.text_books_count, textCount, textCount)
-    }
-    if (audioCount > 0) {
-        parts += pluralStringResource(R.plurals.audio_books_count, audioCount, audioCount)
-    }
-    return parts.joinToString(" · ")
 }
 
 @Composable
