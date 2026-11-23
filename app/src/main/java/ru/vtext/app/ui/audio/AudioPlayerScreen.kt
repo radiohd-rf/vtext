@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -470,68 +471,70 @@ private fun SleepSheet(
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(198.dp)
+                .padding(bottom = 24.dp),
+        ) {
             Text(
                 text = "Таймер сна",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 20.dp),
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(14.dp))
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val itemWidth = 84.dp
-                val side = (maxWidth - itemWidth) / 2
-                val listState = rememberLazyListState()
-                LaunchedEffect(Unit) {
-                    listState.scrollToItem(selectedIndex)
-                }
-                LazyRow(
-                    state = listState,
-                    contentPadding = PaddingValues(horizontal = side),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    flingBehavior = rememberSnapFlingBehavior(listState),
-                ) {
-                    itemsIndexed(options) { index, option ->
-                        val selected = index == selectedIndex
-                        val scale by animateFloatAsState(
-                            targetValue = if (selected) 1f else 0.92f,
-                            label = "sleepItem",
-                        )
-                        Surface(
-                            onClick = {
-                                if (option.chapterEnd) onChapterEnd() else onMinutes(option.minutes)
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            border = if (selected) {
-                                null
-                            } else {
-                                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            },
-                            modifier = Modifier
-                                .width(itemWidth)
-                                .height(64.dp)
-                                .graphicsLayer {
-                                    scaleX = scale
-                                    scaleY = scale
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val itemWidth = 100.dp
+                    val side = (maxWidth - itemWidth) / 2
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(Unit) {
+                        listState.scrollToItem(selectedIndex)
+                    }
+                    LazyRow(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = side),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        flingBehavior = rememberSnapFlingBehavior(listState),
+                    ) {
+                        itemsIndexed(options) { index, option ->
+                            val selected = index == selectedIndex
+                            val scale by animateFloatAsState(
+                                targetValue = if (selected) 1f else 0.92f,
+                                label = "sleepItem",
+                            )
+                            Text(
+                                text = option.label,
+                                style = if (option.minutes != null || option.label == "—") {
+                                    MaterialTheme.typography.headlineMedium
+                                } else {
+                                    MaterialTheme.typography.labelLarge
                                 },
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = option.label,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(horizontal = 6.dp),
-                                )
-                            }
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                modifier = Modifier
+                                    .width(itemWidth)
+                                    .graphicsLayer {
+                                        scaleX = scale
+                                        scaleY = scale
+                                    }
+                                    .clickable {
+                                        if (option.chapterEnd) onChapterEnd() else onMinutes(option.minutes)
+                                    }
+                                    .padding(vertical = 8.dp),
+                            )
                         }
                     }
                 }
