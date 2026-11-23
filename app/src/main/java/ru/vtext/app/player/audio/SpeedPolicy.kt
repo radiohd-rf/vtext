@@ -57,7 +57,7 @@ object SpeedPolicy {
         val whole = hundredths / 100
         val fraction = hundredths % 100
         return when {
-            fraction == 0 -> "x$whole"
+            fraction == 0 -> "x$whole.0"
             fraction % 10 == 0 -> "x$whole.${fraction / 10}"
             else -> "x$whole.${fraction / 10}${fraction % 10}"
         }

@@ -255,17 +255,25 @@ fun AudioPlayerScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val speedIsDefault = SpeedPolicy.snap(state.speed) == 1f
                 AssistChip(
                     onClick = { showSpeed = true },
                     label = { Text(SpeedPolicy.chipLabel(state.speed)) },
                     colors = AssistChipDefaults.assistChipColors(
-                        labelColor = MaterialTheme.colorScheme.primary,
+                        labelColor = if (speedIsDefault) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
                     ),
                 )
                 AssistChip(
                     onClick = { showChapters = true },
                     label = { Text("Глава ${state.chapterIndex + 1}") },
                     leadingIcon = { Icon(Icons.Default.List, null, Modifier.size(18.dp)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        leadingIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
                 )
                 val sleepActive =
                     state.sleepTimerMinutes != null || state.sleepUntilChapterEnd
