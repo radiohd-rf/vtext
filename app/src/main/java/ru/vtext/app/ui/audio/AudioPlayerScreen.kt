@@ -21,7 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.List
@@ -30,7 +31,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,6 +51,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,6 +78,21 @@ fun AudioPlayerScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // Обратный отсчёт таймера сна: обновляем раз в секунду, пока он задан.
+    var sleepRemaining by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(state.sleepEndsAt) {
+        val endsAt = state.sleepEndsAt
+        if (endsAt == null) {
+            sleepRemaining = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            sleepRemaining = (endsAt - System.currentTimeMillis()).coerceAtLeast(0L)
+            if (sleepRemaining == 0L) break
+            kotlinx.coroutines.delay(1000)
+        }
+    }
     LaunchedEffect(bookId) { viewModel.load(bookId) }
 
     var showSpeed by remember { mutableStateOf(false) }
@@ -180,10 +196,34 @@ fun AudioPlayerScreen(
                     label = { Text("Главы") },
                     leadingIcon = { Icon(Icons.Default.List, null, Modifier.size(18.dp)) },
                 )
+                val sleepActive =
+                    state.sleepTimerMinutes != null || state.sleepUntilChapterEnd
                 AssistChip(
                     onClick = { showSleep = true },
-                    label = { Text("Сон") },
-                    leadingIcon = { Icon(Icons.Default.Bedtime, null, Modifier.size(18.dp)) },
+                    label = {
+                        if (state.sleepTimerMinutes != null) {
+                            Text(formatCountdown(sleepRemaining))
+                        }
+                    },
+                    leadingIcon = {
+                        Icon(
+                            if (sleepActive) Icons.Default.Timer else Icons.Default.Alarm,
+                            contentDescription = "Сон",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    colors = AssistChipDefaults.assistChipColors(
+                        labelColor = if (sleepActive) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        leadingIconContentColor = if (sleepActive) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    ),
                 )
             }
             Spacer(Modifier.height(14.dp))
@@ -482,4 +522,15 @@ private fun BookmarksSheet(
             }
         }
     }
+}
+
+/** Обратный отсчёт для кнопки сна: «14:59», «0:00». */
+private fun formatCountdown(millis: Long): String {
+    val totalSeconds = ((millis + 999) / 1000).toInt()
+    return String.format(
+        java.util.Locale.getDefault(),
+        "%d:%02d",
+        totalSeconds / 60,
+        totalSeconds % 60,
+    )
 }

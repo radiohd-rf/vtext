@@ -47,6 +47,8 @@ data class AudioPlayerState(
     val isFinished: Boolean = false,
     val sleepTimerMinutes: Int? = null,
     val sleepUntilChapterEnd: Boolean = false,
+    /** Момент окончания таймера сна (мс с эпохи); null — таймер не задан. */
+    val sleepEndsAt: Long? = null,
     val bookmarks: List<AudioBookmark> = emptyList(),
     val error: String? = null,
     /** Публичная ссылка Яндекс.Диска для онлайн-книги; null у локальных. */
@@ -137,6 +139,7 @@ class AudioPlaybackCoordinator(
                 if (pauseAtChapterEnd) {
                     pauseAtChapterEnd = false
                     player.pause()
+                    _state.update { it.copy(sleepUntilChapterEnd = false) }
                 }
             }
 
@@ -359,7 +362,14 @@ class AudioPlaybackCoordinator(
     fun setSleepTimer(minutes: Int?) {
         sleepJob?.cancel()
         sleepJob = null
-        _state.update { it.copy(sleepTimerMinutes = minutes, sleepUntilChapterEnd = false) }
+        val endsAt = minutes?.let { System.currentTimeMillis() + it * 60_000L }
+        _state.update {
+            it.copy(
+                sleepTimerMinutes = minutes,
+                sleepUntilChapterEnd = false,
+                sleepEndsAt = endsAt,
+            )
+        }
         if (minutes == null) return
         sleepJob = scope.launch {
             delay(minutes * 60_000L)
@@ -371,7 +381,13 @@ class AudioPlaybackCoordinator(
         sleepJob?.cancel()
         sleepJob = null
         pauseAtChapterEnd = true
-        _state.update { it.copy(sleepTimerMinutes = null, sleepUntilChapterEnd = true) }
+        _state.update {
+            it.copy(
+                sleepTimerMinutes = null,
+                sleepUntilChapterEnd = true,
+                sleepEndsAt = null,
+            )
+        }
     }
 
     fun addBookmark(label: String): AudioBookmark? {
@@ -468,7 +484,7 @@ class AudioPlaybackCoordinator(
         }
         player.pause()
         player.volume = 1f
-        _state.update { it.copy(sleepTimerMinutes = null) }
+        _state.update { it.copy(sleepTimerMinutes = null, sleepEndsAt = null) }
     }
 
     private fun remoteUri(publicKey: String, path: String): Uri =
