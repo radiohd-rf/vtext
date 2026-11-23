@@ -71,9 +71,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.File
 import ru.vtext.app.data.AudioBookmarkStore
@@ -490,7 +492,7 @@ private fun SleepSheet(
                 contentAlignment = Alignment.Center,
             ) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val itemWidth = 100.dp
+                    val itemWidth = 96.dp
                     val side = (maxWidth - itemWidth) / 2
                     val listState = rememberLazyListState()
                     LaunchedEffect(Unit) {
@@ -500,7 +502,7 @@ private fun SleepSheet(
                         state = listState,
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = side),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         flingBehavior = rememberSnapFlingBehavior(listState),
                     ) {
@@ -512,10 +514,17 @@ private fun SleepSheet(
                             )
                             Text(
                                 text = option.label,
-                                style = if (option.minutes != null || option.label == "—") {
-                                    MaterialTheme.typography.headlineMedium
-                                } else {
-                                    MaterialTheme.typography.labelLarge
+                                style = when {
+                                    option.label == "—" -> MaterialTheme.typography.headlineMedium.copy(
+                                        fontSize = 32.sp,
+                                        lineHeight = 40.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    option.minutes != null -> MaterialTheme.typography.headlineMedium.copy(
+                                        fontSize = 36.sp,
+                                        lineHeight = 44.sp,
+                                    )
+                                    else -> MaterialTheme.typography.labelLarge
                                 },
                                 color = if (selected) {
                                     MaterialTheme.colorScheme.primary
@@ -523,7 +532,8 @@ private fun SleepSheet(
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                                 textAlign = TextAlign.Center,
-                                maxLines = 2,
+                                maxLines = if (option.minutes != null) 1 else 2,
+                                softWrap = option.minutes == null,
                                 modifier = Modifier
                                     .width(itemWidth)
                                     .graphicsLayer {
