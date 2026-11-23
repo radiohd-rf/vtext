@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -146,61 +147,48 @@ fun ReaderScreen(
             containerColor = colors.background,
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = state.book?.title.orEmpty(),
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                        }
-                    },
-                    actions = {
-                        if (state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF) {
-                            IconButton(
-                                onClick = {
-                                    val page = state.book?.chapters
-                                        ?.getOrNull(state.chapterIndex)?.page ?: -1
-                                    onOpenPdf(page)
-                                },
-                            ) {
+                Column {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = state.book?.title.orEmpty(),
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
                                 Icon(
-                                    Icons.Filled.PictureAsPdf,
-                                    contentDescription = stringResource(R.string.pdf_original),
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.back),
                                 )
                             }
-                        }
-                        IconButton(onClick = { showToc = true }) {
-                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.reader_toc))
-                        }
-                        IconButton(onClick = { showBookmarks = true }) {
-                            Icon(Icons.Filled.BookmarkBorder, contentDescription = stringResource(R.string.bookmarks))
-                        }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Filled.TextFields, contentDescription = stringResource(R.string.reader_appearance))
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.background,
-                        titleContentColor = colors.text,
-                        actionIconContentColor = colors.text,
-                        navigationIconContentColor = colors.text,
-                    ),
-                )
-            },
-            bottomBar = {
-                ReaderBottomBar(
-                    chapterIndex = state.chapterIndex,
-                    chapterCount = state.chapterCount,
-                    chapterTitle = state.chapterTitle,
-                    progress = state.progress,
-                    onListen = { onListen(state.chapterIndex, state.segmentIndex) },
-                )
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = colors.background,
+                            titleContentColor = colors.text,
+                            actionIconContentColor = colors.text,
+                            navigationIconContentColor = colors.text,
+                        ),
+                    )
+                    ReaderHeader(
+                        chapterTitle = state.chapterTitle,
+                        chapterIndex = state.chapterIndex,
+                        chapterCount = state.chapterCount,
+                        progress = state.progress,
+                        isPdf = state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF,
+                        onToc = { showToc = true },
+                        onListen = { onListen(state.chapterIndex, state.segmentIndex) },
+                        onOpenPdf = {
+                            val page = state.book?.chapters
+                                ?.getOrNull(state.chapterIndex)?.page ?: -1
+                            onOpenPdf(page)
+                        },
+                        onAppearance = { showSettings = true },
+                        onBookmarks = { showBookmarks = true },
+                    )
+                }
             },
         ) { padding ->
             when {
@@ -316,49 +304,93 @@ private fun ReaderParagraph(text: String, style: ReaderStyle, verse: Boolean) {
     )
 }
 
+/**
+ * Блок под верхней панелью: название главы и счётчик слева, оглавление справа.
+ * Ниже — строка действий: оригинал PDF, «Слушать», оформление текста, закладки.
+ */
 @Composable
-private fun ReaderBottomBar(
+private fun ReaderHeader(
+    chapterTitle: String?,
     chapterIndex: Int,
     chapterCount: Int,
-    chapterTitle: String?,
     progress: Float,
+    isPdf: Boolean,
+    onToc: () -> Unit,
     onListen: () -> Unit,
+    onOpenPdf: () -> Unit,
+    onAppearance: () -> Unit,
+    onBookmarks: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    Surface(color = colors.surface) {
-        Column {
-            HorizontalDivider(color = colors.outlineVariant)
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 20.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onListen) {
-                    Icon(Icons.Filled.Headphones, contentDescription = null, modifier = Modifier.width(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.reader_listen))
-                }
-                Spacer(Modifier.weight(1f))
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = chapterTitle?.takeIf { it.isNotBlank() }
-                            ?: stringResource(R.string.reader_chapter_short, chapterIndex + 1),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = colors.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(
-                            R.string.reader_chapter_of,
-                            chapterIndex + 1,
-                            chapterCount,
-                        ) + " · " + (progress * 100).toInt() + "%",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant,
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = chapterTitle?.takeIf { it.isNotBlank() }
+                        ?: stringResource(R.string.reader_chapter_short, chapterIndex + 1),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = stringResource(
+                        R.string.reader_chapter_of,
+                        chapterIndex + 1,
+                        chapterCount,
+                    ) + " · " + (progress * 100).toInt() + "%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onToc) {
+                Icon(
+                    Icons.AutoMirrored.Filled.List,
+                    contentDescription = stringResource(R.string.reader_toc),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 8.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (isPdf) {
+                IconButton(onClick = onOpenPdf) {
+                    Icon(
+                        Icons.Filled.PictureAsPdf,
+                        contentDescription = stringResource(R.string.pdf_original),
                     )
                 }
             }
+            FilledTonalIconButton(onClick = onListen) {
+                Icon(
+                    Icons.Filled.Headphones,
+                    contentDescription = stringResource(R.string.reader_listen),
+                )
+            }
+            IconButton(onClick = onAppearance) {
+                Icon(
+                    Icons.Filled.TextFields,
+                    contentDescription = stringResource(R.string.reader_appearance),
+                )
+            }
+            IconButton(onClick = onBookmarks) {
+                Icon(
+                    Icons.Filled.BookmarkBorder,
+                    contentDescription = stringResource(R.string.bookmarks),
+                )
+            }
         }
+        HorizontalDivider(color = colors.outlineVariant)
     }
 }
 
