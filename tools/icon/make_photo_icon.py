@@ -10,7 +10,7 @@
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[2]
 RES = ROOT / 'app' / 'src' / 'main' / 'res'
@@ -51,6 +51,27 @@ def edge_color(image: Image.Image) -> tuple[int, int, int]:
     return tuple(channel // count for channel in total)
 
 
+def trim_to_content(image: Image.Image, background: tuple[int, int, int]) -> Image.Image:
+    """Обрезает однотонные поля вокруг рисунка и добавляет небольшой отступ."""
+    reference = Image.new('RGB', image.size, background)
+    diff = ImageChops.difference(image, reference).convert('L')
+    mask = diff.point(lambda value: 255 if value > 18 else 0)
+    bbox = mask.getbbox()
+    if bbox is None:
+        return image
+    cropped = image.crop(bbox)
+    side = max(cropped.size)
+    squared = Image.new('RGB', (side, side), background)
+    squared.paste(
+        cropped,
+        ((side - cropped.width) // 2, (side - cropped.height) // 2),
+    )
+    margin = int(side * 0.08)
+    result = Image.new('RGB', (side + margin * 2, side + margin * 2), background)
+    result.paste(squared, (margin, margin))
+    return result
+
+
 def circle_icon(image: Image.Image, size: int) -> Image.Image:
     scaled = image.resize((size, size), Image.LANCZOS).convert('RGBA')
     mask = Image.new('L', (size * 4, size * 4), 0)
@@ -63,8 +84,11 @@ def circle_icon(image: Image.Image, size: int) -> Image.Image:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        raise SystemExit('Укажите путь к картинке: python tools/icon/make_photo_icon.py <file>')
+        raise SystemExit(
+            'Укажите путь к картинке: python tools/icon/make_photo_icon.py <file> [--trim]',
+        )
     source = Path(sys.argv[1])
+    trim = '--trim' in sys.argv[2:]
     image = Image.open(source).convert('RGB')
     side = min(image.size)
     image = image.crop(
@@ -78,6 +102,10 @@ def main() -> None:
 
     background = edge_color(image)
     print('фон иконки:', '#%02X%02X%02X' % background)
+    if trim:
+        before = image.size
+        image = trim_to_content(image, background)
+        print('обрезка полей:', before, '→', image.size)
 
     for folder, size in LEGACY.items():
         target = RES / folder
