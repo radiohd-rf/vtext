@@ -5,7 +5,10 @@ import android.util.Log
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 data class UpdateInfo(
@@ -73,6 +76,11 @@ class UpdateRepository(private val context: Context) {
                         var done = 0L
                         var read = input.read(buffer)
                         while (read != -1) {
+                            // Блокирующее чтение само не прерывается при отмене корутины,
+                            // поэтому проверяем отмену на каждой итерации.
+                            if (!currentCoroutineContext().isActive) {
+                                throw CancellationException("Загрузка отменена")
+                            }
                             output.write(buffer, 0, read)
                             done += read
                             if (total > 0) {
@@ -83,10 +91,18 @@ class UpdateRepository(private val context: Context) {
                     }
                 }
                 target
+            } catch (cancelled: CancellationException) {
+                target.delete()
+                throw cancelled
             } finally {
                 connection.disconnect()
             }
         }
+
+    /** Удаляет недокачанные файлы (например, после отмены из модалки обновления). */
+    fun clearDownloads() {
+        File(context.cacheDir, "update").listFiles()?.forEach { it.delete() }
+    }
 
     /** Размер APK для подписи «84 МБ»: HEAD-запрос, при ошибке — 0. */
     private fun sizeOf(url: String): Long = runCatching {

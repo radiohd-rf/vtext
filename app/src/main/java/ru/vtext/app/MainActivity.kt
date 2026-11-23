@@ -29,6 +29,7 @@ import ru.vtext.app.ui.library.LibraryScreen
 import ru.vtext.app.ui.pdf.PdfViewerScreen
 import ru.vtext.app.ui.reader.ReaderScreen
 import ru.vtext.app.ui.settings.SettingsScreen
+import ru.vtext.app.ui.update.UpdatePrompt
 import ru.vtext.app.ui.theme.VtextTheme
 
 class MainActivity : ComponentActivity() {
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
                     pendingBookId = pendingBookId,
                     onBookConsumed = { pendingBookId = null },
                 )
+                UpdatePrompt()
             }
         }
     }

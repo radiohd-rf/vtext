@@ -174,4 +174,11 @@
     <string name="pdf_zoom_locked_hint">Масштаб и сдвиг по горизонтали зафиксированы — нажмите замок, чтобы менять</string>
     <string name="pdf_zoom_unlocked_hint">Масштаб и сдвиг по горизонтали можно менять</string>
     <string name="pdf_open_error">Не удалось открыть PDF</string>
+    <string name="update_prompt_title">Доступно обновление</string>
+    <string name="update_prompt_text">Версия %1$s, размер %2$s. Скачать и установить сейчас?</string>
+    <string name="update_prompt_text_no_size">Версия %1$s. Скачать и установить сейчас?</string>
+    <string name="update_later">Позже</string>
+    <string name="update_cancel">Отмена</string>
+    <string name="update_prompt_downloading_title">Загрузка обновления</string>
+    <string name="update_prompt_failed_title">Не удалось скачать обновление</string>
 </resources>
