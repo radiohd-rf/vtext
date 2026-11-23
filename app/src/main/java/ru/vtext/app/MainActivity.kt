@@ -155,6 +155,7 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
                 bookId = bookId,
                 viewModel = audioViewModel,
                 onBack = { navController.popBackStack() },
+                onSettings = { navController.navigate("settings") },
             )
         }
         composable("settings") {

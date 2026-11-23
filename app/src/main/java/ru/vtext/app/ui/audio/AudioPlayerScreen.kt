@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
@@ -43,6 +44,9 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -93,6 +97,7 @@ fun AudioPlayerScreen(
     bookId: String,
     viewModel: AudioPlayerViewModel,
     onBack: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val speedFactor = state.speed.coerceAtLeast(0.1f)
@@ -125,6 +130,7 @@ fun AudioPlayerScreen(
     var showChapters by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -149,6 +155,49 @@ fun AudioPlayerScreen(
                 actions = {
                     IconButton(onClick = { showBookmarks = true }) {
                         Icon(Icons.Default.BookmarkBorder, contentDescription = "Закладки")
+                    }
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Настройки плеера")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text("Скорость · " + SpeedPolicy.chipLabel(state.speed))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showSpeed = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Таймер сна") },
+                                onClick = {
+                                    showMenu = false
+                                    showSleep = true
+                                },
+                            )
+                            if (state.audioPublicKey != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Обновить содержание") },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.load(bookId)
+                                    },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Настройки приложения") },
+                                onClick = {
+                                    showMenu = false
+                                    onSettings()
+                                },
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
