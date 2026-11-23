@@ -171,28 +171,19 @@ fun LibraryScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.library_title),
-                            style = MaterialTheme.typography.headlineSmall,
-                        )
-                        Text(
-                            text = pluralStringResource(
-                                R.plurals.books_count,
-                                state.books.size,
-                                state.books.size,
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.library_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
                 },
                 actions = {
                     // На пустой библиотеке кнопка есть в центре — в шапке не дублируем.
                     if (state.books.isNotEmpty()) {
-                        TextButton(
+                        Button(
                             onClick = { showAddSheet = true },
-                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.height(40.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
                         ) {
                             Text(
                                 text = stringResource(R.string.add_book),
@@ -221,6 +212,8 @@ fun LibraryScreen(
                     sort = state.sort,
                     onQueryChange = viewModel::setQuery,
                     onSortChange = viewModel::setSort,
+                    textCount = state.books.count { it.kind == BookKind.TEXT },
+                    audioCount = state.books.count { it.kind == BookKind.AUDIO },
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -492,11 +485,14 @@ private fun LibraryToolbar(
     sort: LibrarySort,
     onQueryChange: (String) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
+    textCount: Int,
+    audioCount: Int,
 ) {
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
+            .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
@@ -557,6 +553,28 @@ private fun LibraryToolbar(
         Spacer(Modifier.width(8.dp))
         SortButton(sort = sort, onSortChange = onSortChange)
     }
+    // Счётчики книг: всего, текстовые и аудио — под полем поиска.
+    Text(
+        text = libraryCounts(textCount, audioCount),
+        modifier = Modifier.padding(start = 24.dp, top = 6.dp),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    }
+}
+
+/** «3 книги · 1 текстовая · 2 аудиокниги»; нулевые части не показываем. */
+@Composable
+private fun libraryCounts(textCount: Int, audioCount: Int): String {
+    val total = textCount + audioCount
+    val parts = mutableListOf(pluralStringResource(R.plurals.books_count, total, total))
+    if (textCount > 0) {
+        parts += pluralStringResource(R.plurals.text_books_count, textCount, textCount)
+    }
+    if (audioCount > 0) {
+        parts += pluralStringResource(R.plurals.audio_books_count, audioCount, audioCount)
+    }
+    return parts.joinToString(" · ")
 }
 
 @Composable
