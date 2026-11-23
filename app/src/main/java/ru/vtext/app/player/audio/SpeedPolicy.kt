@@ -51,6 +51,18 @@ object SpeedPolicy {
         }
     }
 
+    /** Короткая подпись кнопки скорости: «x0.9», «x1», «x1.25». */
+    fun chipLabel(value: Float): String {
+        val hundredths = (snap(value) * 100).roundToInt()
+        val whole = hundredths / 100
+        val fraction = hundredths % 100
+        return when {
+            fraction == 0 -> "x$whole"
+            fraction % 10 == 0 -> "x$whole.${fraction / 10}"
+            else -> "x$whole.${fraction / 10}${fraction % 10}"
+        }
+    }
+
     private fun roundToHundredths(value: Float): Float =
         (value * 100).roundToInt() / 100f
 }

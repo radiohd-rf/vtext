@@ -170,10 +170,7 @@ fun AudioPlayerScreen(
             ) {
                 AssistChip(
                     onClick = { showSpeed = true },
-                    label = { Text(SpeedPolicy.format(state.speed)) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Speed, null, Modifier.size(18.dp))
-                    },
+                    label = { Text(SpeedPolicy.chipLabel(state.speed)) },
                     colors = AssistChipDefaults.assistChipColors(
                         labelColor = MaterialTheme.colorScheme.primary,
                     ),

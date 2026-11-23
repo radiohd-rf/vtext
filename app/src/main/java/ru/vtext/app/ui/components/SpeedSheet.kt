@@ -19,7 +19,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,6 +73,11 @@ fun SpeedSheet(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
+                text = "Скорость",
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
                 text = SpeedPolicy.format(value),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.primary,
@@ -124,41 +128,9 @@ fun SpeedSheet(
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                listOf("0.5×", "1×", "1.5×", "2×").forEach { label ->
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                ASSIST_PRESETS.forEach { preset ->
-                    TextButton(onClick = { value = SpeedPolicy.snap(preset) }) {
-                        Text(
-                            text = SpeedPolicy.format(preset),
-                            color = if (SpeedPolicy.snap(preset) == value) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                }
-            }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
 
-private val ASSIST_PRESETS = listOf(0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.5f)
 private const val COARSE_STEP = 0.1f
