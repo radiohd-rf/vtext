@@ -1,7 +1,11 @@
 package ru.vtext.app.ui.audio
 
 import android.graphics.BitmapFactory
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +21,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,12 +49,14 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -201,29 +211,22 @@ fun AudioPlayerScreen(
                 AssistChip(
                     onClick = { showSleep = true },
                     label = {
-                        if (state.sleepTimerMinutes != null) {
-                            Text(formatCountdown(sleepRemaining))
-                        }
-                    },
-                    // Пока идёт отсчёт, иконка не нужна — только время.
-                    leadingIcon = if (state.sleepTimerMinutes == null) {
-                        {
-                            Icon(
-                                if (sleepActive) Icons.Default.Timer else Icons.Default.Alarm,
+                        when {
+                            state.sleepTimerMinutes != null -> Text(formatCountdown(sleepRemaining))
+                            sleepActive -> Icon(
+                                Icons.Default.Timer,
+                                contentDescription = "Сон",
+                                modifier = Modifier.size(18.dp),
+                            )
+                            else -> Icon(
+                                Icons.Default.Alarm,
                                 contentDescription = "Сон",
                                 modifier = Modifier.size(18.dp),
                             )
                         }
-                    } else {
-                        null
                     },
                     colors = AssistChipDefaults.assistChipColors(
                         labelColor = if (sleepActive) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        leadingIconContentColor = if (sleepActive) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurface
@@ -451,24 +454,99 @@ private fun SleepSheet(
     onChapterEnd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val options = remember {
+        listOf(
+            SleepOption("—", null, false),
+            SleepOption("конец главы", null, true),
+        ) + SLEEP_MINUTES.map {
+            SleepOption(String.format(java.util.Locale.getDefault(), "%02d:00", it), it, false)
+        }
+    }
+    val selectedIndex = when {
+        state.sleepUntilChapterEnd -> 1
+        state.sleepTimerMinutes != null ->
+            2 + SLEEP_MINUTES.indexOf(state.sleepTimerMinutes).coerceAtLeast(0)
+        else -> 0
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
-            Text("Таймер сна", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            listOf<Pair<String, () -> Unit>>(
-                "Выключен" to { onMinutes(null) },
-                "До конца главы" to onChapterEnd,
-                "15 минут" to { onMinutes(15) },
-                "30 минут" to { onMinutes(30) },
-                "60 минут" to { onMinutes(60) },
-            ).forEach { (label, action) ->
-                TextButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
-                    Text(label, Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            Text(
+                text = "Таймер сна",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(14.dp))
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val itemWidth = 84.dp
+                val side = (maxWidth - itemWidth) / 2
+                val listState = rememberLazyListState()
+                LaunchedEffect(Unit) {
+                    listState.scrollToItem(selectedIndex)
+                }
+                LazyRow(
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = side),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    flingBehavior = rememberSnapFlingBehavior(listState),
+                ) {
+                    itemsIndexed(options) { index, option ->
+                        val selected = index == selectedIndex
+                        val scale by animateFloatAsState(
+                            targetValue = if (selected) 1f else 0.92f,
+                            label = "sleepItem",
+                        )
+                        Surface(
+                            onClick = {
+                                if (option.chapterEnd) onChapterEnd() else onMinutes(option.minutes)
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            border = if (selected) {
+                                null
+                            } else {
+                                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            },
+                            modifier = Modifier
+                                .width(itemWidth)
+                                .height(64.dp)
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                },
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = option.label,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 6.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+private data class SleepOption(
+    val label: String,
+    val minutes: Int?,
+    val chapterEnd: Boolean,
+)
+
+private val SLEEP_MINUTES = listOf(5, 10, 15, 20, 30, 40, 50, 60)
 
 
 @OptIn(ExperimentalMaterial3Api::class)
