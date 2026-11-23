@@ -167,5 +167,9 @@
     <string name="pdf_text_mode">Текст</string>
     <string name="pdf_fit_width">По ширине</string>
     <string name="pdf_zoom_percent">%1$d%%</string>
+    <string name="pdf_zoom_lock">Зафиксировать масштаб</string>
+    <string name="pdf_zoom_unlock">Разрешить изменение масштаба</string>
+    <string name="pdf_zoom_locked_hint">Масштаб зафиксирован — нажмите замок, чтобы менять</string>
+    <string name="pdf_zoom_unlocked_hint">Масштаб можно менять</string>
     <string name="pdf_open_error">Не удалось открыть PDF</string>
 </resources>

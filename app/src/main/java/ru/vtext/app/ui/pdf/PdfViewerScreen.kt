@@ -30,6 +30,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FitScreen
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,6 +39,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -68,6 +72,7 @@ import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -175,8 +180,30 @@ fun PdfViewerScreen(
     val currentPage = listState.firstVisibleItemIndex + 1
 
     // Масштаб общий для всех страниц и не сбрасывается при прокрутке.
-    var scale by rememberSaveable(bookId) { mutableStateOf(1f) }
-    var fitWidth by rememberSaveable(bookId) { mutableStateOf(true) }
+    var scale by rememberSaveable(bookId) {
+        mutableStateOf(prefs.getFloat("scale_$bookId", 1f))
+    }
+    var fitWidth by rememberSaveable(bookId) {
+        mutableStateOf(prefs.getFloat("scale_$bookId", 1f) <= MIN_SCALE)
+    }
+    // Фиксация: текущий масштаб остаётся прежним, пока не снять замок.
+    var zoomLocked by rememberSaveable(bookId) {
+        mutableStateOf(prefs.getBoolean("locked_$bookId", false))
+    }
+    val snackbar = remember { SnackbarHostState() }
+
+    // Масштаб переживает уход из просмотра. Пишем с задержкой, чтобы не трогать
+    // настройки на каждом кадре щипка.
+    LaunchedEffect(bookId) {
+        snapshotFlow { Triple(scale, zoomLocked, fitWidth) }
+            .collectLatest { (savedScale, savedLock, _) ->
+                delay(300)
+                prefs.edit()
+                    .putFloat("scale_$bookId", savedScale)
+                    .putBoolean("locked_$bookId", savedLock)
+                    .apply()
+            }
+    }
 
     // Глава из читалки знает свою страницу — открываем оригинал ровно на ней.
     // Если страницы нет, возвращаемся туда, где листали в прошлый раз.
@@ -197,6 +224,7 @@ fun PdfViewerScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {
@@ -235,9 +263,40 @@ fun PdfViewerScreen(
                 actions = {
                     IconButton(
                         onClick = {
+                            zoomLocked = !zoomLocked
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    context.getString(
+                                        if (zoomLocked) {
+                                            R.string.pdf_zoom_locked_hint
+                                        } else {
+                                            R.string.pdf_zoom_unlocked_hint
+                                        },
+                                    ),
+                                )
+                            }
+                        },
+                    ) {
+                        Icon(
+                            if (zoomLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                            contentDescription = stringResource(
+                                if (zoomLocked) R.string.pdf_zoom_unlock
+                                else R.string.pdf_zoom_lock,
+                            ),
+                            tint = if (zoomLocked) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                LocalContentColor.current
+                            },
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            zoomLocked = false
                             scale = 1f
                             fitWidth = true
-                            scope.launch { horizontalScroll.scrollTo(0) }
+                            horizontalJob?.cancel()
+                            horizontalJob = scope.launch { horizontalScroll.scrollTo(0) }
                         },
                     ) {
                         Icon(
@@ -290,7 +349,8 @@ fun PdfViewerScreen(
                     .horizontalScroll(horizontalScroll)
                     .pointerInput(renderer) {
                         detectTapGestures(
-                            onDoubleTap = { offset ->
+                            onDoubleTap = doubleTap@{ offset ->
+                                if (zoomLocked) return@doubleTap
                                 val old = scale
                                 val next = if (old > MIN_SCALE) MIN_SCALE else 2f
                                 val factor = next / old
@@ -323,7 +383,7 @@ fun PdfViewerScreen(
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val pressed = event.changes.filter { it.pressed }
                                 if (pressed.size >= 2) {
-                                    val zoom = event.calculateZoom()
+                                    val zoom = if (zoomLocked) 1f else event.calculateZoom()
                                     if (zoom.isFinite() && zoom != 1f) {
                                         val old = scale
                                         val next = (scale * zoom)
