@@ -122,7 +122,7 @@ fun AudioPlayerScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = state.chapterTitle ?: state.title.orEmpty(),
+                        text = state.title.orEmpty(),
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -165,7 +165,7 @@ fun AudioPlayerScreen(
 
             Spacer(Modifier.height(18.dp))
             Text(
-                text = state.title.orEmpty(),
+                text = state.chapterTitle ?: state.title.orEmpty(),
                 style = MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
@@ -178,16 +178,6 @@ fun AudioPlayerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = listOfNotNull(
-                    state.chapterTitle,
-                    if (state.chapterCount > 0) "Глава ${state.chapterIndex + 1} из ${state.chapterCount}" else null,
-                ).joinToString(" · "),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center,
-            )
 
             Spacer(Modifier.weight(1f))
             Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
