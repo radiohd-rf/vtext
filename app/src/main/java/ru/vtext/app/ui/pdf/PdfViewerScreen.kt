@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -55,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -65,6 +67,7 @@ import java.io.Closeable
 import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -84,11 +87,28 @@ private class PdfPageRenderer(file: File) : Closeable {
     private val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     private val renderer = PdfRenderer(descriptor)
     val pageCount: Int = renderer.pageCount
+    private val aspects = HashMap<Int, Float>()
 
     private val cache = object : android.util.LruCache<String, Bitmap>(
         (Runtime.getRuntime().maxMemory() / 8 / 1024).toInt(),
     ) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
+    }
+
+    /** Отношение ширины страницы к высоте — нужно для стабильной высоты до отрисовки. */
+    @Synchronized
+    fun aspect(index: Int): Float {
+        aspects[index]?.let { return it }
+        val ratio = runCatching {
+            val page = renderer.openPage(index)
+            try {
+                page.width.toFloat() / page.height.toFloat()
+            } finally {
+                page.close()
+            }
+        }.getOrDefault(0.72f)
+        aspects[index] = ratio
+        return ratio
     }
 
     @Synchronized
@@ -151,6 +171,7 @@ fun PdfViewerScreen(
     val listState = rememberLazyListState()
     val horizontalScroll = rememberScrollState()
     val scope = rememberCoroutineScope()
+    var horizontalJob by remember { mutableStateOf<Job?>(null) }
     val currentPage = listState.firstVisibleItemIndex + 1
 
     // Масштаб общий для всех страниц и не сбрасывается при прокрутке.
@@ -172,6 +193,7 @@ fun PdfViewerScreen(
         snapshotFlow { listState.firstVisibleItemIndex }
             .collectLatest { index -> prefs.edit().putInt(bookId, index).apply() }
     }
+
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -269,26 +291,36 @@ fun PdfViewerScreen(
                     .pointerInput(renderer) {
                         detectTapGestures(
                             onDoubleTap = { offset ->
-                                if (scale > MIN_SCALE) {
-                                    scale = MIN_SCALE
-                                    fitWidth = true
-                                    scope.launch { horizontalScroll.scrollTo(0) }
-                                } else {
-                                    scale = 2f
-                                    fitWidth = false
-                                    val target = (offset.x * (scale - 1)).roundToInt()
-                                    scope.launch {
-                                        horizontalScroll.scrollTo(target.coerceAtLeast(0))
-                                    }
+                                val old = scale
+                                val next = if (old > MIN_SCALE) MIN_SCALE else 2f
+                                val factor = next / old
+                                scale = next
+                                fitWidth = next <= MIN_SCALE
+                                listState.pinnedScroll(offset.y, factor)?.let { (index, offsetY) ->
+                                    listState.requestScrollToItem(index, offsetY)
                                 }
+                                val contentX = horizontalScroll.value + offset.x
+                                val targetX = if (next <= MIN_SCALE) {
+                                    0
+                                } else {
+                                    (contentX * factor - offset.x).roundToInt().coerceAtLeast(0)
+                                }
+                                horizontalJob?.cancel()
+                                horizontalJob = scope.launch { horizontalScroll.scrollTo(targetX) }
                             },
                         )
                     }
                     .pointerInput(renderer) {
                         awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
+                            // Слушаем в Initial-проходе и потребляем события с двумя
+                            // пальцами: иначе прокрутка списка (дочерний узел) успевает
+                            // сдвинуть страницу, пока идёт щипок.
+                            awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial,
+                            )
                             do {
-                                val event = awaitPointerEvent()
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val pressed = event.changes.filter { it.pressed }
                                 if (pressed.size >= 2) {
                                     val zoom = event.calculateZoom()
@@ -297,20 +329,25 @@ fun PdfViewerScreen(
                                         val next = (scale * zoom)
                                             .coerceIn(MIN_SCALE, MAX_SCALE)
                                         if (next != old) {
-                                            val focus = event.calculateCentroid().x
-                                            val contentX = horizontalScroll.value + focus
+                                            val focus = event.calculateCentroid()
+                                            val factor = next / old
                                             scale = next
-                                            fitWidth = false
-                                            if (next > MIN_SCALE) {
-                                                scope.launch {
-                                                    horizontalScroll.scrollTo(
-                                                        (contentX * next / old - focus)
-                                                            .roundToInt()
-                                                            .coerceAtLeast(0),
-                                                    )
+                                            fitWidth = next <= MIN_SCALE
+                                            listState.pinnedScroll(focus.y, factor)
+                                                ?.let { (index, offsetY) ->
+                                                    listState.requestScrollToItem(index, offsetY)
                                                 }
+                                            val contentX = horizontalScroll.value + focus.x
+                                            val targetX = if (next <= MIN_SCALE) {
+                                                0
                                             } else {
-                                                scope.launch { horizontalScroll.scrollTo(0) }
+                                                (contentX * factor - focus.x)
+                                                    .roundToInt()
+                                                    .coerceAtLeast(0)
+                                            }
+                                            horizontalJob?.cancel()
+                                            horizontalJob = scope.launch {
+                                                horizontalScroll.scrollTo(targetX)
                                             }
                                         }
                                     }
@@ -339,8 +376,14 @@ fun PdfViewerScreen(
 
 @Composable
 private fun PdfPage(renderer: PdfPageRenderer, index: Int, widthPx: Int) {
-    val bitmap by produceState<Bitmap?>(initialValue = null, index, widthPx) {
-        value = withContext(Dispatchers.IO) { renderer.page(index, widthPx) }
+    // Старый битмап держим, пока не готов новый: при зуме страница не прыгает.
+    var bitmap by remember(index) { mutableStateOf<Bitmap?>(null) }
+    val aspect by produceState(initialValue = 0.72f, index) {
+        value = withContext(Dispatchers.IO) { renderer.aspect(index) }
+    }
+    LaunchedEffect(index, widthPx) {
+        val next = withContext(Dispatchers.IO) { renderer.page(index, widthPx) }
+        if (next != null) bitmap = next
     }
     Box(
         modifier = Modifier
@@ -356,15 +399,30 @@ private fun PdfPage(renderer: PdfPageRenderer, index: Int, widthPx: Int) {
                 contentScale = ContentScale.FillWidth,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .aspectRatio(aspect)
                     .background(Color.White),
             )
         } else {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(0.72f)
+                    .aspectRatio(aspect)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             )
         }
     }
+}
+
+/**
+ * Куда прокрутить список, чтобы точка внутри страницы под пальцем осталась на месте
+ * при изменении масштаба в [factor] раз. Возвращает индекс элемента и смещение.
+ */
+private fun LazyListState.pinnedScroll(focusY: Float, factor: Float): Pair<Int, Int>? {
+    val info = layoutInfo.visibleItemsInfo
+    if (info.isEmpty()) return null
+    val item = info.firstOrNull { focusY >= it.offset && focusY < it.offset + it.size }
+        ?: info.minByOrNull { kotlin.math.abs(it.offset + it.size / 2f - focusY) }
+        ?: return null
+    val local = (focusY - item.offset).coerceIn(0f, item.size.toFloat())
+    return item.index to (local * factor - focusY).roundToInt()
 }
