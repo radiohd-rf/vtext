@@ -1,6 +1,7 @@
 package ru.vtext.app.ui.reader
 
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.clickable
@@ -26,14 +27,16 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.ScreenLockRotation
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -53,6 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,6 +109,15 @@ fun ReaderScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+
+    val activity = context.findActivity()
+    var rotationLocked by rememberSaveable { mutableStateOf(false) }
+    // Покидая читалку, возвращаем системе обычное поведение поворота.
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
 
     var showToc by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
@@ -182,6 +195,16 @@ fun ReaderScreen(
                     )
                     ReaderActions(
                         isPdf = state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF,
+                        rotationLocked = rotationLocked,
+                        onToggleRotation = {
+                            val next = !rotationLocked
+                            rotationLocked = next
+                            activity?.requestedOrientation = if (next) {
+                                ActivityInfo.SCREEN_ORIENTATION_LOCKED
+                            } else {
+                                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                            }
+                        },
                         onListen = { onListen(state.chapterIndex, state.segmentIndex) },
                         onOpenPdf = {
                             val page = state.book?.chapters
@@ -307,10 +330,15 @@ private fun ReaderParagraph(text: String, style: ReaderStyle, verse: Boolean) {
     )
 }
 
-/** Строка действий под верхней панелью: PDF, «Слушать», оформление, закладки. */
+/**
+ * Строка действий под верхней панелью: фиксация ориентации, PDF, «Слушать»,
+ * оформление, закладки. Кнопки прижаты вправо.
+ */
 @Composable
 private fun ReaderActions(
     isPdf: Boolean,
+    rotationLocked: Boolean,
+    onToggleRotation: () -> Unit,
     onListen: () -> Unit,
     onOpenPdf: () -> Unit,
     onAppearance: () -> Unit,
@@ -321,10 +349,24 @@ private fun ReaderActions(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp, end = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                .padding(end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onToggleRotation) {
+                Icon(
+                    if (rotationLocked) Icons.Filled.ScreenLockRotation else Icons.Filled.ScreenRotation,
+                    contentDescription = stringResource(
+                        if (rotationLocked) R.string.reader_rotation_unlock
+                        else R.string.reader_rotation_lock,
+                    ),
+                    tint = if (rotationLocked) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        LocalContentColor.current
+                    },
+                )
+            }
             if (isPdf) {
                 IconButton(onClick = onOpenPdf) {
                     Icon(
@@ -333,7 +375,7 @@ private fun ReaderActions(
                     )
                 }
             }
-            FilledTonalIconButton(onClick = onListen) {
+            IconButton(onClick = onListen) {
                 Icon(
                     Icons.Filled.Headphones,
                     contentDescription = stringResource(R.string.reader_listen),
