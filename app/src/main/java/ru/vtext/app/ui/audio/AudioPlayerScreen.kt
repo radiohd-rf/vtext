@@ -93,6 +93,7 @@ fun AudioPlayerScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val chapterRemaining = (state.durationMs - state.positionMs).coerceAtLeast(0L)
 
     // Обратный отсчёт таймера сна: обновляем раз в секунду, пока он задан.
     var sleepRemaining by remember { mutableLongStateOf(0L) }
@@ -217,12 +218,10 @@ fun AudioPlayerScreen(
                     onClick = { showSleep = true },
                     label = {
                         when {
-                            state.sleepTimerMinutes != null -> Text(formatCountdown(sleepRemaining))
-                            sleepActive -> Icon(
-                                Icons.Default.Timer,
-                                contentDescription = "Сон",
-                                modifier = Modifier.size(18.dp),
-                            )
+                            state.sleepTimerMinutes != null ->
+                                Text(formatCountdown(sleepRemaining))
+                            state.sleepUntilChapterEnd ->
+                                Text(formatCountdown(chapterRemaining))
                             else -> Icon(
                                 Icons.Default.Alarm,
                                 contentDescription = "Сон",
@@ -525,8 +524,7 @@ private fun SleepSheet(
                 contentAlignment = Alignment.Center,
             ) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val itemWidth = 96.dp
-                    val side = (maxWidth - itemWidth) / 2
+                    val side = (maxWidth - 96.dp) / 2
                     val listState = rememberLazyListState()
                     LaunchedEffect(Unit) {
                         listState.scrollToItem(selectedIndex)
@@ -535,7 +533,7 @@ private fun SleepSheet(
                         state = listState,
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = side),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         flingBehavior = rememberSnapFlingBehavior(listState),
                     ) {
@@ -568,7 +566,6 @@ private fun SleepSheet(
                                 maxLines = if (option.minutes != null) 1 else 2,
                                 softWrap = option.minutes == null,
                                 modifier = Modifier
-                                    .width(itemWidth)
                                     .graphicsLayer {
                                         scaleX = scale
                                         scaleY = scale
@@ -576,7 +573,7 @@ private fun SleepSheet(
                                     .clickable {
                                         if (option.chapterEnd) onChapterEnd() else onMinutes(option.minutes)
                                     }
-                                    .padding(vertical = 8.dp),
+                                    .padding(horizontal = 4.dp, vertical = 8.dp),
                             )
                         }
                     }
