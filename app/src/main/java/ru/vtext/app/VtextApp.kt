@@ -61,6 +61,7 @@ class AppContainer(application: Application) {
     val yandexDisk = ru.vtext.app.data.YandexDiskClient()
     val audioRepository = AudioRepository(application, repository, yandexDisk)
     val audioProgress = AudioProgressStore(application)
+    val audioPlayerSettings = ru.vtext.app.data.AudioPlayerSettingsStore(application)
     val audioBookmarks = AudioBookmarkStore(application)
     val audioPlayback = AudioPlaybackCoordinator(
         application,

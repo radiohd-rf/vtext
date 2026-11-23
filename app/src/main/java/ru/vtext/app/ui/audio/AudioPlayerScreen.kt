@@ -53,6 +53,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -98,8 +99,12 @@ fun AudioPlayerScreen(
     viewModel: AudioPlayerViewModel,
     onBack: () -> Unit,
     onSettings: () -> Unit,
+    onPlayerSettings: () -> Unit,
+    settings: ru.vtext.app.data.AudioPlayerSettingsStore,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val backSkipMs by settings.backSkipMs.collectAsStateWithLifecycle()
+    val forwardSkipMs by settings.forwardSkipMs.collectAsStateWithLifecycle()
     val speedFactor = state.speed.coerceAtLeast(0.1f)
     val chapterRemaining = (state.durationMs - state.positionMs).coerceAtLeast(0L)
     val currentDuration = state.durationMs.takeIf { it > 0L }
@@ -165,19 +170,10 @@ fun AudioPlayerScreen(
                             onDismissRequest = { showMenu = false },
                         ) {
                             DropdownMenuItem(
-                                text = {
-                                    Text("Скорость · " + SpeedPolicy.chipLabel(state.speed))
-                                },
+                                text = { Text("Настройки плеера") },
                                 onClick = {
                                     showMenu = false
-                                    showSpeed = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Таймер сна") },
-                                onClick = {
-                                    showMenu = false
-                                    showSleep = true
+                                    onPlayerSettings()
                                 },
                             )
                             if (state.audioPublicKey != null) {
@@ -249,7 +245,7 @@ fun AudioPlayerScreen(
 
             Spacer(Modifier.weight(1f))
             Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-                Transport(state, viewModel)
+                Transport(state, viewModel, backSkipMs, forwardSkipMs)
             }
             Spacer(Modifier.height(18.dp))
 
@@ -458,7 +454,12 @@ private fun Progress(state: AudioPlayerState, onSeek: (Long) -> Unit) {
 }
 
 @Composable
-private fun Transport(state: AudioPlayerState, viewModel: AudioPlayerViewModel) {
+private fun Transport(
+    state: AudioPlayerState,
+    viewModel: AudioPlayerViewModel,
+    backSkipMs: Int,
+    forwardSkipMs: Int,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -467,9 +468,11 @@ private fun Transport(state: AudioPlayerState, viewModel: AudioPlayerViewModel) 
         IconButton(onClick = viewModel::previousChapter) {
             Icon(Icons.Default.SkipPrevious, "Предыдущая глава")
         }
-        IconButton(onClick = { viewModel.seekBy(-15_000) }) {
-            Icon(Icons.Default.Replay, "Назад 15 секунд")
-        }
+        SeekButton(
+            seconds = backSkipMs / 1000,
+            forward = false,
+            onClick = { viewModel.seekBy(-backSkipMs.toLong()) },
+        )
         FilledIconButton(
             onClick = viewModel::togglePlay,
             modifier = Modifier.size(68.dp),
@@ -484,9 +487,11 @@ private fun Transport(state: AudioPlayerState, viewModel: AudioPlayerViewModel) 
                 modifier = Modifier.size(34.dp),
             )
         }
-        IconButton(onClick = { viewModel.seekBy(30_000) }) {
-            Icon(Icons.Default.Forward30, "Вперёд 30 секунд")
-        }
+        SeekButton(
+            seconds = forwardSkipMs / 1000,
+            forward = true,
+            onClick = { viewModel.seekBy(forwardSkipMs.toLong()) },
+        )
         IconButton(onClick = viewModel::nextChapter) {
             Icon(Icons.Default.SkipNext, "Следующая глава")
         }
@@ -805,3 +810,24 @@ private fun formatBookRemaining(millis: Long): String {
 /** «12,3 МБ» — размер аудиофайла. */
 private fun formatTrackSize(bytes: Long): String =
     String.format(java.util.Locale.getDefault(), "%.1f МБ", bytes / (1024.0 * 1024.0))
+
+/** Кнопка перемотки: круглая стрелка с числом секунд внутри. */
+@Composable
+private fun SeekButton(seconds: Int, forward: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.Default.Replay,
+                contentDescription = if (forward) "Вперёд $seconds секунд" else "Назад $seconds секунд",
+                modifier = Modifier
+                    .size(30.dp)
+                    .graphicsLayer { scaleX = if (forward) -1f else 1f },
+            )
+            Text(
+                text = "$seconds",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                color = LocalContentColor.current,
+            )
+        }
+    }
+}

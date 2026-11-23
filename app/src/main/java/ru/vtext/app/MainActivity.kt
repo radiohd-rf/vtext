@@ -23,6 +23,7 @@ import androidx.navigation.navArgument
 import androidx.compose.ui.platform.LocalContext
 import ru.vtext.app.player.PlaybackService
 import ru.vtext.app.ui.audio.AudioPlayerScreen
+import ru.vtext.app.ui.audio.AudioPlayerSettingsScreen
 import ru.vtext.app.ui.audio.AudioPlayerViewModel
 import ru.vtext.app.ui.book.BookScreen
 import ru.vtext.app.ui.library.LibraryScreen
@@ -156,7 +157,12 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
                 viewModel = audioViewModel,
                 onBack = { navController.popBackStack() },
                 onSettings = { navController.navigate("settings") },
+                onPlayerSettings = { navController.navigate("audio-settings") },
+                settings = container.audioPlayerSettings,
             )
+        }
+        composable("audio-settings") {
+            AudioPlayerSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable("settings") {
             SettingsScreen(onBack = { navController.popBackStack() })

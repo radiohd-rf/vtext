@@ -181,4 +181,8 @@
     <string name="update_cancel">Отмена</string>
     <string name="update_prompt_downloading_title">Загрузка обновления</string>
     <string name="update_prompt_failed_title">Не удалось скачать обновление</string>
+    <string name="player_settings_title">Настройки плеера</string>
+    <string name="player_settings_back">Кнопка «Назад»</string>
+    <string name="player_settings_forward">Кнопка «Вперёд»</string>
+    <string name="player_settings_hint">Кнопки перемотки вокруг кнопки Play в плеере аудиокниг.</string>
 </resources>
