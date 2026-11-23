@@ -543,38 +543,67 @@ private fun SleepSheet(
                                 targetValue = if (selected) 1f else 0.92f,
                                 label = "sleepItem",
                             )
-                            Text(
-                                text = option.label,
-                                style = when {
-                                    option.label == "—" -> MaterialTheme.typography.headlineMedium.copy(
-                                        fontSize = 32.sp,
-                                        lineHeight = 40.sp,
-                                        fontWeight = FontWeight.Bold,
+                            val onClick = {
+                                if (option.chapterEnd) onChapterEnd() else onMinutes(option.minutes)
+                            }
+                            if (option.label == "—") {
+                                // Рисуем штрих линией, чтобы промежуток до соседей
+                                // был таким же, как у цифр (у глифа тире большие поля).
+                                Box(
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            scaleX = scale
+                                            scaleY = scale
+                                        }
+                                        .clickable(
+                                            onClickLabel = "Выключить таймер",
+                                            onClick = onClick,
+                                        )
+                                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .width(40.dp)
+                                            .height(5.dp)
+                                            .clip(RoundedCornerShape(2.5.dp))
+                                            .background(
+                                                if (selected) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                            ),
                                     )
-                                    option.minutes != null -> MaterialTheme.typography.headlineMedium.copy(
-                                        fontSize = 36.sp,
-                                        lineHeight = 44.sp,
-                                    )
-                                    else -> MaterialTheme.typography.labelLarge
-                                },
-                                color = if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                textAlign = TextAlign.Center,
-                                maxLines = if (option.minutes != null) 1 else 2,
-                                softWrap = option.minutes == null,
-                                modifier = Modifier
-                                    .graphicsLayer {
-                                        scaleX = scale
-                                        scaleY = scale
-                                    }
-                                    .clickable {
-                                        if (option.chapterEnd) onChapterEnd() else onMinutes(option.minutes)
-                                    }
-                                    .padding(horizontal = 4.dp, vertical = 8.dp),
-                            )
+                                }
+                            } else {
+                                Text(
+                                    text = option.label,
+                                    style = if (option.minutes != null) {
+                                        MaterialTheme.typography.headlineMedium.copy(
+                                            fontSize = 36.sp,
+                                            lineHeight = 44.sp,
+                                        )
+                                    } else {
+                                        MaterialTheme.typography.labelLarge
+                                    },
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    textAlign = TextAlign.Center,
+                                    maxLines = if (option.minutes != null) 1 else 2,
+                                    softWrap = option.minutes == null,
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            scaleX = scale
+                                            scaleY = scale
+                                        }
+                                        .clickable(onClick = onClick)
+                                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                                )
+                            }
                         }
                     }
                 }
