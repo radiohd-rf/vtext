@@ -16,16 +16,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +54,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -72,6 +71,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -236,7 +236,7 @@ fun LibraryScreen(
                         query = state.query,
                         onReset = { viewModel.setQuery("") },
                     )
-                    else -> BookGrid(
+                    else -> BookList(
                         books = state.visibleBooks,
                         positions = state.positions,
                         onOpen = { id ->
@@ -588,21 +588,19 @@ private fun sortLabel(sort: LibrarySort): String = when (sort) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BookGrid(
+private fun BookList(
     books: List<Book>,
     positions: Map<String, ReadingPosition>,
     onOpen: (String) -> Unit,
     onLongPress: (Book) -> Unit,
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 148.dp),
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 112.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(books, key = { it.id }) { book ->
-            BookCard(
+            BookRow(
                 book = book,
                 position = positions[book.id],
                 onClick = { onOpen(book.id) },
@@ -612,9 +610,13 @@ private fun BookGrid(
     }
 }
 
+/** Постер в списке: классические 2:3, но заметно компактнее прежней плитки. */
+private val ListPosterWidth = 72.dp
+private val ListPosterHeight = 108.dp
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BookCard(
+private fun BookRow(
     book: Book,
     position: ReadingPosition?,
     onClick: () -> Unit,
@@ -622,9 +624,9 @@ private fun BookCard(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, label = "cardPress")
+    val scale by animateFloatAsState(if (pressed) 0.98f else 1f, label = "bookRowPress")
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
@@ -638,63 +640,80 @@ private fun BookCard(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = stringResource(R.string.delete_book),
-            ),
+            )
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         BookCover(
             book = book,
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
-            corner = 14.dp,
+            modifier = Modifier
+                .size(ListPosterWidth, ListPosterHeight)
+                .clip(RoundedCornerShape(6.dp)),
+            corner = 6.dp,
+            showFormat = false,
         )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = book.title,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        val online = book.audioPublicKey != null
-        Text(
-            text = if (online) {
-                stringResource(R.string.audio_online)
-            } else {
-                book.author ?: stringResource(R.string.unknown_author)
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (online) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = book.author ?: stringResource(R.string.unknown_author),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(7.dp))
+            BookKindBadge(book)
+        }
         if (position != null && position.chapter > 0 && book.chapterCount > 0) {
-            Spacer(Modifier.height(8.dp))
-            ChapterProgress(chapterIndex = position.chapter, total = book.chapterCount)
+            Spacer(Modifier.width(10.dp))
+            val chapter = (position.chapter + 1).coerceIn(1, book.chapterCount)
+            Text(
+                text = stringResource(R.string.chapter_of, chapter, book.chapterCount),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
         }
     }
 }
 
+/** Плашка под автором: аудиокнига, текстовая книга или аудиокнига из сети. */
 @Composable
-private fun ChapterProgress(chapterIndex: Int, total: Int) {
-    val chapter = (chapterIndex + 1).coerceIn(1, total)
-    Column {
-        LinearProgressIndicator(
-            progress = { chapter.toFloat() / total },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(3.dp),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            drawStopIndicator = {},
-        )
-        Spacer(Modifier.height(5.dp))
+private fun BookKindBadge(book: Book) {
+    val online = book.audioPublicKey != null
+    val audio = book.kind == BookKind.AUDIO
+    val label = when {
+        online -> stringResource(R.string.kind_audio_online)
+        audio -> stringResource(R.string.kind_audio)
+        else -> stringResource(R.string.kind_text)
+    }
+    val container = if (audio || online) {
+        MaterialTheme.colorScheme.secondaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHighest
+    }
+    val content = if (audio || online) {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = container,
+        contentColor = content,
+    ) {
         Text(
-            text = stringResource(R.string.chapter_of, chapter, total),
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }

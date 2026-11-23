@@ -136,6 +136,9 @@
     <string name="audio_link_hint">Публичная ссылка на папку Яндекс.Диска с аудиофайлами. Файлы не скачиваются — книга играет онлайн.</string>
     <string name="audio_link_add">Добавить</string>
     <string name="audio_link_invalid">Нужна публичная ссылка вида https://disk.yandex.ru/d/…</string>
+    <string name="kind_audio">Аудиокнига</string>
+    <string name="kind_text">Книга</string>
+    <string name="kind_audio_online">Аудиокнига · онлайн</string>
     <string name="audio_online">Онлайн · Яндекс.Диск</string>
     <string name="add_text_book">Печатная книга</string>
     <string name="add_text_book_hint">TXT, FB2, EPUB, PDF, DOCX</string>
