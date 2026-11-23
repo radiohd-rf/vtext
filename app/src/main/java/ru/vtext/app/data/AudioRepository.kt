@@ -109,6 +109,61 @@ class AudioRepository(
         return book
     }
 
+    /**
+     * Демо-книга из assets: добавляется при первом запуске. Звук не скачивается,
+     * поэтому книга доступна сразу, а при открытии список сверяется с папкой.
+     */
+    suspend fun seedDefaultOnlineBook(): Book? = withContext(Dispatchers.IO) {
+        val defaults = readBundledBook() ?: return@withContext null
+        if (books.listBooks().any { it.audioPublicKey == defaults.publicKey }) {
+            return@withContext null
+        }
+        val id = UUID.randomUUID().toString()
+        val dir = books.bookDir(id)
+        val tracks = defaults.tracks.map { (title, path) ->
+            AudioTrack(title = title, path = path, durationMs = 0L, remote = true)
+        }
+        if (tracks.isEmpty()) return@withContext null
+
+        val book = Book(
+            id = id,
+            title = defaults.title,
+            author = null,
+            format = null,
+            addedAt = System.currentTimeMillis(),
+            chapterCount = tracks.size,
+            kind = BookKind.AUDIO,
+            audioPublicKey = defaults.publicKey,
+        )
+        writeTracks(dir, tracks)
+        books.saveMeta(book)
+        book
+    }
+
+    private fun readBundledBook(): BundledBook? = runCatching {
+        val text = context.assets.open("default_online_book.json")
+            .bufferedReader()
+            .use { it.readText() }
+        val json = JSONObject(text)
+        val publicKey = json.optString("publicKey")
+        val title = json.optString("title").ifBlank { "Аудиокнига" }
+        val array = json.getJSONArray("tracks")
+        val tracks = (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            val path = item.optString("path")
+            val trackTitle = item.optString("title")
+                .ifBlank { TrackNaming.titleFromFileName(path.substringAfterLast('/')) }
+            trackTitle to path
+        }.filter { (_, path) -> path.isNotBlank() }
+        if (publicKey.isBlank() || tracks.isEmpty()) null else BundledBook(publicKey, title, tracks)
+    }.getOrNull()
+
+    private data class BundledBook(
+        val publicKey: String,
+        val title: String,
+        val tracks: List<Pair<String, String>>,
+    )
+
     suspend fun tracks(bookId: String): List<AudioTrack> = withContext(Dispatchers.IO) {
         val file = File(books.bookDir(bookId), "tracks.json")
         if (!file.isFile) return@withContext emptyList()

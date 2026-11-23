@@ -2,6 +2,7 @@ package ru.vtext.app
 
 import android.app.Application
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import kotlinx.coroutines.runBlocking
 import ru.vtext.app.data.AudioBookmarkStore
 import ru.vtext.app.data.AudioProgressStore
 import ru.vtext.app.data.AudioRepository
@@ -23,6 +24,21 @@ class VtextApp : Application() {
         super.onCreate()
         PDFBoxResourceLoader.init(this)
         container = AppContainer(this)
+        seedDefaultBook()
+    }
+
+    /** При первом запуске добавляет демо-аудиокнигу из assets (звук стримится). */
+    private fun seedDefaultBook() {
+        val prefs = getSharedPreferences("library", MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_DEFAULT_SEEDED, false)) return
+        val done = runCatching {
+            runBlocking { container.audioRepository.seedDefaultOnlineBook() }
+        }.isSuccess
+        if (done) prefs.edit().putBoolean(KEY_DEFAULT_SEEDED, true).apply()
+    }
+
+    private companion object {
+        const val KEY_DEFAULT_SEEDED = "defaults_seeded"
     }
 }
 
