@@ -192,8 +192,8 @@
     <string name="theme_system">Системная</string>
     <string name="theme_light">Светлая</string>
     <string name="theme_dark">Тёмная</string>
-    <string name="cloud_title">Облачная библиотека</string>
-    <string name="cloud_desc">Публичная папка Яндекс.Диска с подпапками книг. Новые книги добавляются автоматически при запуске.</string>
+    <string name="cloud_title">Облачные библиотеки</string>
+    <string name="cloud_desc">Публичные папки Яндекс.Диска с подпапками книг. Новые книги добавляются автоматически при запуске.</string>
     <string name="cloud_link_hint">https://disk.yandex.ru/d/…</string>
     <string name="cloud_connect">Подключить</string>
     <string name="cloud_connected_desc">Книги из этой папки добавляются в библиотеку и обновляются при запуске.</string>
@@ -204,4 +204,8 @@
     <string name="cloud_sync">Обновить</string>
     <string name="cloud_disconnect">Отключить</string>
     <string name="cloud_missing">нет в облаке</string>
+    <string name="cloud_add_title">Новая облачная библиотека</string>
+    <string name="cloud_add">Добавить библиотеку</string>
+    <string name="cloud_disconnect_title">Отключить библиотеку?</string>
+    <string name="cloud_disconnect_text">«%1$s» перестанет обновляться. Книги останутся в библиотеке.</string>
 </resources>

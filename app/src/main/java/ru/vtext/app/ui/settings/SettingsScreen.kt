@@ -2,6 +2,7 @@ package ru.vtext.app.ui.settings
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,8 +32,11 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -41,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +57,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import android.content.Context
 import android.content.Intent
@@ -95,6 +103,17 @@ fun SettingsScreen(onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val update by viewModel.updateState.collectAsStateWithLifecycle()
     var modelPrompt by remember { mutableStateOf(false) }
+    var showAddCloud by remember { mutableStateOf(false) }
+    var pendingDisconnect by remember { mutableStateOf<ru.vtext.app.data.CloudConnection?>(null) }
+    val cloudConnections by viewModel.cloudConnections.collectAsStateWithLifecycle()
+    val cloudSyncStates by viewModel.cloudSyncStates.collectAsStateWithLifecycle()
+    val cloudConnectedTick by viewModel.cloudConnectedTick.collectAsStateWithLifecycle()
+    val cloudConnecting by viewModel.cloudConnecting.collectAsStateWithLifecycle()
+    val cloudLinkError by viewModel.cloudLinkError.collectAsStateWithLifecycle()
+    // Успешное подключение закрывает шторку добавления.
+    LaunchedEffect(cloudConnectedTick) {
+        if (cloudConnectedTick > 0) showAddCloud = false
+    }
     val modelPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -136,7 +155,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                 contentPadding = PaddingValues(bottom = 24.dp),
             ) {
                 appearanceSection(state, viewModel, context)
-                cloudLibrarySection(viewModel, context)
+                cloudLibrariesSection(
+                    context = context,
+                    connections = cloudConnections,
+                    syncStates = cloudSyncStates,
+                    onAdd = { showAddCloud = true },
+                    onSync = viewModel::syncCloud,
+                    onDisconnect = { pendingDisconnect = it },
+                )
                 sectionHeader(engineTitle)
                 items(TtsEngineType.entries, key = { it.id }) { type ->
                     EngineRow(
@@ -210,6 +236,38 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
         }
     }
+    }
+
+    if (showAddCloud) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                showAddCloud = false
+                viewModel.clearCloudLinkError()
+            },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            AddCloudLibrarySheet(
+                error = cloudLinkError,
+                connecting = cloudConnecting,
+                onConnect = viewModel::connectCloud,
+            )
+        }
+    }
+
+    pendingDisconnect?.let { connection ->
+        ModalBottomSheet(
+            onDismissRequest = { pendingDisconnect = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            DisconnectCloudSheet(
+                name = connection.name,
+                onConfirm = {
+                    viewModel.disconnectCloud(connection.publicKey)
+                    pendingDisconnect = null
+                },
+                onCancel = { pendingDisconnect = null },
+            )
+        }
     }
 
     if (modelPrompt) {
@@ -337,108 +395,194 @@ private fun LazyListScope.appearanceSection(
     }
 }
 
-/** Облачная библиотека: подключение публичной папки Яндекс.Диска. */
-private fun LazyListScope.cloudLibrarySection(
-    viewModel: SettingsViewModel,
+/** Облачные библиотеки: список подключённых публичных папок Яндекс.Диска. */
+private fun LazyListScope.cloudLibrariesSection(
     context: Context,
+    connections: List<ru.vtext.app.data.CloudConnection>,
+    syncStates: Map<String, ru.vtext.app.data.CloudSyncState>,
+    onAdd: () -> Unit,
+    onSync: (String) -> Unit,
+    onDisconnect: (ru.vtext.app.data.CloudConnection) -> Unit,
 ) {
     sectionHeader(context.getString(R.string.cloud_title))
     item {
-        val connection by viewModel.cloudConnection.collectAsStateWithLifecycle()
-        val sync by viewModel.cloudSync.collectAsStateWithLifecycle()
-        val linkError by viewModel.cloudLinkError.collectAsStateWithLifecycle()
-        var link by remember { mutableStateOf("") }
-
+        Text(
+            text = stringResource(R.string.cloud_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+        )
+    }
+    items(connections, key = { it.publicKey }) { connection ->
+        val sync = syncStates[connection.publicKey] ?: ru.vtext.app.data.CloudSyncState()
         SettingsCard(selected = false, onClick = null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                if (connection == null) {
-                    Text(
-                        text = stringResource(R.string.cloud_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = link,
-                        onValueChange = { link = it.filterNot(Char::isWhitespace) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = linkError != null,
-                        placeholder = {
-                            Text(
-                                text = stringResource(R.string.cloud_link_hint),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                            )
-                        },
-                    )
-                    linkError?.let { message ->
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
+                Text(
+                    text = connection.name,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = stringResource(R.string.cloud_connected_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                val status = when {
+                    sync.syncing -> stringResource(R.string.cloud_syncing)
+                    sync.error != null -> sync.error!!
+                    sync.lastSyncAt > 0 -> buildString {
+                        append(
+                            stringResource(
+                                R.string.cloud_synced,
+                                sync.added,
+                                sync.updated,
+                            ),
                         )
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Button(
-                        onClick = { viewModel.connectCloud(link) },
-                        enabled = link.isNotBlank() && !sync.syncing,
-                    ) {
-                        Text(stringResource(R.string.cloud_connect))
-                    }
-                } else {
-                    Text(
-                        text = connection!!.name,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.cloud_connected_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    val status = when {
-                        sync.syncing -> stringResource(R.string.cloud_syncing)
-                        sync.error != null -> sync.error!!
-                        sync.lastSyncAt > 0 -> buildString {
+                        if (sync.missing > 0) {
                             append(
-                                stringResource(
-                                    R.string.cloud_synced,
-                                    sync.added,
-                                    sync.updated,
-                                ),
+                                stringResource(R.string.cloud_missing_count, sync.missing),
                             )
-                            if (sync.missing > 0) {
-                                append(
-                                    stringResource(R.string.cloud_missing_count, sync.missing),
-                                )
-                            }
                         }
-                        else -> stringResource(R.string.cloud_never_synced)
                     }
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (sync.error != null) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(
-                            onClick = viewModel::syncCloud,
-                            enabled = !sync.syncing,
-                        ) {
-                            Text(stringResource(R.string.cloud_sync))
-                        }
-                        TextButton(onClick = viewModel::disconnectCloud) {
-                            Text(stringResource(R.string.cloud_disconnect))
-                        }
+                    else -> stringResource(R.string.cloud_never_synced)
+                }
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (sync.error != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = { onSync(connection.publicKey) },
+                        enabled = !sync.syncing,
+                    ) {
+                        Text(stringResource(R.string.cloud_sync))
+                    }
+                    TextButton(onClick = { onDisconnect(connection) }) {
+                        Text(stringResource(R.string.cloud_disconnect))
                     }
                 }
             }
+        }
+    }
+    item {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            OutlinedButton(
+                onClick = onAdd,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.cloud_add))
+            }
+        }
+    }
+}
+
+/** Шторка добавления новой облачной библиотеки. */
+@Composable
+private fun AddCloudLibrarySheet(
+    error: String?,
+    connecting: Boolean,
+    onConnect: (String) -> Unit,
+) {
+    var link by remember { mutableStateOf("") }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 28.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.cloud_add_title),
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.cloud_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        // Обычное текстовое поле: работают системные «Вставить», «Копировать», «Вырезать».
+        OutlinedTextField(
+            value = link,
+            onValueChange = { link = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            isError = error != null,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            placeholder = {
+                Text(
+                    text = stringResource(R.string.cloud_link_hint),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                )
+            },
+        )
+        error?.let { message ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { onConnect(link) },
+            enabled = link.isNotBlank() && !connecting,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.cloud_connect))
+        }
+    }
+}
+
+/** Шторка подтверждения отключения облачной библиотеки. */
+@Composable
+private fun DisconnectCloudSheet(
+    name: String,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 28.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.cloud_disconnect_title),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.cloud_disconnect_text, name),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onConfirm,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ),
+        ) {
+            Text(stringResource(R.string.cloud_disconnect))
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.cancel))
         }
     }
 }

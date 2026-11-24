@@ -7,9 +7,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import ru.vtext.app.domain.model.AudioTrack
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.BookKind
@@ -17,7 +20,7 @@ import ru.vtext.app.domain.model.BookKind
 /** Подключённая публичная папка Яндекс.Диска с книгами. */
 data class CloudConnection(val publicKey: String, val name: String)
 
-/** Состояние синхронизации облачной библиотеки для экрана настроек. */
+/** Состояние синхронизации одной облачной библиотеки. */
 data class CloudSyncState(
     val syncing: Boolean = false,
     val current: String? = null,
@@ -48,10 +51,11 @@ private data class CloudTextBook(
 ) : CloudBook
 
 /**
- * Облачная библиотека: публичная папка Яндекс.Диска, внутри которой лежат
- * подпапки с аудиокнигами и текстовые файлы. При синхронизации новые книги
- * добавляются в обычную библиотеку, изменённые обновляются, а пропавшие
- * помечаются «нет в облаке». Прогресс и закладки сохраняются по id книги.
+ * Облачные библиотеки: публичные папки Яндекс.Диска, внутри которых лежат
+ * подпапки с аудиокнигами и текстовые файлы. Можно подключить несколько папок;
+ * каждая синхронизируется независимо. При синхронизации новые книги добавляются
+ * в обычную библиотеку, изменённые обновляются, а пропавшие помечаются
+ * «нет в облаке». Прогресс и закладки сохраняются по id книги.
  */
 class CloudLibraryRepository(
     private val context: Context,
@@ -63,13 +67,26 @@ class CloudLibraryRepository(
     private val prefs = context.getSharedPreferences("cloud_library", Context.MODE_PRIVATE)
     private val mutex = Mutex()
 
-    private val _connection = MutableStateFlow(loadConnection())
-    val connection: StateFlow<CloudConnection?> = _connection.asStateFlow()
+    private val _connections = MutableStateFlow<List<CloudConnection>>(emptyList())
+    val connections: StateFlow<List<CloudConnection>> = _connections.asStateFlow()
 
-    private val _syncState = MutableStateFlow(CloudSyncState())
-    val syncState: StateFlow<CloudSyncState> = _syncState.asStateFlow()
+    private val _syncStates = MutableStateFlow<Map<String, CloudSyncState>>(emptyMap())
+    val syncStates: StateFlow<Map<String, CloudSyncState>> = _syncStates.asStateFlow()
 
-    /** Подключить папку по публичной ссылке. */
+    init {
+        migrateLegacyConnection()
+        val current = readConnections().toMutableList()
+        if (!prefs.getBoolean(KEY_SEEDED, false)) {
+            if (current.none { it.publicKey == DEFAULT_PUBLIC_KEY }) {
+                current += CloudConnection(DEFAULT_PUBLIC_KEY, DEFAULT_NAME)
+                writeConnections(current)
+            }
+            prefs.edit().putBoolean(KEY_SEEDED, true).apply()
+        }
+        _connections.value = current
+    }
+
+    /** Добавить папку по публичной ссылке. Повторная ссылка не создаёт дубль. */
     suspend fun connect(link: String): Result<CloudConnection> = withContext(Dispatchers.IO) {
         val publicKey = YandexDiskLinks.normalize(link)
             ?: return@withContext Result.failure(
@@ -78,39 +95,62 @@ class CloudLibraryRepository(
         runCatching {
             val listing = yandex.listFolder(publicKey)
             val connection = CloudConnection(publicKey, listing.name)
-            prefs.edit()
-                .putString(KEY_PUBLIC, connection.publicKey)
-                .putString(KEY_NAME, connection.name)
-                .apply()
-            _connection.value = connection
+            val current = _connections.value.toMutableList()
+            val index = current.indexOfFirst { it.publicKey == publicKey }
+            if (index >= 0) {
+                current[index] = connection
+            } else {
+                current += connection
+            }
+            writeConnections(current)
+            _connections.value = current
             connection
         }
     }
 
-    fun disconnect() {
-        prefs.edit().clear().apply()
-        _connection.value = null
-        _syncState.value = CloudSyncState()
+    fun disconnect(publicKey: String) {
+        val current = _connections.value.filterNot { it.publicKey == publicKey }
+        writeConnections(current)
+        _connections.value = current
+        _syncStates.update { it - publicKey }
     }
 
-    /** Синхронизация при запуске: молча, если папка не подключена. */
+    /** Синхронизация при запуске: все подключённые папки по очереди. */
     suspend fun syncIfConnected() {
-        if (_connection.value != null) sync()
+        syncAll()
     }
 
-    suspend fun sync(): CloudSyncState = withContext(Dispatchers.IO) {
+    suspend fun syncAll() {
+        _connections.value.forEach { connection ->
+            sync(connection.publicKey)
+        }
+    }
+
+    suspend fun sync(publicKey: String): CloudSyncState = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val connection = _connection.value ?: return@withLock _syncState.value
-            _syncState.value = CloudSyncState(syncing = true, lastSyncAt = _syncState.value.lastSyncAt)
+            val connection = _connections.value.firstOrNull { it.publicKey == publicKey }
+                ?: return@withLock CloudSyncState()
+            val previous = _syncStates.value[publicKey]
+            updateState(publicKey, CloudSyncState(syncing = true, lastSyncAt = previous?.lastSyncAt ?: 0L))
             try {
-                val remote = scan(connection.publicKey)
+                val root = yandex.listFolder(connection.publicKey)
+                if (root.name.isNotBlank() && root.name != connection.name) {
+                    rename(connection.publicKey, root.name)
+                }
+                val remote = scan(connection.publicKey, root)
                 val local = books.listBooks().filter { it.cloudKey == connection.publicKey }
                 val localByPath = local.associateBy { it.cloudPath.orEmpty() }
                 var added = 0
                 var updated = 0
 
                 for (item in remote) {
-                    _syncState.value = _syncState.value.copy(current = item.title)
+                    updateState(
+                        publicKey,
+                        _syncStates.value[publicKey]?.copy(current = item.title) ?: CloudSyncState(
+                            syncing = true,
+                            current = item.title,
+                        ),
+                    )
                     val existing = localByPath[item.path]
                     try {
                         when {
@@ -147,15 +187,19 @@ class CloudLibraryRepository(
                     updated = updated,
                     missing = missing,
                     lastSyncAt = System.currentTimeMillis(),
-                ).also { _syncState.value = it }
+                ).also { updateState(publicKey, it) }
             } catch (error: Exception) {
                 CloudSyncState(
                     syncing = false,
                     error = error.message ?: "Не удалось обновить облачную библиотеку",
-                    lastSyncAt = _syncState.value.lastSyncAt,
-                ).also { _syncState.value = it }
+                    lastSyncAt = previous?.lastSyncAt ?: 0L,
+                ).also { updateState(publicKey, it) }
             }
         }
+    }
+
+    private fun updateState(publicKey: String, state: CloudSyncState) {
+        _syncStates.update { it + (publicKey to state) }
     }
 
     // ----- Обход папки -----
@@ -164,21 +208,20 @@ class CloudLibraryRepository(
      * Папка с аудиофайлами — одна аудиокнига (вложенные папки не трогаем).
      * В остальных папках каждый текстовый файл — отдельная книга.
      */
-    private suspend fun scan(publicKey: String): List<CloudBook> {
+    private suspend fun scan(publicKey: String, root: YandexListing): List<CloudBook> {
         val result = mutableListOf<CloudBook>()
-        visit(publicKey, "", 0, result)
+        collect(publicKey, root, ROOT_PATH, 0, result)
         return result
     }
 
-    private suspend fun visit(
+    private suspend fun collect(
         publicKey: String,
-        relPath: String,
+        listing: YandexListing,
+        path: String,
         depth: Int,
         result: MutableList<CloudBook>,
     ) {
         if (depth > MAX_DEPTH) return
-        val listing = yandex.listFolder(publicKey, relPath)
-        val path = relPath.ifBlank { ROOT_PATH }
         val files = listing.entries.filter { !it.isDir }
         val audioFiles = files.filter { AudioFormats.isAudio(it.name) }
         if (audioFiles.isNotEmpty()) {
@@ -198,7 +241,13 @@ class CloudLibraryRepository(
         }
         listing.entries.filter { it.isDir }.forEach { dir ->
             try {
-                visit(publicKey, dir.relPath, depth + 1, result)
+                collect(
+                    publicKey,
+                    yandex.listFolder(publicKey, dir.relPath),
+                    dir.relPath,
+                    depth + 1,
+                    result,
+                )
             } catch (error: Exception) {
                 // Недоступная подпапка не должна ломать обход остальных.
                 android.util.Log.e("CloudLibrary", "skip folder ${dir.relPath}", error)
@@ -340,17 +389,66 @@ class CloudLibraryRepository(
         }
     }
 
-    private fun loadConnection(): CloudConnection? {
-        val publicKey = prefs.getString(KEY_PUBLIC, null) ?: return null
-        val name = prefs.getString(KEY_NAME, null) ?: "Облачная библиотека"
-        return CloudConnection(publicKey, name)
+    // ----- Хранилище подключений -----
+
+    private fun readConnections(): List<CloudConnection> {
+        val raw = prefs.getString(KEY_CONNECTIONS, null)
+        if (!raw.isNullOrBlank()) {
+            return runCatching {
+                val array = JSONArray(raw)
+                (0 until array.length()).mapNotNull { index ->
+                    val item = array.optJSONObject(index) ?: return@mapNotNull null
+                    val publicKey = item.optString("publicKey")
+                    if (publicKey.isBlank()) return@mapNotNull null
+                    val name = item.optString("name").ifBlank { DEFAULT_NAME }
+                    CloudConnection(publicKey, name)
+                }
+            }.getOrDefault(emptyList())
+        }
+        return emptyList()
+    }
+
+    private fun writeConnections(connections: List<CloudConnection>) {
+        val array = JSONArray()
+        connections.forEach { connection ->
+            array.put(
+                JSONObject()
+                    .put("publicKey", connection.publicKey)
+                    .put("name", connection.name),
+            )
+        }
+        prefs.edit().putString(KEY_CONNECTIONS, array.toString()).apply()
+    }
+
+    /** Старые версии хранили одно подключение флагами — переносим в список. */
+    private fun migrateLegacyConnection() {
+        if (prefs.getString(KEY_CONNECTIONS, null) != null) return
+        val publicKey = prefs.getString(LEGACY_PUBLIC, null) ?: return
+        val name = prefs.getString(LEGACY_NAME, null) ?: DEFAULT_NAME
+        writeConnections(listOf(CloudConnection(publicKey, name)))
+        prefs.edit().remove(LEGACY_PUBLIC).remove(LEGACY_NAME).apply()
+    }
+
+    private fun rename(publicKey: String, name: String) {
+        val current = _connections.value.map { connection ->
+            if (connection.publicKey == publicKey) connection.copy(name = name) else connection
+        }
+        writeConnections(current)
+        _connections.value = current
     }
 
     private companion object {
-        const val KEY_PUBLIC = "public_key"
-        const val KEY_NAME = "folder_name"
+        const val KEY_CONNECTIONS = "connections"
+        const val KEY_SEEDED = "defaults_seeded"
+        const val LEGACY_PUBLIC = "public_key"
+        const val LEGACY_NAME = "folder_name"
         const val ROOT_PATH = "/"
         const val MAX_DEPTH = 4
+
+        /** Библиотека, предустановленная в релизе. */
+        const val DEFAULT_PUBLIC_KEY = "https://disk.yandex.ru/d/4E02W0jItTRutA"
+        const val DEFAULT_NAME = "Книги Маши"
+
         val TEXT_EXTENSIONS = setOf("txt", "fb2", "epub", "pdf", "docx")
     }
 }

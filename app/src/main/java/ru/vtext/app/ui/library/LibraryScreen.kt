@@ -138,9 +138,9 @@ fun LibraryScreen(
     }
     // Синхронизация облачной библиотеки идёт в фоне при запуске: обновляем
     // список, когда она закончилась (новые книги, пометки «нет в облаке»).
-    val cloudSync by container.cloudLibrary.syncState.collectAsStateWithLifecycle()
-    LaunchedEffect(cloudSync.syncing, cloudSync.lastSyncAt) {
-        if (!cloudSync.syncing && cloudSync.lastSyncAt > 0) viewModel.refresh()
+    val cloudStates by container.cloudLibrary.syncStates.collectAsStateWithLifecycle()
+    LaunchedEffect(cloudStates) {
+        if (cloudStates.values.any { !it.syncing && it.lastSyncAt > 0 }) viewModel.refresh()
     }
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<Book?>(null) }
@@ -312,8 +312,9 @@ fun LibraryScreen(
                     OutlinedTextField(
                         value = link,
                         onValueChange = { value ->
-                            // Ссылки не содержат пробелов: автозамена клавиатуры иногда их вставляет.
-                            link = value.filterNot { it.isWhitespace() }
+                            // Пробелы уберёт нормализатор ссылки, а поле остаётся обычным:
+                            // работают системные «Вставить», «Копировать», «Вырезать».
+                            link = value
                             linkError = null
                         },
                         singleLine = true,

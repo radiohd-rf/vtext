@@ -78,11 +78,18 @@ class SettingsViewModel(
     private val cloud: CloudLibraryRepository,
 ) : ViewModel() {
 
-    val cloudConnection = cloud.connection
-    val cloudSync = cloud.syncState
+    val cloudConnections = cloud.connections
+    val cloudSyncStates = cloud.syncStates
 
     private val _cloudLinkError = MutableStateFlow<String?>(null)
     val cloudLinkError: StateFlow<String?> = _cloudLinkError.asStateFlow()
+
+    private val _cloudConnecting = MutableStateFlow(false)
+    val cloudConnecting: StateFlow<Boolean> = _cloudConnecting.asStateFlow()
+
+    /** Счётчик успешных подключений: экран закрывает шторку по его изменению. */
+    private val _cloudConnectedTick = MutableStateFlow(0)
+    val cloudConnectedTick: StateFlow<Int> = _cloudConnectedTick.asStateFlow()
 
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
@@ -205,11 +212,15 @@ class SettingsViewModel(
     // ----- Облачная библиотека -----
 
     fun connectCloud(link: String) {
+        if (_cloudConnecting.value) return
         _cloudLinkError.value = null
+        _cloudConnecting.value = true
         viewModelScope.launch {
             val result = cloud.connect(link)
+            _cloudConnecting.value = false
             if (result.isSuccess) {
-                cloud.sync()
+                _cloudConnectedTick.value += 1
+                cloud.sync(result.getOrThrow().publicKey)
             } else {
                 _cloudLinkError.value = result.exceptionOrNull()?.message
                     ?: "Не удалось подключить папку"
@@ -217,11 +228,15 @@ class SettingsViewModel(
         }
     }
 
-    fun syncCloud() {
-        viewModelScope.launch { cloud.sync() }
+    fun clearCloudLinkError() {
+        _cloudLinkError.value = null
     }
 
-    fun disconnectCloud() = cloud.disconnect()
+    fun syncCloud(publicKey: String) {
+        viewModelScope.launch { cloud.sync(publicKey) }
+    }
+
+    fun disconnectCloud(publicKey: String) = cloud.disconnect(publicKey)
 
     // ----- Обновления -----
 
