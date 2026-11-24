@@ -622,12 +622,18 @@ private fun SleepSheet(
             2 + SLEEP_MINUTES.indexOf(state.sleepTimerMinutes).coerceAtLeast(0)
         else -> 0
     }
-    // Логика «колеса фортуны»: включён тот вариант, напротив которого стоит
-    // точка. Прокрутка останавливается — и этот вариант сразу становится таймером.
+    // Логика «колеса фортуны»: выбран тот вариант, напротив которого стоит
+    // точка. Обратный отсчёт начинается только после закрытия шторки.
     var pendingIndex by remember { mutableIntStateOf(selectedIndex) }
-    var appliedIndex by remember { mutableIntStateOf(selectedIndex) }
+    val dismissWithSelection = {
+        if (pendingIndex != selectedIndex) {
+            val option = options[pendingIndex]
+            if (option.chapterEnd) onChapterEnd() else onTimer(option.minutes)
+        }
+        onDismiss()
+    }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = dismissWithSelection) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -659,18 +665,7 @@ private fun SleepSheet(
                             snapshotFlow { centeredSleepIndex(listState) }
                                 .filterNotNull()
                                 .distinctUntilChanged()
-                                .collect { index ->
-                                    pendingIndex = index
-                                    if (index != appliedIndex) {
-                                        val option = options[index]
-                                        if (option.chapterEnd) {
-                                            onChapterEnd()
-                                        } else {
-                                            onTimer(option.minutes)
-                                        }
-                                        appliedIndex = index
-                                    }
-                                }
+                                .collect { index -> pendingIndex = index }
                         }
                         LazyRow(
                             state = listState,
