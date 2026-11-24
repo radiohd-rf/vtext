@@ -31,16 +31,22 @@ class VtextApp : Application() {
         super.onCreate()
         PDFBoxResourceLoader.init(this)
         container = AppContainer(this)
-        seedDefaultBooks()
+        removeLegacySeededBooks()
         appScope.launch {
             runCatching { container.cloudLibrary.syncIfConnected() }
         }
     }
 
-    /** Добавляет встроенные онлайн-книги, которых ещё нет в библиотеке. */
-    private fun seedDefaultBooks() {
+    /** Убирает встроенные онлайн-книги прежних версий: в релизе их больше нет. */
+    private fun removeLegacySeededBooks() {
         runCatching {
-            runBlocking { container.audioRepository.seedDefaultOnlineBooks() }
+            runBlocking {
+                container.audioRepository.removeLegacySeededBooks { bookId ->
+                    container.progressStore.clear(bookId)
+                    container.audioProgress.clear(bookId)
+                    container.audioPlayback.clearIfBook(bookId)
+                }
+            }
         }
     }
 }

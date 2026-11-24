@@ -27,6 +27,10 @@ data class CloudSyncState(
     val added: Int = 0,
     val updated: Int = 0,
     val missing: Int = 0,
+    /** Сколько книг не удалось добавить/обновить в этот проход. */
+    val failed: Int = 0,
+    /** Последняя ошибка по книге — чтобы было видно, что именно сломалось. */
+    val lastError: String? = null,
     val error: String? = null,
     val lastSyncAt: Long = 0L,
 )
@@ -68,12 +72,18 @@ class CloudLibraryRepository(
 
     private val prefs = context.getSharedPreferences("cloud_library", Context.MODE_PRIVATE)
     private val mutex = Mutex()
+    @Volatile
+    private var lastAutoSyncAt = 0L
 
     private val _connections = MutableStateFlow<List<CloudConnection>>(emptyList())
     val connections: StateFlow<List<CloudConnection>> = _connections.asStateFlow()
 
     private val _syncStates = MutableStateFlow<Map<String, CloudSyncState>>(emptyMap())
     val syncStates: StateFlow<Map<String, CloudSyncState>> = _syncStates.asStateFlow()
+
+    /** Растёт после каждой добавленной/обновлённой книги — библиотека обновляет список. */
+    private val _changes = MutableStateFlow(0)
+    val changes: StateFlow<Int> = _changes.asStateFlow()
 
     init {
         migrateLegacyConnection()
@@ -127,8 +137,15 @@ class CloudLibraryRepository(
             }
     }
 
-    /** Синхронизация при запуске: все подключённые папки по очереди. */
+    /**
+     * Автосинхронизация при запуске/возврате в приложение. Повторный вызов
+     * в течение десяти секунд игнорируется, чтобы старт приложения и onStart
+     * активности не дублировали обход папок.
+     */
     suspend fun syncIfConnected() {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoSyncAt < AUTO_SYNC_GUARD_MS) return
+        lastAutoSyncAt = now
         syncAll()
     }
 
@@ -154,6 +171,8 @@ class CloudLibraryRepository(
                 val localByPath = local.associateBy { it.cloudPath.orEmpty() }
                 var added = 0
                 var updated = 0
+                var failed = 0
+                var lastError: String? = null
 
                 for (item in remote) {
                     updateState(
@@ -169,16 +188,26 @@ class CloudLibraryRepository(
                             existing == null -> {
                                 createBook(connection, item)
                                 added += 1
+                                _changes.value += 1
                             }
                             item is CloudAudioBook && existing.kind == BookKind.AUDIO -> {
-                                if (updateAudio(connection, existing, item)) updated += 1
+                                if (updateAudio(connection, existing, item)) {
+                                    updated += 1
+                                    _changes.value += 1
+                                }
                             }
                             item is CloudTextBook && existing.kind == BookKind.TEXT -> {
-                                if (updateText(connection, existing, item)) updated += 1
+                                if (updateText(connection, existing, item)) {
+                                    updated += 1
+                                    _changes.value += 1
+                                }
                             }
                         }
                     } catch (error: Exception) {
-                        // Одна проблемная книга не должна срывать всю синхронизацию.
+                        // Одна проблемная книга не должна срывать всю синхронизацию,
+                        // но пользователь должен видеть, что не всё добавилось.
+                        failed += 1
+                        lastError = "${item.title}: ${error.message ?: error.javaClass.simpleName}"
                         android.util.Log.e("CloudLibrary", "skip ${item.path}", error)
                     }
                 }
@@ -189,6 +218,7 @@ class CloudLibraryRepository(
                     val isMissing = book.cloudPath.orEmpty() !in remotePaths
                     if (book.cloudMissing != isMissing) {
                         books.saveMeta(book.copy(cloudMissing = isMissing))
+                        _changes.value += 1
                         if (isMissing) missing += 1
                     }
                 }
@@ -198,6 +228,8 @@ class CloudLibraryRepository(
                     added = added,
                     updated = updated,
                     missing = missing,
+                    failed = failed,
+                    lastError = lastError,
                     lastSyncAt = System.currentTimeMillis(),
                 ).also { updateState(publicKey, it) }
             } catch (error: Exception) {
@@ -312,7 +344,7 @@ class CloudLibraryRepository(
         try {
             yandex.downloadTo(connection.publicKey, item.path, temp)
             return temp.inputStream().use { input ->
-                val book = books.importStream(item.name, format, input)
+                val book = books.importStreamDeferred(item.name, format, input)
                 val tagged = book.copy(
                     cloudKey = connection.publicKey,
                     cloudPath = item.path,
@@ -384,7 +416,7 @@ class CloudLibraryRepository(
         try {
             yandex.downloadTo(connection.publicKey, item.path, temp)
             val updated = temp.inputStream().use { input ->
-                books.replaceSource(existing, item.name, format, input)
+                books.replaceSourceDeferred(existing, item.name, format, input)
             }
             books.saveMeta(
                 updated.copy(
@@ -456,6 +488,7 @@ class CloudLibraryRepository(
         const val LEGACY_NAME = "folder_name"
         const val ROOT_PATH = "/"
         const val MAX_DEPTH = 4
+        const val AUTO_SYNC_GUARD_MS = 10_000L
 
         /** Библиотека, предустановленная в релизе. */
         const val DEFAULT_PUBLIC_KEY = "https://disk.yandex.ru/d/4E02W0jItTRutA"

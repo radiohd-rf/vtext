@@ -74,6 +74,66 @@ class BookRepository(private val context: Context) {
     fun formatOf(name: String): BookFormat? = detectFormat(name, null)
 
     /**
+     * Импорт без разбора: файл просто скачивается, а главы появятся при первом
+     * открытии книги. Нужен облачной библиотеке, чтобы большие PDF не тормозили
+     * синхронизацию на минуты.
+     */
+    suspend fun importStreamDeferred(
+        displayName: String,
+        format: BookFormat,
+        input: InputStream,
+    ): Book = withContext(Dispatchers.IO) {
+        val id = UUID.randomUUID().toString()
+        val dir = File(root, id).apply { mkdirs() }
+        val source = File(dir, "source.${format.name.lowercase()}")
+        input.use { stream ->
+            source.outputStream().use { output -> stream.copyTo(output) }
+        }
+        val book = Book(
+            id = id,
+            title = displayName.substringBeforeLast('.').ifBlank { displayName },
+            author = null,
+            format = format,
+            addedAt = System.currentTimeMillis(),
+            preset = TextPreset.AUTO,
+            chapterCount = 0,
+        )
+        writeMeta(dir, book)
+        // В кэш не кладём: иначе loadBook вернёт книгу без глав и не разберёт файл.
+        book
+    }
+
+    /**
+     * Обновление источника без разбора: старый кэш глав удаляется, новые главы
+     * появятся при следующем открытии книги.
+     */
+    suspend fun replaceSourceDeferred(
+        book: Book,
+        displayName: String,
+        format: BookFormat,
+        input: InputStream,
+    ): Book = withContext(Dispatchers.IO) {
+        val dir = File(root, book.id).apply { mkdirs() }
+        dir.listFiles()
+            ?.filter { it.name.startsWith("source.") || it.name == "chapters.json" }
+            ?.forEach { it.delete() }
+        File(dir, "cover").delete()
+        val source = File(dir, "source.${format.name.lowercase()}")
+        input.use { stream ->
+            source.outputStream().use { output -> stream.copyTo(output) }
+        }
+        val updated = book.copy(
+            format = format,
+            chapters = emptyList(),
+            chapterCount = 0,
+        )
+        writeMeta(dir, updated)
+        // Старый кэш с главами больше не актуален — перечитаем при открытии.
+        cache.remove(book.id)
+        updated
+    }
+
+    /**
      * Перечитывает текстовую книгу из нового файла, сохраняя id, прогресс,
      * закладки и настройки книги. Используется, когда файл в облаке изменился.
      */

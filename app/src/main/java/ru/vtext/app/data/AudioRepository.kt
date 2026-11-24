@@ -115,80 +115,35 @@ class AudioRepository(
      * Звук не скачивается, поэтому книги доступны сразу; при открытии список
      * сверяется с папкой. Удалённую пользователем книгу повторно не возвращаем.
      */
-    suspend fun seedDefaultOnlineBooks(): Int = withContext(Dispatchers.IO) {
-        val defaults = readBundledBooks()
-        if (defaults.isEmpty()) return@withContext 0
-
-        val prefs = context.getSharedPreferences("library", Context.MODE_PRIVATE)
-        val seeded = prefs.getStringSet(KEY_SEEDED, emptySet()).orEmpty().toMutableSet()
-        val existing = books.listBooks().mapNotNull { it.audioPublicKey }.toSet()
-        var added = 0
-
-        defaults.forEach { bundled ->
-            if (bundled.publicKey in seeded) return@forEach
-            if (bundled.publicKey in existing) {
-                seeded += bundled.publicKey
-                return@forEach
+    /**
+     * Удаляет встроенные онлайн-книги, которые раньше добавлялись при первом
+     * запуске: в релизе их больше нет. Трогаем только книги без [cloudKey],
+     * то есть не добавленные пользователем и не из облачной библиотеки.
+     */
+    suspend fun removeLegacySeededBooks(onRemoved: (String) -> Unit = {}): Int =
+        withContext(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences("library", Context.MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_REMOVED, false)) return@withContext 0
+            var removed = 0
+            books.listBooks().forEach { book ->
+                if (book.cloudKey == null && book.audioPublicKey in LEGACY_SEEDED_KEYS) {
+                    books.delete(book.id)
+                    onRemoved(book.id)
+                    removed += 1
+                }
             }
-            val id = UUID.randomUUID().toString()
-            val tracks = bundled.tracks.map { (title, path) ->
-                AudioTrack(title = title, path = path, durationMs = 0L, remote = true)
-            }
-            if (tracks.isEmpty()) return@forEach
-
-            val book = Book(
-                id = id,
-                title = bundled.title,
-                author = null,
-                format = null,
-                addedAt = System.currentTimeMillis(),
-                chapterCount = tracks.size,
-                kind = BookKind.AUDIO,
-                audioPublicKey = bundled.publicKey,
-            )
-            writeTracks(books.bookDir(id), tracks)
-            books.saveMeta(book)
-            seeded += bundled.publicKey
-            added++
+            prefs.edit().putBoolean(KEY_REMOVED, true).apply()
+            removed
         }
-
-        prefs.edit().putStringSet(KEY_SEEDED, seeded).apply()
-        added
-    }
-
-    private fun readBundledBooks(): List<BundledBook> = runCatching {
-        val text = context.assets.open("default_online_books.json")
-            .bufferedReader()
-            .use { it.readText() }
-        val array = JSONArray(text)
-        (0 until array.length()).mapNotNull { index ->
-            val json = array.optJSONObject(index) ?: return@mapNotNull null
-            val publicKey = json.optString("publicKey")
-            val title = json.optString("title").ifBlank { "Аудиокнига" }
-            val tracksJson = json.optJSONArray("tracks") ?: return@mapNotNull null
-            val tracks = (0 until tracksJson.length()).map { trackIndex ->
-                val item = tracksJson.getJSONObject(trackIndex)
-                val path = item.optString("path")
-                val trackTitle = item.optString("title")
-                    .ifBlank { TrackNaming.titleFromFileName(path.substringAfterLast('/')) }
-                trackTitle to path
-            }.filter { (_, path) -> path.isNotBlank() }
-            if (publicKey.isBlank() || tracks.isEmpty()) {
-                null
-            } else {
-                BundledBook(publicKey, title, tracks)
-            }
-        }
-    }.getOrDefault(emptyList())
-
-    private data class BundledBook(
-        val publicKey: String,
-        val title: String,
-        val tracks: List<Pair<String, String>>,
-    )
 
     private companion object {
-        const val KEY_SEEDED = "defaults_seeded_keys"
+        const val KEY_REMOVED = "legacy_seeded_removed"
+
+        /** Публичные папки прежних встроенных книг «Мастер и Маргарита» и «Лучко Клара». */
+        val LEGACY_SEEDED_KEYS = setOf(
+            "https://disk.yandex.ru/d/yS2Mi2YlLpXnSw",
+            "https://disk.yandex.ru/d/eZUH60LicxhdVw",
+        )
     }
 
     suspend fun tracks(bookId: String): List<AudioTrack> = withContext(Dispatchers.IO) {

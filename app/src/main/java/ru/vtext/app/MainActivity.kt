@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -22,6 +23,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import ru.vtext.app.player.PlaybackService
 import ru.vtext.app.ui.audio.AudioPlayerScreen
 import ru.vtext.app.ui.audio.AudioPlayerSettingsScreen
@@ -38,6 +40,16 @@ import ru.vtext.app.ui.theme.VtextTheme
 class MainActivity : ComponentActivity() {
 
     private var pendingBookId by mutableStateOf<String?>(null)
+
+    override fun onStart() {
+        super.onStart()
+        // Вход в приложение (в том числе возврат из фона): обновляем облачные библиотеки.
+        lifecycleScope.launch {
+            runCatching {
+                (application as VtextApp).container.cloudLibrary.syncIfConnected()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

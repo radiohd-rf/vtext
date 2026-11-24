@@ -443,18 +443,31 @@ private fun LazyListScope.cloudLibrariesSection(
                                 stringResource(R.string.cloud_missing_count, sync.missing),
                             )
                         }
+                        if (sync.failed > 0) {
+                            append(
+                                stringResource(R.string.cloud_failed_count, sync.failed),
+                            )
+                        }
                     }
                     else -> stringResource(R.string.cloud_never_synced)
                 }
                 Text(
                     text = status,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (sync.error != null) {
+                    color = if (sync.error != null || sync.failed > 0) {
                         MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
+                sync.lastError?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 2,
+                    )
+                }
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(

@@ -142,6 +142,11 @@ fun LibraryScreen(
     LaunchedEffect(cloudStates) {
         if (cloudStates.values.any { !it.syncing && it.lastSyncAt > 0 }) viewModel.refresh()
     }
+    // Книги добавляются по одной: показываем их сразу, не дожидаясь конца синка.
+    val cloudChanges by container.cloudLibrary.changes.collectAsStateWithLifecycle()
+    LaunchedEffect(cloudChanges) {
+        if (cloudChanges > 0) viewModel.refresh()
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<Book?>(null) }
     var pendingImport by remember { mutableStateOf<List<Uri>?>(null) }
@@ -222,9 +227,23 @@ fun LibraryScreen(
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
+                val cloudSyncing = cloudStates.values.any { it.syncing }
                 when {
                     state.loading && state.books.isEmpty() ->
                         CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    state.books.isEmpty() && cloudSyncing ->
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                text = stringResource(R.string.cloud_syncing_library),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     state.books.isEmpty() -> EmptyLibrary(
                         modifier = Modifier.align(Alignment.Center).padding(32.dp),
                         onAdd = { showAddSheet = true },
@@ -246,6 +265,11 @@ fun LibraryScreen(
 
                 if (state.importing) {
                     ImportBanner(
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
+                if (cloudSyncing && state.books.isNotEmpty()) {
+                    CloudSyncBanner(
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
@@ -754,6 +778,29 @@ private fun BookKindBadge(book: Book) {
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
         )
+    }
+}
+
+/** Тонкая плашка «Обновление библиотеки…» поверх списка, пока идёт синк. */
+@Composable
+private fun CloudSyncBanner(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.padding(top = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.cloud_syncing_library),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
     }
 }
 
