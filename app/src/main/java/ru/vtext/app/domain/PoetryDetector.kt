@@ -16,10 +16,16 @@ object PoetryDetector {
         val lengths = lines.map { it.length }.sorted()
         val median = lengths[lengths.size / 2]
         val p90 = lengths[(lengths.size * 9 / 10).coerceAtMost(lengths.lastIndex)]
-        return median <= MEDIAN_MAX && p90 <= P90_MAX
+        if (median > MEDIAN_MAX || p90 > P90_MAX) return false
+        // В прозе перенос строки почти всегда продолжает предложение со строчной
+        // буквы; в стихах строки начинаются с заглавной. Это отличает книгу
+        // с узкой колонкой (короткие строки) от настоящих стихов.
+        val lowerStarts = lines.count { it.firstOrNull()?.isLowerCase() == true }
+        return lowerStarts.toFloat() / lines.size <= MAX_LOWERCASE_START_RATIO
     }
 
     private const val MIN_LINES = 30
     private const val MEDIAN_MAX = 55
     private const val P90_MAX = 80
+    private const val MAX_LOWERCASE_START_RATIO = 0.2f
 }

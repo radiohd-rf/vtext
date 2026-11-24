@@ -34,6 +34,10 @@ class VtextApp : Application() {
         removeLegacySeededBooks()
         appScope.launch {
             runCatching { container.cloudLibrary.syncIfConnected() }
+            // Пока пользователь смотрит библиотеку, разбираем отложенные книги,
+            // чтобы первое открытие PDF было быстрым.
+            kotlinx.coroutines.delay(3_000)
+            runCatching { container.repository.warmUpDeferredBooks() }
         }
     }
 

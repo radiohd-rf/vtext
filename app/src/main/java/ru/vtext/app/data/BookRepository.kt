@@ -6,6 +6,9 @@ import android.provider.OpenableColumns
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -36,7 +39,8 @@ class BookRepository(private val context: Context) {
         BookFormat.PDF to PdfParser(),
         BookFormat.DOCX to DocxParser(),
     )
-    private val cache = mutableMapOf<String, Book>()
+    private val cache = ConcurrentHashMap<String, Book>()
+    private val parseLocks = ConcurrentHashMap<String, Mutex>()
 
     suspend fun listBooks(): List<Book> = withContext(Dispatchers.IO) {
         root.listFiles()
@@ -209,17 +213,22 @@ class BookRepository(private val context: Context) {
     }
 
     suspend fun loadBook(id: String): Book? = withContext(Dispatchers.IO) {
-        cache[id] ?: run {
-            val dir = File(root, id)
-            if (!dir.isDirectory) return@run null
-            val meta = readMeta(dir) ?: return@run null
-            if (meta.kind == BookKind.AUDIO) {
-                // Аудиокнигу разбирает AudioRepository: здесь только метаданные.
-                val book = meta.copy(chapterCount = meta.chapterCount)
-                cache[id] = book
-                return@run book
-            }
-            val format = meta.format ?: return@run null
+        cache[id]?.let { return@withContext it }
+        val dir = File(root, id)
+        if (!dir.isDirectory) return@withContext null
+        val meta = readMeta(dir) ?: return@withContext null
+        if (meta.kind == BookKind.AUDIO) {
+            // Аудиокнигу разбирает AudioRepository: здесь только метаданные.
+            val book = meta.copy(chapterCount = meta.chapterCount)
+            cache[id] = book
+            return@withContext book
+        }
+        val format = meta.format ?: return@withContext null
+        // Один и тот же PDF может разбираться из читалки и из фонового прогрева —
+        // не делаем это дважды.
+        val lock = parseLocks.computeIfAbsent(id) { Mutex() }
+        lock.withLock {
+            cache[id]?.let { return@withLock it }
             val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") }
             if (coverFile(dir) == null && source != null) {
                 CoverExtractor.extract(format, source, dir)
@@ -230,7 +239,7 @@ class BookRepository(private val context: Context) {
             val chapters = if (useCache) {
                 cachedChapters
             } else {
-                source ?: return@run null
+                source ?: return@withLock null
                 val parsed = parsers.getValue(format).parse(source, meta.title, meta.preset).chapters
                 // Если повторный разбор не удался, лучше оставить старый кэш.
                 parsed.ifEmpty { cachedChapters ?: emptyList() }
@@ -248,6 +257,19 @@ class BookRepository(private val context: Context) {
             cache[id] = book
             book
         }
+    }
+
+    /**
+     * Фоновый разбор отложенных книг (из облака): к моменту открытия главы
+     * уже готовы. Запускается после синхронизации, по одной книге за раз.
+     */
+    suspend fun warmUpDeferredBooks(limit: Int = 2) {
+        listBooks()
+            .filter { it.kind == BookKind.TEXT && it.format != null && it.chapterCount == 0 }
+            .take(limit)
+            .forEach { book ->
+                runCatching { loadBook(book.id) }
+            }
     }
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
@@ -398,6 +420,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 19
+        const val SEGMENT_VERSION = 21
     }
 }

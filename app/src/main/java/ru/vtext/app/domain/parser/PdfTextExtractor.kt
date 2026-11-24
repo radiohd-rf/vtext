@@ -164,8 +164,13 @@ class PdfTextExtractor(
      */
     private fun markParagraphs(lines: List<PageLine>) {
         if (lines.size < 2) return
-        val leftMargin = lines.minOf { it.startX }
-        val rightEdge = lines.maxOf { it.endX }
+        // Основное поле — самый частый отступ «длинных» строк, а не самый левый:
+        // номер страницы или выступ списка не должны сдвигать поле для всех строк,
+        // иначе каждая строка абзаца считалась новым абзацем.
+        val bodyLines = lines.filter { it.text.length >= BODY_LINE_MIN_CHARS }
+            .ifEmpty { lines }
+        val leftMargin = modeStartX(bodyLines)
+        val rightEdge = percentileEndX(bodyLines, 0.9f)
         val lengths = lines.map { it.text.length }.sorted()
         val medianLength = lengths[lengths.size / 2]
         val verse = lines.size >= MIN_VERSE_LINES && medianLength <= MAX_VERSE_LINE_LENGTH
@@ -181,15 +186,40 @@ class PdfTextExtractor(
             val line = lines[index]
             val previous = lines[index - 1]
             val gap = line.y - previous.y
-            val indent = maxOf(4f, line.size * 0.6f)
+            // Отступ первой строки абзаца заметно больше погрешности вёрстки.
+            val indent = maxOf(6f, line.size * 1.2f)
             val shortBefore = !verse &&
                 previous.endX < rightEdge - line.size * 2.5f &&
                 startsParagraph(line.text)
             val largeGap = lineGap > 0f && gap > lineGap * 1.45f
             val dashStarts = line.text.startsWith("—") || line.text.startsWith("–")
-            line.newParagraph = line.startX > leftMargin + indent ||
-                shortBefore || largeGap || dashStarts
+            // Строка продолжает предложение (начинается со строчной, а предыдущая
+            // не закончилась знаком конца) — это перенос, а не новый абзац.
+            val startsLower = line.text.firstOrNull()?.isLowerCase() == true
+            val previousEndsSentence =
+                previous.text.lastOrNull()?.let { it in SENTENCE_ENDINGS } == true
+            val continuesSentence = startsLower && !previousEndsSentence && !largeGap
+            line.newParagraph = !continuesSentence && (
+                line.startX > leftMargin + indent || shortBefore || largeGap || dashStarts
+                )
         }
+    }
+
+    /** Мода левых краёв строк: основной текст, а не номера страниц и выступы. */
+    private fun modeStartX(lines: List<PageLine>): Float {
+        val counts = lines.groupingBy { it.startX.roundToInt() }.eachCount()
+        val best = counts.maxByOrNull { it.value } ?: return lines.minOf { it.startX }
+        val value = counts.filter { it.value == best.value }.keys.minOrNull() ?: best.key
+        return value.toFloat()
+    }
+
+    /** Правый край по перцентилю: одна широкая строка не должна растягивать поле. */
+    private fun percentileEndX(lines: List<PageLine>, percentile: Float): Float {
+        val sorted = lines.map { it.endX }.sorted()
+        if (sorted.isEmpty()) return 0f
+        val index = ((sorted.size - 1) * percentile).roundToInt()
+            .coerceIn(0, sorted.lastIndex)
+        return sorted[index]
     }
 
     /** Убирает верхние индексы-номера сносок, оставляя остальной текст строки. */
@@ -243,6 +273,12 @@ private fun median(values: FloatArray): Float {
 /** Стихи: средняя длина строки на странице заметно меньше прозы. */
 private const val MIN_VERSE_LINES = 4
 private const val MAX_VERSE_LINE_LENGTH = 55
+
+/** Строки короче этого не участвуют в оценке полей: номера, колонтитулы. */
+private const val BODY_LINE_MIN_CHARS = 20
+
+/** Знаки, которыми заканчивается предложение или прямая речь. */
+private val SENTENCE_ENDINGS = setOf('.', '!', '?', '…', ':', ';', '»', '"')
 
 /** Текст мельче этого отношения к основному кеглю внизу страницы - сноска. */
 private const val FOOTNOTE_SIZE_RATIO = 0.88f

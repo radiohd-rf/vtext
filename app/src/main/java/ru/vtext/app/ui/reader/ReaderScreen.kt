@@ -225,7 +225,15 @@ fun ReaderScreen(
                     Modifier.fillMaxSize().padding(padding),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator()
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = stringResource(R.string.reader_parsing),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.muted,
+                        )
+                    }
                 }
                 state.error != null || state.book == null -> Text(
                     text = state.error ?: stringResource(R.string.book_not_found),
