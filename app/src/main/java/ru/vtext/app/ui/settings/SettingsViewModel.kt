@@ -236,7 +236,9 @@ class SettingsViewModel(
         viewModelScope.launch { cloud.sync(publicKey) }
     }
 
-    fun disconnectCloud(publicKey: String) = cloud.disconnect(publicKey)
+    fun disconnectCloud(publicKey: String) {
+        viewModelScope.launch { cloud.disconnect(publicKey) }
+    }
 
     // ----- Обновления -----
 

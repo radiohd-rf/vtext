@@ -70,12 +70,6 @@ class AppContainer(application: Application) {
     // Аудиокниги: отдельный плеер, чтобы не смешивать время с текстовыми фрагментами.
     val yandexDisk = ru.vtext.app.data.YandexDiskClient()
     val audioRepository = AudioRepository(application, repository, yandexDisk)
-    val cloudLibrary = ru.vtext.app.data.CloudLibraryRepository(
-        application,
-        repository,
-        audioRepository,
-        yandexDisk,
-    )
     val audioProgress = AudioProgressStore(application)
     val audioPlayerSettings = ru.vtext.app.data.AudioPlayerSettingsStore(application)
     val audioBookmarks = AudioBookmarkStore(application)
@@ -88,4 +82,15 @@ class AppContainer(application: Application) {
         audioBookmarks,
         yandexDisk,
     )
+    val cloudLibrary = ru.vtext.app.data.CloudLibraryRepository(
+        application,
+        repository,
+        audioRepository,
+        yandexDisk,
+    ) { bookId ->
+        // Книги отключённой библиотеки удалены — убираем и их следы.
+        progressStore.clear(bookId)
+        audioProgress.clear(bookId)
+        audioPlayback.clearIfBook(bookId)
+    }
 }

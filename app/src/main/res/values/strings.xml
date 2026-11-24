@@ -207,5 +207,5 @@
     <string name="cloud_add_title">Новая облачная библиотека</string>
     <string name="cloud_add">Добавить библиотеку</string>
     <string name="cloud_disconnect_title">Отключить библиотеку?</string>
-    <string name="cloud_disconnect_text">«%1$s» перестанет обновляться. Книги останутся в библиотеке.</string>
+    <string name="cloud_disconnect_text">«%1$s» перестанет обновляться, а её книги будут удалены из приложения.</string>
 </resources>

@@ -62,6 +62,8 @@ class CloudLibraryRepository(
     private val books: BookRepository,
     private val audio: AudioRepository,
     private val yandex: YandexDiskClient,
+    /** Вызывается для каждой удалённой книги: очистка прогресса и плеера. */
+    private val onBookRemoved: (String) -> Unit = {},
 ) {
 
     private val prefs = context.getSharedPreferences("cloud_library", Context.MODE_PRIVATE)
@@ -108,11 +110,21 @@ class CloudLibraryRepository(
         }
     }
 
-    fun disconnect(publicKey: String) {
+    /**
+     * Отключить библиотеку и удалить её книги из приложения: после отключения
+     * источник книг пропал, поэтому «висящие» записи в каталоге не оставляем.
+     */
+    suspend fun disconnect(publicKey: String) = withContext(Dispatchers.IO) {
         val current = _connections.value.filterNot { it.publicKey == publicKey }
         writeConnections(current)
         _connections.value = current
         _syncStates.update { it - publicKey }
+        books.listBooks()
+            .filter { it.cloudKey == publicKey }
+            .forEach { book ->
+                books.delete(book.id)
+                onBookRemoved(book.id)
+            }
     }
 
     /** Синхронизация при запуске: все подключённые папки по очереди. */

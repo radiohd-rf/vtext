@@ -476,6 +476,11 @@ class AudioPlaybackCoordinator(
         player.seekTo(bookmark.chapterIndex, bookmark.positionMs)
     }
 
+    /** Останавливает плеер, если сейчас играет указанная книга. */
+    fun clearIfBook(bookId: String) {
+        if (_state.value.bookId == bookId) stop()
+    }
+
     fun stop() {
         savePosition()
         player.pause()

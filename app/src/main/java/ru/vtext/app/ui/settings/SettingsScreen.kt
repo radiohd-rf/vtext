@@ -463,7 +463,10 @@ private fun LazyListScope.cloudLibrariesSection(
                     ) {
                         Text(stringResource(R.string.cloud_sync))
                     }
-                    TextButton(onClick = { onDisconnect(connection) }) {
+                    TextButton(
+                        onClick = { onDisconnect(connection) },
+                        enabled = !sync.syncing,
+                    ) {
                         Text(stringResource(R.string.cloud_disconnect))
                     }
                 }
