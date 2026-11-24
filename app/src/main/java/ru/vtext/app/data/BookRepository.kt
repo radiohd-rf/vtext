@@ -213,7 +213,12 @@ class BookRepository(private val context: Context) {
     }
 
     suspend fun loadBook(id: String): Book? = withContext(Dispatchers.IO) {
-        cache[id]?.let { return@withContext it }
+        cache[id]?.let { cached ->
+            // Книга из облака сначала живёт в кэше без глав — её надо разобрать.
+            if (cached.kind == BookKind.AUDIO || cached.chapters.isNotEmpty()) {
+                return@withContext cached
+            }
+        }
         val dir = File(root, id)
         if (!dir.isDirectory) return@withContext null
         val meta = readMeta(dir) ?: return@withContext null
@@ -228,7 +233,11 @@ class BookRepository(private val context: Context) {
         // не делаем это дважды.
         val lock = parseLocks.computeIfAbsent(id) { Mutex() }
         lock.withLock {
-            cache[id]?.let { return@withLock it }
+            cache[id]?.let { cached ->
+                if (cached.kind == BookKind.AUDIO || cached.chapters.isNotEmpty()) {
+                    return@withLock cached
+                }
+            }
             val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") }
             if (coverFile(dir) == null && source != null) {
                 CoverExtractor.extract(format, source, dir)
@@ -248,7 +257,13 @@ class BookRepository(private val context: Context) {
                 chapters = chapters,
                 coverPath = coverFile(dir)?.absolutePath,
                 chapterCount = chapters.size,
-            )            // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
+            )
+            if (chapters.isEmpty()) {
+                // Разбор не дал текста — оставляем книгу «неразобранной»,
+                // чтобы следующее открытие попробовало снова.
+                return@withLock book
+            }
+            // Кэшируем разбор, чтобы следующее открытие не перечитывало PDF.
             writeChapters(dir, book)
             // Дописываем meta и для старых книг: библиотеке нужен chapterCount.
             if (!useCache || meta.chapterCount != chapters.size) {
@@ -284,7 +299,12 @@ class BookRepository(private val context: Context) {
     /** Запись meta.json для аудиокниг (импорт идёт через [AudioRepository]). */
     fun saveMeta(book: Book) {
         writeMeta(bookDir(book.id), book)
-        cache[book.id] = book
+        if (book.kind == BookKind.AUDIO || book.chapters.isNotEmpty()) {
+            cache[book.id] = book
+        } else {
+            // Отложенная текстовая книга: главы появятся при первом открытии.
+            cache.remove(book.id)
+        }
     }
 
     private fun detectFormat(name: String, mime: String?): BookFormat? {
