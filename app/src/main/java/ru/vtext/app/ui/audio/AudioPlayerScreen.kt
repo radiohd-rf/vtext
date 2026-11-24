@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -70,10 +71,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,6 +92,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.File
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 import ru.vtext.app.data.AudioBookmarkStore
 import ru.vtext.app.player.audio.AudioPlayerState
 import ru.vtext.app.player.audio.SpeedPolicy
@@ -329,14 +336,8 @@ fun AudioPlayerScreen(
     if (showSleep) {
         SleepSheet(
             state = state,
-            onMinutes = {
-                viewModel.setSleepTimer(it)
-                showSleep = false
-            },
-            onChapterEnd = {
-                viewModel.sleepUntilChapterEnd()
-                showSleep = false
-            },
+            onTimer = { viewModel.setSleepTimer(it) },
+            onChapterEnd = { viewModel.sleepUntilChapterEnd() },
             onDismiss = { showSleep = false },
         )
     }
@@ -603,7 +604,7 @@ private fun ChaptersSheet(
 @Composable
 private fun SleepSheet(
     state: AudioPlayerState,
-    onMinutes: (Int?) -> Unit,
+    onTimer: (Int?) -> Unit,
     onChapterEnd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -621,13 +622,17 @@ private fun SleepSheet(
             2 + SLEEP_MINUTES.indexOf(state.sleepTimerMinutes).coerceAtLeast(0)
         else -> 0
     }
+    // Логика «колеса фортуны»: включён тот вариант, напротив которого стоит
+    // точка. Прокрутка останавливается — и этот вариант сразу становится таймером.
+    var pendingIndex by remember { mutableIntStateOf(selectedIndex) }
+    var appliedIndex by remember { mutableIntStateOf(selectedIndex) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(198.dp)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 10.dp),
         ) {
             Text(
                 text = "Таймер сна",
@@ -641,93 +646,137 @@ private fun SleepSheet(
                     .weight(1f),
                 contentAlignment = Alignment.Center,
             ) {
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val side = (maxWidth - 96.dp) / 2
-                    val listState = rememberLazyListState()
-                    LaunchedEffect(Unit) {
-                        listState.scrollToItem(selectedIndex)
-                    }
-                    LazyRow(
-                        state = listState,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = side),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        flingBehavior = rememberSnapFlingBehavior(listState),
-                    ) {
-                        itemsIndexed(options) { index, option ->
-                            val selected = index == selectedIndex
-                            val scale by animateFloatAsState(
-                                targetValue = if (selected) 1f else 0.92f,
-                                label = "sleepItem",
-                            )
-                            val onClick = {
-                                if (option.chapterEnd) onChapterEnd() else onMinutes(option.minutes)
-                            }
-                            if (option.label == "—") {
-                                // Рисуем штрих линией, чтобы промежуток до соседей
-                                // был таким же, как у цифр (у глифа тире большие поля).
-                                Box(
-                                    modifier = Modifier
-                                        .graphicsLayer {
-                                            scaleX = scale
-                                            scaleY = scale
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val side = (maxWidth - 96.dp) / 2
+                        val listState = rememberLazyListState()
+                        val scope = rememberCoroutineScope()
+                        LaunchedEffect(Unit) {
+                            listState.scrollToItem(selectedIndex)
+                        }
+                        // Центральный элемент — тот, что стоит напротив точки.
+                        LaunchedEffect(listState) {
+                            snapshotFlow { centeredSleepIndex(listState) }
+                                .filterNotNull()
+                                .distinctUntilChanged()
+                                .collect { index ->
+                                    pendingIndex = index
+                                    if (index != appliedIndex) {
+                                        val option = options[index]
+                                        if (option.chapterEnd) {
+                                            onChapterEnd()
+                                        } else {
+                                            onTimer(option.minutes)
                                         }
-                                        .clickable(
-                                            onClickLabel = "Выключить таймер",
-                                            onClick = onClick,
-                                        )
-                                        .padding(horizontal = 4.dp, vertical = 8.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
+                                        appliedIndex = index
+                                    }
+                                }
+                        }
+                        LazyRow(
+                            state = listState,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = side),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            flingBehavior = rememberSnapFlingBehavior(listState),
+                        ) {
+                            itemsIndexed(options) { index, option ->
+                                val selected = index == pendingIndex
+                                val scale by animateFloatAsState(
+                                    targetValue = if (selected) 1f else 0.92f,
+                                    label = "sleepItem",
+                                )
+                                // Тап подводит вариант к точке, дальше выбор применится сам.
+                                val onClick = {
+                                    scope.launch {
+                                        listState.animateScrollToItem(index)
+                                    }
+                                    Unit
+                                }
+                                if (option.label == "—") {
+                                    // Рисуем штрих линией, чтобы промежуток до соседей
+                                    // был таким же, как у цифр (у глифа тире большие поля).
                                     Box(
-                                        Modifier
-                                            .width(40.dp)
-                                            .height(5.dp)
-                                            .clip(RoundedCornerShape(2.5.dp))
-                                            .background(
-                                                if (selected) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                },
-                                            ),
+                                        modifier = Modifier
+                                            .width(96.dp)
+                                            .graphicsLayer {
+                                                scaleX = scale
+                                                scaleY = scale
+                                            }
+                                            .clickable(
+                                                onClickLabel = "Выключить таймер",
+                                                onClick = onClick,
+                                            )
+                                            .padding(horizontal = 4.dp, vertical = 8.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .width(40.dp)
+                                                .height(5.dp)
+                                                .clip(RoundedCornerShape(2.5.dp))
+                                                .background(
+                                                    if (selected) {
+                                                        MaterialTheme.colorScheme.primary
+                                                    } else {
+                                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                                    },
+                                                ),
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = option.label,
+                                        style = if (option.minutes != null) {
+                                            MaterialTheme.typography.headlineMedium.copy(
+                                                fontSize = 36.sp,
+                                                lineHeight = 44.sp,
+                                            )
+                                        } else {
+                                            MaterialTheme.typography.labelLarge
+                                        },
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        textAlign = TextAlign.Center,
+                                        maxLines = if (option.minutes != null) 1 else 2,
+                                        softWrap = option.minutes == null,
+                                        modifier = Modifier
+                                            .width(96.dp)
+                                            .graphicsLayer {
+                                                scaleX = scale
+                                                scaleY = scale
+                                            }
+                                            .clickable(onClick = onClick)
+                                            .padding(vertical = 8.dp),
                                     )
                                 }
-                            } else {
-                                Text(
-                                    text = option.label,
-                                    style = if (option.minutes != null) {
-                                        MaterialTheme.typography.headlineMedium.copy(
-                                            fontSize = 36.sp,
-                                            lineHeight = 44.sp,
-                                        )
-                                    } else {
-                                        MaterialTheme.typography.labelLarge
-                                    },
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                    textAlign = TextAlign.Center,
-                                    maxLines = if (option.minutes != null) 1 else 2,
-                                    softWrap = option.minutes == null,
-                                    modifier = Modifier
-                                        .graphicsLayer {
-                                            scaleX = scale
-                                            scaleY = scale
-                                        }
-                                        .clickable(onClick = onClick)
-                                        .padding(horizontal = 4.dp, vertical = 8.dp),
-                                )
                             }
                         }
                     }
+                    // Точка-индикатор: напротив неё стоит выбранный таймер.
+                    Box(
+                        Modifier
+                            .offset(y = (-10).dp)
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
                 }
             }
         }
     }
+}
+
+/** Индекс варианта, который стоит ровно напротив точки в центре карусели. */
+private fun centeredSleepIndex(listState: androidx.compose.foundation.lazy.LazyListState): Int? {
+    val info = listState.layoutInfo
+    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+    return info.visibleItemsInfo.minByOrNull { item ->
+        kotlin.math.abs(item.offset + item.size / 2f - center)
+    }?.index
 }
 
 private data class SleepOption(
