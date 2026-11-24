@@ -7,11 +7,34 @@ class PlaybackSettingsStore(context: Context) {
 
     private val prefs = context.getSharedPreferences("playback_settings", Context.MODE_PRIVATE)
 
-    /** Скорость речи, ограниченная поддерживаемым диапазоном. */
+    init {
+        // При обновлении переносим прежнюю общую скорость в аудио один раз,
+        // дальше скорость TTS и аудиоплеера независимы.
+        if (!prefs.contains(KEY_AUDIO_SPEED)) {
+            prefs.edit()
+                .putFloat(KEY_AUDIO_SPEED, prefs.getFloat(KEY_SPEED, DEFAULT_SPEED))
+                .apply()
+        }
+    }
+
+    /** Скорость речи TTS, ограниченная поддерживаемым диапазоном. */
     var speed: Float
         get() = prefs.getFloat(KEY_SPEED, DEFAULT_SPEED).coerceIn(MIN_SPEED, MAX_SPEED)
         set(value) {
             prefs.edit().putFloat(KEY_SPEED, value.coerceIn(MIN_SPEED, MAX_SPEED)).apply()
+        }
+
+    /**
+     * Скорость плеера аудиокниг — отдельная от TTS. При первом обращении
+     * после обновления берём прежнюю общую скорость, дальше она независима.
+     */
+    var audioSpeed: Float
+        get() = prefs.getFloat(
+            KEY_AUDIO_SPEED,
+            prefs.getFloat(KEY_SPEED, DEFAULT_SPEED),
+        ).coerceIn(MIN_SPEED, MAX_SPEED)
+        set(value) {
+            prefs.edit().putFloat(KEY_AUDIO_SPEED, value.coerceIn(MIN_SPEED, MAX_SPEED)).apply()
         }
 
     /** Тон системного TTS (0.5 — ниже, 2.0 — выше). Для нейродвижков не применяется. */
@@ -57,6 +80,7 @@ class PlaybackSettingsStore(context: Context) {
 
 
         private const val KEY_SPEED = "speed"
+        private const val KEY_AUDIO_SPEED = "audio_speed"
         private const val KEY_PITCH = "pitch"
         private const val KEY_VOLUME = "volume"
         private const val KEY_FRAGMENT_PAUSE = "fragment_pause_ms"

@@ -30,6 +30,7 @@ import ru.vtext.app.data.AudioBookmarkStore
 import ru.vtext.app.data.AudioProgressStore
 import ru.vtext.app.data.AudioRepository
 import ru.vtext.app.data.BookRepository
+import ru.vtext.app.data.BookSettingsStore
 import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.data.YandexDiskClient
 import ru.vtext.app.domain.model.AudioTrack
@@ -76,6 +77,7 @@ class AudioPlaybackCoordinator(
     private val settings: PlaybackSettingsStore,
     private val bookmarkStore: AudioBookmarkStore,
     private val yandex: YandexDiskClient,
+    private val bookSettings: BookSettingsStore = BookSettingsStore(context),
 ) {
 
     private val appContext = context.applicationContext
@@ -204,7 +206,8 @@ class AudioPlaybackCoordinator(
             val startChapter = (saved?.chapterIndex ?: 0).coerceIn(0, tracks.lastIndex)
             val startPosition = ((saved?.positionMs ?: 0L) - RESUME_REWIND_MS).coerceAtLeast(0L)
 
-            val speed = SpeedPolicy.snap(settings.speed)
+            // Скорость аудиоплеера независима от TTS: у книги своя, иначе общая аудио.
+            val speed = SpeedPolicy.snap(bookSettings.speed(bookId) ?: settings.audioSpeed)
             player.setPlaybackSpeed(speed)
             preparePlayer(book, tracks, startChapter, startPosition)
 
@@ -419,7 +422,9 @@ class AudioPlaybackCoordinator(
         val snapped = SpeedPolicy.snap(value)
         player.setPlaybackSpeed(snapped)
         _state.update { it.copy(speed = snapped) }
-        settings.speed = snapped
+        // Общая аудио-скорость — для новых книг, плюс своя у текущей.
+        settings.audioSpeed = snapped
+        _state.value.bookId?.let { bookSettings.setSpeed(it, snapped) }
     }
 
     fun setSleepTimer(minutes: Int?) {
