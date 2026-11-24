@@ -336,6 +336,8 @@ fun AudioPlayerScreen(
     if (showSleep) {
         SleepSheet(
             state = state,
+            sleepRemainingMs = sleepRemaining,
+            chapterRemainingMs = (chapterRemaining / speedFactor).toLong(),
             onTimer = { viewModel.setSleepTimer(it) },
             onChapterEnd = { viewModel.sleepUntilChapterEnd() },
             onDismiss = { showSleep = false },
@@ -604,6 +606,8 @@ private fun ChaptersSheet(
 @Composable
 private fun SleepSheet(
     state: AudioPlayerState,
+    sleepRemainingMs: Long,
+    chapterRemainingMs: Long,
     onTimer: (Int?) -> Unit,
     onChapterEnd: () -> Unit,
     onDismiss: () -> Unit,
@@ -623,17 +627,12 @@ private fun SleepSheet(
         else -> 0
     }
     // Логика «колеса фортуны»: выбран тот вариант, напротив которого стоит
-    // точка. Обратный отсчёт начинается только после закрытия шторки.
+    // точка. Как только карусель остановилась — таймер уже идёт, и его пункт
+    // показывает живой остаток (05:00 → 04:59 → 04:58…).
     var pendingIndex by remember { mutableIntStateOf(selectedIndex) }
-    val dismissWithSelection = {
-        if (pendingIndex != selectedIndex) {
-            val option = options[pendingIndex]
-            if (option.chapterEnd) onChapterEnd() else onTimer(option.minutes)
-        }
-        onDismiss()
-    }
+    var appliedIndex by remember { mutableIntStateOf(selectedIndex) }
 
-    ModalBottomSheet(onDismissRequest = dismissWithSelection) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -660,12 +659,31 @@ private fun SleepSheet(
                         LaunchedEffect(Unit) {
                             listState.scrollToItem(selectedIndex)
                         }
+                        // Таймер закончился — карусель возвращается к «—».
+                        val timerActive =
+                            state.sleepTimerMinutes != null || state.sleepUntilChapterEnd
+                        LaunchedEffect(timerActive) {
+                            if (!timerActive) {
+                                listState.animateScrollToItem(0)
+                            }
+                        }
                         // Центральный элемент — тот, что стоит напротив точки.
                         LaunchedEffect(listState) {
                             snapshotFlow { centeredSleepIndex(listState) }
                                 .filterNotNull()
                                 .distinctUntilChanged()
-                                .collect { index -> pendingIndex = index }
+                                .collect { index ->
+                                    pendingIndex = index
+                                    if (index != appliedIndex) {
+                                        val option = options[index]
+                                        if (option.chapterEnd) {
+                                            onChapterEnd()
+                                        } else {
+                                            onTimer(option.minutes)
+                                        }
+                                        appliedIndex = index
+                                    }
+                                }
                         }
                         LazyRow(
                             state = listState,
@@ -677,6 +695,16 @@ private fun SleepSheet(
                         ) {
                             itemsIndexed(options) { index, option ->
                                 val selected = index == pendingIndex
+                                // У выбранного пункта вместо подписи — живой остаток.
+                                val countdown = when {
+                                    option.chapterEnd && state.sleepUntilChapterEnd ->
+                                        formatSleepCountdown(chapterRemainingMs)
+                                    option.minutes != null &&
+                                        state.sleepTimerMinutes == option.minutes ->
+                                        formatSleepCountdown(sleepRemainingMs)
+                                    else -> null
+                                }
+                                val label = countdown ?: option.label
                                 val scale by animateFloatAsState(
                                     targetValue = if (selected) 1f else 0.92f,
                                     label = "sleepItem",
@@ -721,8 +749,8 @@ private fun SleepSheet(
                                     }
                                 } else {
                                     Text(
-                                        text = option.label,
-                                        style = if (option.minutes != null) {
+                                        text = label,
+                                        style = if (option.minutes != null || countdown != null) {
                                             MaterialTheme.typography.headlineMedium.copy(
                                                 fontSize = 36.sp,
                                                 lineHeight = 44.sp,
@@ -736,8 +764,8 @@ private fun SleepSheet(
                                             MaterialTheme.colorScheme.onSurfaceVariant
                                         },
                                         textAlign = TextAlign.Center,
-                                        maxLines = if (option.minutes != null) 1 else 2,
-                                        softWrap = option.minutes == null,
+                                        maxLines = if (option.minutes != null || countdown != null) 1 else 2,
+                                        softWrap = option.minutes == null && countdown == null,
                                         modifier = Modifier
                                             .width(96.dp)
                                             .graphicsLayer {
@@ -763,6 +791,17 @@ private fun SleepSheet(
             }
         }
     }
+}
+
+/** Остаток таймера для карусели: «02:29». */
+private fun formatSleepCountdown(millis: Long): String {
+    val totalSeconds = ((millis.coerceAtLeast(0L) + 999) / 1000).toInt()
+    return String.format(
+        java.util.Locale.getDefault(),
+        "%02d:%02d",
+        totalSeconds / 60,
+        totalSeconds % 60,
+    )
 }
 
 /** Индекс варианта, который стоит ровно напротив точки в центре карусели. */
