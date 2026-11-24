@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.File
+import java.io.InputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,15 +49,80 @@ class BookRepository(private val context: Context) {
         val displayName = queryDisplayName(uri) ?: "book.txt"
         val format = detectFormat(displayName, context.contentResolver.getType(uri))
             ?: throw IllegalArgumentException("Поддерживаются форматы TXT, FB2, EPUB, PDF и DOCX")
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("Не удалось открыть файл")
+        importStream(displayName, format, input, preset)
+    }
 
+    /** Импорт из потока: так добавляются текстовые книги из облачной библиотеки. */
+    suspend fun importStream(
+        displayName: String,
+        format: BookFormat,
+        input: InputStream,
+        preset: TextPreset = TextPreset.AUTO,
+    ): Book = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val dir = File(root, id).apply { mkdirs() }
         val source = File(dir, "source.${format.name.lowercase()}")
+        input.use { stream ->
+            source.outputStream().use { output -> stream.copyTo(output) }
+        }
+        buildBook(id, dir, displayName, format, source, preset)
+    }
 
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            source.outputStream().use { output -> input.copyTo(output) }
-        } ?: throw IllegalStateException("Не удалось открыть файл")
+    /** Формат по имени файла (без mime): нужен облачной библиотеке. */
+    fun formatOf(name: String): BookFormat? = detectFormat(name, null)
 
+    /**
+     * Перечитывает текстовую книгу из нового файла, сохраняя id, прогресс,
+     * закладки и настройки книги. Используется, когда файл в облаке изменился.
+     */
+    suspend fun replaceSource(
+        book: Book,
+        displayName: String,
+        format: BookFormat,
+        input: InputStream,
+    ): Book = withContext(Dispatchers.IO) {
+        val dir = File(root, book.id).apply { mkdirs() }
+        // Старый источник и кэш разбора больше не нужны.
+        dir.listFiles()
+            ?.filter { it.name.startsWith("source.") || it.name == "chapters.json" }
+            ?.forEach { it.delete() }
+        File(dir, "cover").delete()
+        val source = File(dir, "source.${format.name.lowercase()}")
+        input.use { stream ->
+            source.outputStream().use { output -> stream.copyTo(output) }
+        }
+        val parsed = parsers.getValue(format).parse(
+            source,
+            displayName.substringBeforeLast('.'),
+            book.preset,
+        )
+        val updated = book.copy(
+            title = parsed.title.ifBlank { displayName.substringBeforeLast('.') },
+            author = parsed.author,
+            format = format,
+            chapters = parsed.chapters.ifEmpty {
+                listOf(Chapter("Текст", listOf("Файл не содержит читаемого текста")))
+            },
+            chapterCount = parsed.chapters.size,
+        )
+        writeMeta(dir, updated)
+        writeChapters(dir, updated)
+        val cover = CoverExtractor.extract(format, source, dir)
+        val result = updated.copy(coverPath = cover?.absolutePath)
+        cache[book.id] = result
+        result
+    }
+
+    private fun buildBook(
+        id: String,
+        dir: File,
+        displayName: String,
+        format: BookFormat,
+        source: File,
+        preset: TextPreset,
+    ): Book {
         val parsed = parsers.getValue(format).parse(
             source,
             displayName.substringBeforeLast('.'),
@@ -72,13 +138,14 @@ class BookRepository(private val context: Context) {
                 listOf(Chapter("Текст", listOf("Файл не содержит читаемого текста")))
             },
             preset = preset,
+            chapterCount = parsed.chapters.size,
         )
         writeMeta(dir, book)
         writeChapters(dir, book)
         val cover = CoverExtractor.extract(format, source, dir)
         val bookWithCover = book.copy(coverPath = cover?.absolutePath)
         cache[id] = bookWithCover
-        bookWithCover
+        return bookWithCover
     }
 
     suspend fun loadBook(id: String): Book? = withContext(Dispatchers.IO) {
@@ -180,6 +247,13 @@ class BookRepository(private val context: Context) {
         if (book.audioPublicKey != null) {
             json.put("audioPublicKey", book.audioPublicKey)
         }
+        if (book.cloudKey != null) {
+            json.put("cloudKey", book.cloudKey)
+            json.put("cloudPath", book.cloudPath.orEmpty())
+            json.put("cloudSize", book.cloudSize)
+            json.put("cloudModified", book.cloudModified.orEmpty())
+            json.put("cloudMissing", book.cloudMissing)
+        }
         File(dir, "meta.json").writeText(json.toString())
     }
 
@@ -208,6 +282,11 @@ class BookRepository(private val context: Context) {
                 chapterCount = json.optInt("chapterCount", 0),
                 kind = kind,
                 audioPublicKey = json.optString("audioPublicKey").ifBlank { null },
+                cloudKey = json.optString("cloudKey").ifBlank { null },
+                cloudPath = json.optString("cloudPath").ifBlank { null },
+                cloudMissing = json.optBoolean("cloudMissing", false),
+                cloudSize = json.optLong("cloudSize", 0L),
+                cloudModified = json.optString("cloudModified").ifBlank { null },
             )
         }.getOrNull()
     }

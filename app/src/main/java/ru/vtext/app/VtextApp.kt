@@ -1,6 +1,10 @@
 package ru.vtext.app
 
 import android.app.Application
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import kotlinx.coroutines.runBlocking
 import ru.vtext.app.data.AudioBookmarkStore
@@ -20,11 +24,17 @@ class VtextApp : Application() {
     lateinit var container: AppContainer
         private set
 
+    /** Фоновые задачи уровня приложения: синхронизация облачной библиотеки. */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
         PDFBoxResourceLoader.init(this)
         container = AppContainer(this)
         seedDefaultBooks()
+        appScope.launch {
+            runCatching { container.cloudLibrary.syncIfConnected() }
+        }
     }
 
     /** Добавляет встроенные онлайн-книги, которых ещё нет в библиотеке. */
@@ -60,6 +70,12 @@ class AppContainer(application: Application) {
     // Аудиокниги: отдельный плеер, чтобы не смешивать время с текстовыми фрагментами.
     val yandexDisk = ru.vtext.app.data.YandexDiskClient()
     val audioRepository = AudioRepository(application, repository, yandexDisk)
+    val cloudLibrary = ru.vtext.app.data.CloudLibraryRepository(
+        application,
+        repository,
+        audioRepository,
+        yandexDisk,
+    )
     val audioProgress = AudioProgressStore(application)
     val audioPlayerSettings = ru.vtext.app.data.AudioPlayerSettingsStore(application)
     val audioBookmarks = AudioBookmarkStore(application)

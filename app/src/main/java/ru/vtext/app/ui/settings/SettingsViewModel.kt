@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.vtext.app.BuildConfig
 import ru.vtext.app.data.AppearanceSettingsStore
+import ru.vtext.app.data.CloudLibraryRepository
 import ru.vtext.app.data.PlaybackSettingsStore
 import ru.vtext.app.data.ThemeMode
 import ru.vtext.app.data.UpdateInfo
@@ -74,7 +75,14 @@ class SettingsViewModel(
     private val playbackSettings: PlaybackSettingsStore,
     private val appearance: AppearanceSettingsStore,
     private val updates: UpdateRepository,
+    private val cloud: CloudLibraryRepository,
 ) : ViewModel() {
+
+    val cloudConnection = cloud.connection
+    val cloudSync = cloud.syncState
+
+    private val _cloudLinkError = MutableStateFlow<String?>(null)
+    val cloudLinkError: StateFlow<String?> = _cloudLinkError.asStateFlow()
 
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
@@ -194,6 +202,27 @@ class SettingsViewModel(
 
     fun setThemeMode(mode: ThemeMode) = appearance.setThemeMode(mode)
 
+    // ----- Облачная библиотека -----
+
+    fun connectCloud(link: String) {
+        _cloudLinkError.value = null
+        viewModelScope.launch {
+            val result = cloud.connect(link)
+            if (result.isSuccess) {
+                cloud.sync()
+            } else {
+                _cloudLinkError.value = result.exceptionOrNull()?.message
+                    ?: "Не удалось подключить папку"
+            }
+        }
+    }
+
+    fun syncCloud() {
+        viewModelScope.launch { cloud.sync() }
+    }
+
+    fun disconnectCloud() = cloud.disconnect()
+
     // ----- Обновления -----
 
     fun checkUpdates() {
@@ -250,8 +279,11 @@ class SettingsViewModel(
             playbackSettings: PlaybackSettingsStore,
             appearance: AppearanceSettingsStore,
             updates: UpdateRepository,
+            cloud: CloudLibraryRepository,
         ) = viewModelFactory {
-            initializer { SettingsViewModel(manager, playback, playbackSettings, appearance, updates) }
+            initializer {
+                SettingsViewModel(manager, playback, playbackSettings, appearance, updates, cloud)
+            }
         }
     }
 }

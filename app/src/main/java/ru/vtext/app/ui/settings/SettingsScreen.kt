@@ -23,6 +23,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -30,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -87,6 +89,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             container.playbackSettings,
             container.appearance,
             container.updates,
+            container.cloudLibrary,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -133,6 +136,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 contentPadding = PaddingValues(bottom = 24.dp),
             ) {
                 appearanceSection(state, viewModel, context)
+                cloudLibrarySection(viewModel, context)
                 sectionHeader(engineTitle)
                 items(TtsEngineType.entries, key = { it.id }) { type ->
                     EngineRow(
@@ -328,6 +332,112 @@ private fun LazyListScope.appearanceSection(
                     onCheckedChange = viewModel::setDynamicColor,
                     enabled = supported,
                 )
+            }
+        }
+    }
+}
+
+/** Облачная библиотека: подключение публичной папки Яндекс.Диска. */
+private fun LazyListScope.cloudLibrarySection(
+    viewModel: SettingsViewModel,
+    context: Context,
+) {
+    sectionHeader(context.getString(R.string.cloud_title))
+    item {
+        val connection by viewModel.cloudConnection.collectAsStateWithLifecycle()
+        val sync by viewModel.cloudSync.collectAsStateWithLifecycle()
+        val linkError by viewModel.cloudLinkError.collectAsStateWithLifecycle()
+        var link by remember { mutableStateOf("") }
+
+        SettingsCard(selected = false, onClick = null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                if (connection == null) {
+                    Text(
+                        text = stringResource(R.string.cloud_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = link,
+                        onValueChange = { link = it.filterNot(Char::isWhitespace) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = linkError != null,
+                        placeholder = {
+                            Text(
+                                text = stringResource(R.string.cloud_link_hint),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                            )
+                        },
+                    )
+                    linkError?.let { message ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = { viewModel.connectCloud(link) },
+                        enabled = link.isNotBlank() && !sync.syncing,
+                    ) {
+                        Text(stringResource(R.string.cloud_connect))
+                    }
+                } else {
+                    Text(
+                        text = connection!!.name,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.cloud_connected_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    val status = when {
+                        sync.syncing -> stringResource(R.string.cloud_syncing)
+                        sync.error != null -> sync.error!!
+                        sync.lastSyncAt > 0 -> buildString {
+                            append(
+                                stringResource(
+                                    R.string.cloud_synced,
+                                    sync.added,
+                                    sync.updated,
+                                ),
+                            )
+                            if (sync.missing > 0) {
+                                append(
+                                    stringResource(R.string.cloud_missing_count, sync.missing),
+                                )
+                            }
+                        }
+                        else -> stringResource(R.string.cloud_never_synced)
+                    }
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (sync.error != null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(
+                            onClick = viewModel::syncCloud,
+                            enabled = !sync.syncing,
+                        ) {
+                            Text(stringResource(R.string.cloud_sync))
+                        }
+                        TextButton(onClick = viewModel::disconnectCloud) {
+                            Text(stringResource(R.string.cloud_disconnect))
+                        }
+                    }
+                }
             }
         }
     }

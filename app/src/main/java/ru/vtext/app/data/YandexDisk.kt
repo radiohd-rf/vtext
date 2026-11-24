@@ -1,5 +1,6 @@
 package ru.vtext.app.data
 
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -51,6 +52,22 @@ object YandexDiskLinks {
 data class YandexAudioFile(val name: String, val path: String, val sizeBytes: Long)
 
 data class YandexAudioFolder(val name: String, val files: List<YandexAudioFile>)
+
+/** Элемент публичной папки: файл или подпапка. */
+data class YandexEntry(
+    val name: String,
+    /** Путь от корня публичной папки, с ведущим «/»: «/Книга/01.mp3». */
+    val relPath: String,
+    val isDir: Boolean,
+    val sizeBytes: Long,
+    val modified: String?,
+)
+
+data class YandexListing(
+    val name: String,
+    val relPath: String,
+    val entries: List<YandexEntry>,
+)
 
 /**
  * Публичное API Яндекс.Диска без токена: список файлов папки и временные ссылки
@@ -148,6 +165,96 @@ class YandexDiskClient {
 
     fun invalidateHref(publicKey: String, path: String) {
         hrefCache.remove("$publicKey|$path")
+    }
+
+    /**
+     * Содержимое публичной папки (или её подпапки [relPath] от корня).
+     * Пути элементов возвращаются относительно корня публичной папки.
+     */
+    suspend fun listFolder(publicKey: String, relPath: String = ""): YandexListing =
+        withContext(Dispatchers.IO) {
+            // Корень можно передать как "" или "/" — в API путь не нужен.
+            val path = relPath.trim().let { if (it == "/") "" else it }
+            var offset = 0
+            var folderName = ""
+            val entries = mutableListOf<YandexEntry>()
+            while (true) {
+                val url = buildString {
+                    append(API)
+                    append("/public/resources?public_key=")
+                    append(encode(publicKey))
+                    append("&limit=200&offset=")
+                    append(offset)
+                    if (path.isNotBlank()) {
+                        append("&path=")
+                        append(encode(path))
+                    }
+                }
+                val json = getJson(url)
+                if (offset == 0) {
+                    if (json.optString("type") != "dir") {
+                        throw IllegalStateException("Ссылка должна вести на папку")
+                    }
+                    folderName = json.optString("name")
+                }
+                val embedded = json.optJSONObject("_embedded") ?: break
+                val items = embedded.optJSONArray("items") ?: break
+                for (index in 0 until items.length()) {
+                    val item = items.getJSONObject(index)
+                    val name = item.optString("name")
+                    if (name.isBlank()) continue
+                    entries += YandexEntry(
+                        name = name,
+                        relPath = relPath.trimEnd('/') + "/" + name,
+                        isDir = item.optString("type") == "dir",
+                        sizeBytes = item.optLong("size", 0L),
+                        modified = item.optString("modified").ifBlank { null },
+                    )
+                }
+                val total = embedded.optInt("total", 0)
+                offset += items.length()
+                if (items.length() == 0 || offset >= total) break
+            }
+            YandexListing(
+                name = folderName.takeIf { it.isNotBlank() } ?: "Облачная библиотека",
+                relPath = path,
+                entries = entries,
+            )
+        }
+
+    /** Скачивает файл публичной папки в [target] (без загрузки в память целиком). */
+    suspend fun downloadTo(
+        publicKey: String,
+        path: String,
+        target: File,
+        onBytes: (Long) -> Unit = {},
+    ) = withContext(Dispatchers.IO) {
+        val href = resolveHref(publicKey, path, force = true)
+        val connection = URL(href).openConnection() as HttpURLConnection
+        connection.apply {
+            connectTimeout = 20_000
+            readTimeout = 60_000
+            setRequestProperty("User-Agent", USER_AGENT)
+        }
+        try {
+            val code = connection.responseCode
+            if (code !in 200..299) error("Не удалось скачать файл: Яндекс.Диск ответил $code")
+            var total = 0L
+            connection.inputStream.use { input ->
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        total += read
+                    }
+                }
+            }
+            onBytes(total)
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun getJson(url: String): JSONObject {

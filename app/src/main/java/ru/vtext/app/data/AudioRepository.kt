@@ -255,11 +255,11 @@ class AudioRepository(
         val book = books.loadBook(bookId) ?: return@withContext current
         val publicKey = book.audioPublicKey ?: return@withContext current
 
-        val folder = runCatching { yandex.listAudio(publicKey) }.getOrNull()
+        val files = runCatching { remoteAudioFiles(publicKey, book.cloudPath) }.getOrNull()
             ?: return@withContext current
 
         val known = current.associateBy { it.path }
-        val merged = folder.files.map { file ->
+        val merged = files.map { file ->
             // Название из tracks.json сохраняем: встроенные книги размечены вручную
             // («Часть 001»), а не по имени файла («Luchko 001»).
             known[file.path]?.copy(sizeBytes = file.sizeBytes) ?: AudioTrack(
@@ -278,9 +278,20 @@ class AudioRepository(
         merged
     }
 
+    /** Аудиофайлы облачной книги: подпапка библиотеки или вся папка отдельной ссылки. */
+    private suspend fun remoteAudioFiles(publicKey: String, cloudPath: String?): List<YandexAudioFile> {
+        if (cloudPath == null) return yandex.listAudio(publicKey).files
+        val listing = yandex.listFolder(publicKey, cloudPath)
+        val files = listing.entries
+            .filter { !it.isDir && AudioFormats.isAudio(it.name) }
+            .map { YandexAudioFile(it.name, it.relPath, it.sizeBytes) }
+        if (files.isEmpty()) throw IllegalStateException("В папке нет аудиофайлов")
+        return TrackNaming.naturalOrder(files.map { it.name })
+            .map { name -> files.first { it.name == name } }
+    }
+
     /** Сохраняет дорожки (например, после того как узнали их длительности). */
-    fun saveTracks(bookId: String, tracks: List<AudioTrack>) {
-        writeTracks(books.bookDir(bookId), tracks)
+    fun saveTracks(bookId: String, tracks: List<AudioTrack>) {        writeTracks(books.bookDir(bookId), tracks)
     }
 
     private fun writeTracks(dir: File, tracks: List<AudioTrack>) {

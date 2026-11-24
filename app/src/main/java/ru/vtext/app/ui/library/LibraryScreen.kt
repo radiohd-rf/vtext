@@ -136,6 +136,12 @@ fun LibraryScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.refresh()
     }
+    // Синхронизация облачной библиотеки идёт в фоне при запуске: обновляем
+    // список, когда она закончилась (новые книги, пометки «нет в облаке»).
+    val cloudSync by container.cloudLibrary.syncState.collectAsStateWithLifecycle()
+    LaunchedEffect(cloudSync.syncing, cloudSync.lastSyncAt) {
+        if (!cloudSync.syncing && cloudSync.lastSyncAt > 0) viewModel.refresh()
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<Book?>(null) }
     var pendingImport by remember { mutableStateOf<List<Uri>?>(null) }
@@ -715,20 +721,26 @@ private fun BookRow(
 private fun BookKindBadge(book: Book) {
     val online = book.audioPublicKey != null
     val audio = book.kind == BookKind.AUDIO
-    val label = when {
+    val base = when {
         online -> stringResource(R.string.kind_audio_online)
         audio -> stringResource(R.string.kind_audio)
         else -> stringResource(R.string.kind_text)
     }
-    val container = if (audio || online) {
-        MaterialTheme.colorScheme.secondaryContainer
+    // Книга была в подключённой папке Яндекс.Диска, но сейчас её там нет.
+    val label = if (book.cloudMissing) {
+        base + " · " + stringResource(R.string.cloud_missing)
     } else {
-        MaterialTheme.colorScheme.surfaceContainerHighest
+        base
     }
-    val content = if (audio || online) {
-        MaterialTheme.colorScheme.onSecondaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+    val container = when {
+        book.cloudMissing -> MaterialTheme.colorScheme.errorContainer
+        audio || online -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHighest
+    }
+    val content = when {
+        book.cloudMissing -> MaterialTheme.colorScheme.onErrorContainer
+        audio || online -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
         shape = RoundedCornerShape(6.dp),
