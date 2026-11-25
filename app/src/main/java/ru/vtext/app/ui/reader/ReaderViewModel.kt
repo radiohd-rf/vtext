@@ -38,8 +38,8 @@ object NoteMarkup {
             builder.append(text, last, match.range.first)
             val label = match.groupValues[1]
             // Сноска страницы: метка «p12-3», показываем «[3]».
-            val display = if (label.startsWith("p") && label.contains('-')) {
-                label.substringAfter('-')
+            val display = if (label.contains('-')) {
+                label.substringAfterLast('-')
             } else {
                 label
             }

@@ -65,9 +65,21 @@ class DocxParser : BookParser {
             }
             flush()
 
+            val definitions = readFootnotes(zip)
             val chapters = blocks.map { (chapterTitle, chapterBody) ->
                 Chapter(chapterTitle, TextSegmenter.segmentFor(chapterBody.toString(), preset))
-            }.filter { it.segments.isNotEmpty() }
+            }.filter { it.segments.isNotEmpty() }.map { chapter ->
+                val notes = chapter.segments
+                    .flatMap { NOTE_MARKER.findAll(it).toList() }
+                    .mapNotNull { match ->
+                        val id = match.groupValues[1].removePrefix("fn")
+                        val display = match.groupValues[2]
+                        val text = definitions[id] ?: return@mapNotNull null
+                        ru.vtext.app.domain.model.ChapterNote("fn$id-$display", text)
+                    }
+                    .distinctBy { it.label }
+                chapter.copy(footnotes = notes)
+            }
 
             return ParsedBook(title, author, chapters)
         }
@@ -145,6 +157,10 @@ class DocxParser : BookParser {
                 "tab" -> builder.append(' ')
                 "br", "cr" -> builder.append('\n')
                 "nobreakhyphen" -> builder.append('-')
+                "footnotereference" -> {
+                    val id = child.getAttribute("w:id").ifBlank { child.getAttribute("id") }
+                    if (id.isNotBlank()) builder.append("⟦fn$id-$id⟧")
+                }
                 "rpr" -> Unit
                 else -> collectRunText(child, builder)
             }
@@ -178,6 +194,41 @@ class DocxParser : BookParser {
             if (child is Element && localName(child) == name) return child
         }
         return null
+    }
+
+    private val NOTE_MARKER = Regex("⟦(.+)-([^-]+)⟧")
+
+    /** Тексты сносок из word/footnotes.xml по id. */
+    private fun readFootnotes(zip: ZipFile): Map<String, String> {
+        val entry = zip.getEntry("word/footnotes.xml") ?: return emptyMap()
+        val document = parseXml(zip.readBytes(entry)) ?: return emptyMap()
+        val result = mutableMapOf<String, String>()
+        val nodes = document.getElementsByTagName("*")
+        for (index in 0 until nodes.length) {
+            val node = nodes.item(index)
+            if (node !is Element || localName(node) != "footnote") continue
+            val id = node.getAttribute("w:id").ifBlank { node.getAttribute("id") }
+            if (id.isBlank() || id in result) continue
+            val text = footnoteText(node)
+            if (text.isNotBlank()) result[id] = text
+        }
+        return result
+    }
+
+    private fun footnoteText(root: Element): String {
+        val builder = StringBuilder()
+        val nodes = root.getElementsByTagName("*")
+        for (index in 0 until nodes.length) {
+            val node = nodes.item(index)
+            if (node is Element && localName(node) == "p") {
+                val text = paragraphText(node).trim()
+                if (text.isNotBlank()) {
+                    if (builder.isNotEmpty()) builder.append(' ')
+                    builder.append(text)
+                }
+            }
+        }
+        return builder.toString()
     }
 
     private fun readCoreProperty(zip: ZipFile, property: String): String? {

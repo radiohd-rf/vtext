@@ -33,10 +33,14 @@ class Fb2Parser : BookParser {
         val title = firstText(document, "book-title") ?: fallbackTitle
         val author = readAuthor(document)
 
+        val definitions = readNoteDefinitions(document)
         val bodies = document.getElementsByTagName("body")
         val body = (0 until bodies.length)
             .map { bodies.item(it) as Element }
-            .firstOrNull { (it.getAttribute("name") ?: "") != "notes" }
+            .firstOrNull {
+                val name = it.getAttribute("name").lowercase()
+                name != "notes" && name != "comments"
+            }
 
         val chapters = mutableListOf<Chapter>()
         if (body != null) {
@@ -59,7 +63,19 @@ class Fb2Parser : BookParser {
             }
         }
 
-        return ParsedBook(title, author, chapters)
+        val withNotes = chapters.map { chapter ->
+            val notes = chapter.segments
+                .flatMap { NOTE_MARKER.findAll(it).toList() }
+                .mapNotNull { match ->
+                    val id = match.groupValues[1]
+                    val display = match.groupValues[2]
+                    val text = definitions[id] ?: return@mapNotNull null
+                    ru.vtext.app.domain.model.ChapterNote("$id-$display", text)
+                }
+                .distinctBy { it.label }
+            chapter.copy(footnotes = notes)
+        }
+        return ParsedBook(title, author, withNotes)
     }
 
     private fun readAuthor(document: Document): String? {
@@ -79,6 +95,8 @@ class Fb2Parser : BookParser {
         }
         return names.take(3).joinToString(", ").ifBlank { null }
     }
+
+    private val NOTE_MARKER = Regex("⟦(.+)-([^-]+)⟧")
 
     private fun firstText(document: Document, tag: String): String? {
         val nodes = document.getElementsByTagName(tag)
@@ -135,7 +153,14 @@ class Fb2Parser : BookParser {
         val name = (node.localName ?: node.nodeName).lowercase()
         // Номер сноски в тексте не читаем: <sup>1</sup>, <a type="note">…</a>.
         if (name == "sup") return ""
-        if (name == "a" && (node as? Element)?.getAttribute("type")?.lowercase() == "note") return ""
+        if (name == "a" && (node as? Element)?.getAttribute("type")?.lowercase() == "note") {
+            val href = (node as? Element)?.getAttribute("href").orEmpty()
+            val id = href.substringAfterLast('#')
+            if (id.isBlank()) return ""
+            val display = rawText(node).trim()
+                .ifBlank { id.takeLastWhile { it.isDigit() }.ifBlank { id } }
+            return "⟦$id-$display⟧"
+        }
         val builder = StringBuilder()
         val children = node.childNodes
         for (i in 0 until children.length) {
@@ -149,6 +174,47 @@ class Fb2Parser : BookParser {
             "strong" -> "**$text**"
             else -> text
         }
+    }
+
+    /** Текст сносок из <body name="notes">/«comments» по id. */
+    private fun readNoteDefinitions(document: Document): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val bodies = document.getElementsByTagName("body")
+        for (i in 0 until bodies.length) {
+            val body = bodies.item(i) as? Element ?: continue
+            val name = body.getAttribute("name").lowercase()
+            if (name != "notes" && name != "comments") continue
+            collectNotes(body, result)
+        }
+        return result
+    }
+
+    private fun collectNotes(node: Element, result: MutableMap<String, String>) {
+        val children = node.childNodes
+        for (i in 0 until children.length) {
+            val child = children.item(i) as? Element ?: continue
+            val id = child.getAttribute("id")
+            if (id.isNotBlank() && id !in result) {
+                val text = if (localName(child) == "p") {
+                    textOf(child).trim()
+                } else {
+                    paragraphsText(child)
+                }
+                if (text.isNotBlank()) result[id] = text
+            }
+            collectNotes(child, result)
+        }
+    }
+
+    /** Все текстовые узлы без спецправил (для номера ссылки). */
+    private fun rawText(node: Node): String {
+        if (node.nodeType == Node.TEXT_NODE || node.nodeType == Node.CDATA_SECTION_NODE) {
+            return node.nodeValue ?: ""
+        }
+        val builder = StringBuilder()
+        val children = node.childNodes
+        for (i in 0 until children.length) builder.append(rawText(children.item(i)))
+        return builder.toString()
     }
 
     private fun localName(node: Node): String =

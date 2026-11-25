@@ -57,21 +57,46 @@ class EpubParser : BookParser {
                 if (idref.isNotBlank()) spineIds += idref
             }
 
+            val spinePaths = spineIds.mapNotNull { manifest[it] }.filter { isHtml(it) }
+            // Ссылки на примечания — по главам; определения ищем во всех файлах.
+            val referencesByChapter = mutableMapOf<Int, List<Pair<String, String>>>()
+            if (!compiled) {
+                spinePaths.forEachIndexed { index, path ->
+                    val entry = findEntry(zip, path) ?: return@forEachIndexed
+                    referencesByChapter[index] = extractReferences(readText(zip, entry))
+                }
+            }
+            val wanted = referencesByChapter.values.flatten().map { it.first }.toSet()
+            val definitions = mutableMapOf<String, String>()
+            if (wanted.isNotEmpty()) {
+                spinePaths.forEach { path ->
+                    val entry = findEntry(zip, path) ?: return@forEach
+                    extractDefinitions(readText(zip, entry), wanted).forEach { (id, text) ->
+                        definitions.putIfAbsent(id, text)
+                    }
+                }
+            }
+
             val chapters = mutableListOf<Chapter>()
             var number = 0
-            for (id in spineIds) {
-                val path = manifest[id] ?: continue
-                if (!isHtml(path)) continue
-                val entry = findEntry(zip, path) ?: continue
-                val html = readText(zip, entry)
+            spinePaths.forEachIndexed { index, path ->
+                val entry = findEntry(zip, path) ?: return@forEachIndexed
+                val raw = readText(zip, entry)
+                val refs = referencesByChapter[index].orEmpty()
+                val html = if (compiled) raw else removeNoteAsides(replaceReferences(raw))
                 val chapter = if (compiled) {
                     compiledChapter(zip, path, html, assetsDir)
                 } else {
                     foreignChapter(zip, path, html, preset, assetsDir)
-                } ?: continue
+                } ?: return@forEachIndexed
+                val notes = refs.mapNotNull { (id, display) ->
+                    val text = definitions[id] ?: return@mapNotNull null
+                    ru.vtext.app.domain.model.ChapterNote("$id-$display", text)
+                }
                 number += 1
                 chapters += chapter.copy(
                     title = chapter.title.ifBlank { "Глава $number" },
+                    footnotes = notes,
                 )
             }
 
@@ -180,6 +205,78 @@ class EpubParser : BookParser {
         }
     }
 
+    /** Ссылки-примечания: `<a epub:type="noteref" href="#n1">1</a>` и подобные. */
+    private fun extractReferences(html: String): List<Pair<String, String>> {
+        val result = mutableListOf<Pair<String, String>>()
+        ANCHOR.findAll(html).forEach { match ->
+            val anchor = match.value
+            val href = HREF_FRAGMENT.find(anchor)?.groupValues?.get(1) ?: return@forEach
+            if (!isNoteref(anchor, href)) return@forEach
+            val id = href.substringAfterLast('#')
+            if (id.isBlank()) return@forEach
+            val text = TAG.replace(
+                anchor.substringAfter('>').substringBeforeLast("</a>"),
+                "",
+            ).trim()
+            val display = text.ifBlank {
+                id.takeLastWhile { it.isDigit() }.ifBlank { id }
+            }
+            result += id to display
+        }
+        return result.distinct()
+    }
+
+    private fun isNoteref(anchor: String, href: String): Boolean {
+        val type = EPUB_TYPE.find(anchor)?.groupValues?.get(1).orEmpty()
+        if (type.contains("noteref", ignoreCase = true)) return true
+        val text = TAG.replace(
+            anchor.substringAfter('>').substringBeforeLast("</a>"),
+            "",
+        ).trim()
+        return text.isNotEmpty() && text.length <= 3 &&
+            text.all { it.isDigit() || it == '*' }
+    }
+
+    /** Заменяет ссылки-примечания на маркеры ⟦id-N⟧. */
+    private fun replaceReferences(html: String): String = ANCHOR.replace(html) { match ->
+        val anchor = match.value
+        val href = HREF_FRAGMENT.find(anchor)?.groupValues?.get(1)
+        if (href == null || !isNoteref(anchor, href)) {
+            return@replace anchor
+        }
+        val id = href.substringAfterLast('#')
+        if (id.isBlank()) return@replace anchor
+        val text = TAG.replace(
+            anchor.substringAfter('>').substringBeforeLast("</a>"),
+            "",
+        ).trim()
+        val display = text.ifBlank { id.takeLastWhile { it.isDigit() }.ifBlank { id } }
+        "⟦$id-$display⟧"
+    }
+
+    /** Убирает встроенные сноски-`<aside>`, чтобы не читать их в тексте. */
+    private fun removeNoteAsides(html: String): String = ASIDE_NOTE.replace(html, "")
+
+    /** Тексты сносок по id: `<aside id="n1">…</aside>`, `<li id="n1">…</li>`. */
+    private fun extractDefinitions(html: String, ids: Set<String>): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        for (id in ids) {
+            val escaped = Regex.escape(id)
+            val regex = Regex(
+                "<([a-zA-Z][\\w:-]*)[^>]*\\bid\\s*=\\s*\"$escaped\"[^>]*>(.*?)</\\1>",
+                setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+            )
+            val match = regex.find(html) ?: continue
+            val inner = ANCHOR.replace(match.groupValues[2]) { anchor ->
+                val href = HREF_FRAGMENT.find(anchor.value)?.groupValues?.get(1)
+                if (href != null && href.startsWith("#")) "" else anchor.value
+            }
+            val text = TAG.replace(inner, " ").replace(Regex("\\s+"), " ").trim()
+            if (text.isNotBlank() && text.length < 4000) result[id] = text
+        }
+        return result
+    }
+
     private fun isHtml(path: String): Boolean =
         path.endsWith(".xhtml", true) || path.endsWith(".html", true) || path.endsWith(".htm", true)
 
@@ -210,6 +307,24 @@ class EpubParser : BookParser {
         }
         return null
     }
+
+    private val ANCHOR = Regex(
+        "<a\\b[^>]*>.*?</a>",
+        setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+    )
+    private val HREF_FRAGMENT = Regex(
+        "href\\s*=\\s*\"([^\"]*#[^\"]+)\"",
+        RegexOption.IGNORE_CASE,
+    )
+    private val EPUB_TYPE = Regex(
+        "epub:type\\s*=\\s*\"([^\"]*)\"",
+        RegexOption.IGNORE_CASE,
+    )
+    private val TAG = Regex("<[^>]+>")
+    private val ASIDE_NOTE = Regex(
+        "<aside\\b[^>]*epub:type\\s*=\\s*\"[^\"]*(?:footnote|endnote|rearnote)[^\"]*\"[^>]*>.*?</aside>",
+        setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+    )
 
     private fun readRootFilePath(zip: ZipFile): String? {
         val entry = zip.getEntry("META-INF/container.xml") ?: return null
