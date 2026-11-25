@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,6 +71,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -523,12 +527,26 @@ private fun ReaderTocSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Оглавление занимает экран до строки состояния: высота = экран минус
+    // статус-бар и ручка шторки, без наезда на системные иконки.
+    val density = LocalDensity.current
+    val statusBarHeight = with(density) {
+        WindowInsets.statusBars.getTop(this).toDp()
+    }
+    val view = LocalView.current
+    val screenHeight = with(density) { view.height.toDp() }
+    val sheetHeight = (screenHeight - statusBarHeight - 24.dp).coerceAtLeast(240.dp)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight().padding(bottom = 24.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .height(sheetHeight)
+                .padding(bottom = 24.dp),
+        ) {
             Text(
                 text = stringResource(R.string.reader_toc),
                 style = MaterialTheme.typography.headlineSmall,
@@ -536,7 +554,7 @@ private fun ReaderTocSheet(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(10.dp))
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 itemsIndexed(chapters) { index, (title, depth) ->
                     Row(
                         modifier = Modifier
