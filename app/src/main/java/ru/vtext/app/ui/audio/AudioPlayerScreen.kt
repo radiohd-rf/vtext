@@ -783,8 +783,9 @@ private fun SleepSheet(
                     Box(
                         Modifier
                             .offset(y = (-10).dp)
-                            .size(7.dp)
-                            .clip(CircleShape)
+                            .width(20.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(MaterialTheme.colorScheme.primary),
                     )
                 }

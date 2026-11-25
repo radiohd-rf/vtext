@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -184,8 +185,9 @@ fun SpeedSheet(
                     Box(
                         Modifier
                             .offset(y = (-10).dp)
-                            .size(7.dp)
-                            .clip(CircleShape)
+                            .width(20.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(MaterialTheme.colorScheme.primary),
                     )
                 }
