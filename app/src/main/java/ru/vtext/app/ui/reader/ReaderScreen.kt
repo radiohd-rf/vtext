@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -465,16 +466,45 @@ private fun ReaderFooter(
             )
         }
         Spacer(Modifier.height(10.dp))
-        LinearProgressIndicator(
-            progress = { percent.coerceIn(0, 100) / 100f },
+        // Таймлайн: толстая дорожка с точкой-ползунком.
+        val fraction = percent.coerceIn(0, 100) / 100f
+        val trackColor = colors.outlineVariant
+        val fillColor = MaterialTheme.colorScheme.primary
+        Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .height(3.dp),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = colors.outlineVariant,
-            drawStopIndicator = {},
-        )
+                .height(16.dp),
+        ) {
+            val trackWidth = 6.dp.toPx()
+            val radius = trackWidth / 2f
+            val dotRadius = 6.dp.toPx()
+            val centerY = size.height / 2f
+            val startX = dotRadius
+            val endX = size.width - dotRadius
+            drawLine(
+                color = trackColor,
+                start = androidx.compose.ui.geometry.Offset(startX, centerY),
+                end = androidx.compose.ui.geometry.Offset(endX, centerY),
+                strokeWidth = trackWidth,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+            val dotX = startX + (endX - startX) * fraction
+            if (fraction > 0f) {
+                drawLine(
+                    color = fillColor,
+                    start = androidx.compose.ui.geometry.Offset(startX, centerY),
+                    end = androidx.compose.ui.geometry.Offset(dotX, centerY),
+                    strokeWidth = trackWidth,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                )
+            }
+            drawCircle(
+                color = fillColor,
+                radius = dotRadius,
+                center = androidx.compose.ui.geometry.Offset(dotX, centerY),
+            )
+        }
         Text(
             text = stringResource(R.string.reading_progress, percent),
             style = MaterialTheme.typography.labelMedium,
