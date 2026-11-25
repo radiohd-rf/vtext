@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -123,6 +124,7 @@ fun BookScreen(
     startChapter: Int = -1,
     startSegment: Int = -1,
     onBack: () -> Unit,
+    onSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val container = (context.applicationContext as VtextApp).container
@@ -139,7 +141,6 @@ fun BookScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val engineType by container.ttsManager.engineType.collectAsStateWithLifecycle()
-    val sileroActive = engineType == ru.vtext.app.tts.TtsEngineType.SILERO
     val snackbarHostState = remember { SnackbarHostState() }
     var activeSheet by remember { mutableStateOf<PlayerSheet?>(null) }
     var chapterSheet by remember { mutableStateOf(false) }
@@ -206,7 +207,6 @@ fun BookScreen(
                     onVoice = { activeSheet = PlayerSheet.VOICE },
                     onSleep = { activeSheet = PlayerSheet.SLEEP },
                     onBookmarks = { bookmarksOpen = true },
-                    showVoice = sileroActive,
                 )
             }
         }
@@ -216,6 +216,11 @@ fun BookScreen(
         PlayerOptionsSheet(
             sheet = sheet,
             player = state.player,
+            engineType = engineType,
+            onOpenSettings = {
+                activeSheet = null
+                onSettings()
+            },
             onDismiss = { activeSheet = null },
             onSpeed = viewModel::setSpeed,
             onVoice = { id ->
@@ -269,7 +274,6 @@ private fun PlayerContent(
     onVoice: () -> Unit,
     onSleep: () -> Unit,
     onBookmarks: () -> Unit,
-    showVoice: Boolean,
 ) {
     val player = state.player
     val chapter = book.chapters.getOrNull(player.chapterIndex) ?: return
@@ -313,7 +317,6 @@ private fun PlayerContent(
                         book = book,
                         onVoice = onVoice,
                         onBookmarks = onBookmarks,
-                        showVoice = showVoice,
                     )
                     Spacer(Modifier.weight(1f))
                     PlayerControls(
@@ -332,7 +335,6 @@ private fun PlayerContent(
                         book = book,
                         onVoice = onVoice,
                         onBookmarks = onBookmarks,
-                        showVoice = showVoice,
                     )
                     SegmentList(
                         segments = chapter.segments,
@@ -391,7 +393,6 @@ private fun PlayerHeader(
     book: Book,
     onVoice: () -> Unit,
     onBookmarks: () -> Unit,
-    showVoice: Boolean,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -401,13 +402,11 @@ private fun PlayerHeader(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (showVoice) {
-                PlayerIconButton(
-                    icon = Icons.Filled.RecordVoiceOver,
-                    description = stringResource(R.string.sheet_voice_title),
-                    onClick = onVoice,
-                )
-            }
+            PlayerIconButton(
+                icon = Icons.Filled.RecordVoiceOver,
+                description = stringResource(R.string.sheet_voice_title),
+                onClick = onVoice,
+            )
             PlayerIconButton(
                 icon = Icons.Filled.BookmarkBorder,
                 description = stringResource(R.string.bookmarks),
@@ -527,10 +526,10 @@ private fun PlayerControls(
             .background(MaterialTheme.colorScheme.surface),
     ) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Скорость — текстом слева от перемотки назад.
@@ -557,7 +556,6 @@ private fun PlayerControls(
                         modifier = Modifier.size(30.dp),
                     )
                 }
-                Spacer(Modifier.width(18.dp))
                 FilledIconButton(
                     onClick = viewModel::togglePlay,
                     modifier = Modifier.size(68.dp),
@@ -578,7 +576,6 @@ private fun PlayerControls(
                         modifier = Modifier.size(34.dp),
                     )
                 }
-                Spacer(Modifier.width(18.dp))
                 IconButton(
                     onClick = viewModel::next,
                     modifier = Modifier.size(52.dp),
@@ -606,6 +603,7 @@ private fun PlayerControls(
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier
+                    .padding(horizontal = 20.dp)
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(CircleShape),
@@ -832,6 +830,8 @@ private enum class PlayerSheet { SPEED, VOICE, SLEEP }
 private fun PlayerOptionsSheet(
     sheet: PlayerSheet,
     player: PlayerState,
+    engineType: ru.vtext.app.tts.TtsEngineType,
+    onOpenSettings: () -> Unit,
     onDismiss: () -> Unit,
     onSpeed: (Float) -> Unit,
     onVoice: (String) -> Unit,
@@ -852,13 +852,44 @@ private fun PlayerOptionsSheet(
                 applyLive = true,
                 applyDelayMs = 350,
             )
-            PlayerSheet.VOICE -> VoiceSheet(current = player.sileroVoice, onSelect = onVoice)
+            PlayerSheet.VOICE -> if (engineType == ru.vtext.app.tts.TtsEngineType.SILERO) {
+                VoiceSheet(current = player.sileroVoice, onSelect = onVoice)
+            } else {
+                SystemVoiceSheet(onOpenSettings = onOpenSettings)
+            }
             PlayerSheet.SLEEP -> SleepSheet(
                 current = player.sleepTimerMinutes,
                 untilChapterEnd = player.sleepUntilChapterEnd,
                 onTimer = onSleep,
                 onChapterEnd = onSleepChapter,
             )
+        }
+    }
+}
+
+@Composable
+private fun SystemVoiceSheet(onOpenSettings: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = stringResource(R.string.sheet_voice_title),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = stringResource(R.string.voice_settings_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(18.dp))
+        Button(onClick = onOpenSettings) {
+            Text(stringResource(R.string.open_settings))
         }
     }
 }

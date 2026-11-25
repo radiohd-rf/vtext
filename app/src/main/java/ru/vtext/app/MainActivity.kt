@@ -160,6 +160,7 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
                 startChapter = chapter,
                 startSegment = segment,
                 onBack = { navController.popBackStack() },
+                onSettings = { navController.navigate("settings") },
             )
         }
         composable(
