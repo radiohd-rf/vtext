@@ -490,15 +490,15 @@ private fun ReaderFooter(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onAppearance, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
                     Icon(
                         Icons.Filled.TextFields,
                         contentDescription = stringResource(R.string.reader_appearance),
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(24.dp),
                         tint = colors.onSurface,
                     )
                 }
@@ -506,7 +506,7 @@ private fun ReaderFooter(
                     Icon(
                         Icons.Filled.BookmarkBorder,
                         contentDescription = stringResource(R.string.bookmarks),
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(24.dp),
                         tint = colors.onSurface,
                     )
                 }
