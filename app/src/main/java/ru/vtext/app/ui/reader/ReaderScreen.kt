@@ -38,6 +38,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1166,8 +1167,14 @@ private fun NotePanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    var offsetY by remember { mutableStateOf(0f) }
+    val threshold = with(density) { 96.dp.toPx() }
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .offset { IntOffset(0, offsetY.roundToInt()) },
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp,
@@ -1177,37 +1184,68 @@ private fun NotePanel(
                 .fillMaxWidth()
                 .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
         ) {
-            Box(
+            // Шапка панели: потянуть вниз — закрыть.
+            Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 12.dp),
-                contentAlignment = Alignment.Center,
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (offsetY > threshold) {
+                                    onDismiss()
+                                } else {
+                                    scope.launch {
+                                        animate(offsetY, 0f, animationSpec = tween(180)) { value, _ ->
+                                            offsetY = value
+                                        }
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                scope.launch {
+                                    animate(offsetY, 0f, animationSpec = tween(180)) { value, _ ->
+                                        offsetY = value
+                                    }
+                                }
+                            },
+                        ) { change, dragAmount ->
+                            change.consume()
+                            offsetY = (offsetY + dragAmount).coerceAtLeast(0f)
+                        }
+                    },
             ) {
                 Box(
                     Modifier
-                        .width(36.dp)
-                        .height(4.dp)
-                        .background(
-                            MaterialTheme.colorScheme.outlineVariant,
-                            RoundedCornerShape(2.dp),
-                        ),
-                )
-            }
-            Text(
-                text = stringResource(R.string.note_title, state.label),
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            state.note?.section?.takeIf { it.isNotBlank() }?.let { section ->
-                Spacer(Modifier.height(4.dp))
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .background(
+                                MaterialTheme.colorScheme.outlineVariant,
+                                RoundedCornerShape(2.dp),
+                            ),
+                    )
+                }
                 Text(
-                    text = section,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = stringResource(R.string.note_title, state.label),
+                    style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                state.note?.section?.takeIf { it.isNotBlank() }?.let { section ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = section,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
             Spacer(Modifier.height(10.dp))
             val scroll = rememberScrollState()
