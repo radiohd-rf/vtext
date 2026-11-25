@@ -27,7 +27,7 @@ data class NoteSpan(val start: Int, val end: Int, val label: String)
 
 /** Разметка ссылок: `⟦12⟧` → «[12]» + диапазон для тапа. */
 object NoteMarkup {
-    private val MARKER = Regex("⟦([\\d*]{1,3})⟧")
+    private val MARKER = Regex("⟦((?:p\\d+-)?[\\d*]{1,3})⟧")
 
     fun render(text: String): Pair<String, List<NoteSpan>> {
         if (!text.contains('⟦')) return text to emptyList()
@@ -37,8 +37,14 @@ object NoteMarkup {
         MARKER.findAll(text).forEach { match ->
             builder.append(text, last, match.range.first)
             val label = match.groupValues[1]
+            // Сноска страницы: метка «p12-3», показываем «[3]».
+            val display = if (label.startsWith("p") && label.contains('-')) {
+                label.substringAfter('-')
+            } else {
+                label
+            }
             val start = builder.length
-            builder.append('[').append(label).append(']')
+            builder.append('[').append(display).append(']')
             spans += NoteSpan(start, builder.length, label)
             last = match.range.last + 1
         }

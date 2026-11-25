@@ -18,6 +18,7 @@ data class NoteRef(
 class BookNotes private constructor(
     private val sections: List<Section>,
     private val chapterSections: Map<Int, Section>,
+    private val chapterFootnotes: Map<Int, Map<String, NoteRef>>,
     val sourceChapter: String,
 ) {
     data class Section(val key: String, val title: String, val notes: Map<String, NoteRef>)
@@ -27,7 +28,8 @@ class BookNotes private constructor(
      * наследуют раздел своей «Главы N».
      */
     fun noteFor(chapterIndex: Int, label: String): NoteRef? =
-        chapterSections[chapterIndex]?.notes?.get(label)
+        chapterFootnotes[chapterIndex]?.get(label)
+            ?: chapterSections[chapterIndex]?.notes?.get(label)
 
     companion object {
         private val NOTES_TITLE = Regex("(примеч|коммент|сноск|notes)", RegexOption.IGNORE_CASE)
@@ -40,13 +42,32 @@ class BookNotes private constructor(
         private val WHITESPACE = Regex("\\s+")
 
         fun parse(book: Book): BookNotes? {
+            // Сноски страниц есть и у книг без главы «Примечания».
+            val pageNotes = book.chapters.mapIndexed { index, chapter ->
+                index to chapter.footnotes.associate { note ->
+                    note.label to NoteRef(note.label, note.text, chapter.title)
+                }
+            }.toMap()
+            val hasPageNotes = pageNotes.values.any { it.isNotEmpty() }
             val chapter = book.chapters.firstOrNull { NOTES_TITLE.containsMatchIn(it.title) }
-                ?: return null
+            if (chapter == null) {
+                return if (hasPageNotes) {
+                    BookNotes(emptyList(), emptyMap(), pageNotes, "")
+                } else {
+                    null
+                }
+            }
             val text = chapter.segments
                 .joinToString(" ")
                 .replace(WHITESPACE, " ")
                 .trim()
-            if (text.isBlank()) return null
+            if (text.isBlank()) {
+                return if (hasPageNotes) {
+                    BookNotes(emptyList(), emptyMap(), pageNotes, chapter.title)
+                } else {
+                    null
+                }
+            }
             val headings = SECTION.findAll(text).filter { match ->
                 val title = match.groupValues[1]
                 // Настоящий раздел начинается с заглавной и сразу за ним идёт «1 »;
@@ -55,14 +76,25 @@ class BookNotes private constructor(
                 val after = text.substring(match.range.last + 1).trimStart()
                 uppercase && after.startsWith("1 ")
             }.toList()
-            if (headings.isEmpty()) return null
+            if (headings.isEmpty()) {
+                return if (hasPageNotes) {
+                    BookNotes(emptyList(), emptyMap(), pageNotes, chapter.title)
+                } else {
+                    null
+                }
+            }
             val sections = headings.mapIndexed { index, match ->
                 val start = match.range.last + 1
                 val end = headings.getOrNull(index + 1)?.range?.first ?: text.length
                 val title = match.groupValues[1].trim()
                 Section(normalize(title), title, splitNotes(text.substring(start, end), title))
             }
-            return BookNotes(sections, assignSections(book, sections), chapter.title)
+            return BookNotes(
+                sections,
+                assignSections(book, sections),
+                pageNotes,
+                chapter.title,
+            )
         }
 
         /** Каждой главе — её раздел примечаний; подглавы наследуют предыдущий. */

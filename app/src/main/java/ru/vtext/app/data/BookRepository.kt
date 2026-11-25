@@ -458,6 +458,14 @@ class BookRepository(private val context: Context) {
         book.chapters.forEach { chapter ->
             val segments = JSONArray()
             chapter.segments.forEach { segments.put(it) }
+            val footnotes = JSONArray()
+            chapter.footnotes.forEach { note ->
+                footnotes.put(
+                    JSONObject()
+                        .put("label", note.label)
+                        .put("text", note.text),
+                )
+            }
             val images = JSONArray()
             chapter.images.forEach { image ->
                 images.put(
@@ -473,7 +481,8 @@ class BookRepository(private val context: Context) {
                     .put("segments", segments)
                     .put("depth", chapter.depth)
                     .put("page", chapter.page)
-                    .put("images", images),
+                    .put("images", images)
+                    .put("footnotes", footnotes),
             )
         }
         File(dir, "chapters.json").writeText(chapters.toString())
@@ -505,12 +514,27 @@ class BookRepository(private val context: Context) {
                         )
                     }
                 }
+                val footnotesArray = obj.optJSONArray("footnotes")
+                val footnotes = if (footnotesArray == null) {
+                    emptyList()
+                } else {
+                    (0 until footnotesArray.length()).mapNotNull { noteIndex ->
+                        val note = footnotesArray.optJSONObject(noteIndex) ?: return@mapNotNull null
+                        val label = note.optString("label")
+                        if (label.isBlank()) return@mapNotNull null
+                        ru.vtext.app.domain.model.ChapterNote(
+                            label = label,
+                            text = note.optString("text"),
+                        )
+                    }
+                }
                 Chapter(
                     title = obj.optString("title", "Глава ${index + 1}"),
                     segments = (0 until segments.length()).map { segments.getString(it) },
                     depth = obj.optInt("depth", 0),
                     page = obj.optInt("page", -1),
                     images = images,
+                    footnotes = footnotes,
                 )
             }
         }.getOrNull()
@@ -519,6 +543,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 35
+        const val SEGMENT_VERSION = 36
     }
 }

@@ -14,6 +14,7 @@ import ru.vtext.app.domain.TextSegmenter
 import ru.vtext.app.domain.cleanup.CleanupOptions
 import ru.vtext.app.domain.cleanup.ImportTextCleaner
 import ru.vtext.app.domain.model.Chapter
+import ru.vtext.app.domain.model.ChapterNote
 import ru.vtext.app.domain.model.ChapterImage
 import ru.vtext.app.domain.model.ParsedBook
 import ru.vtext.app.domain.model.TextPreset
@@ -39,8 +40,9 @@ class PdfParser : BookParser {
 
                 // Основной путь: KitePDF даёт готовые абзацы и кегли,
                 // по ним возвращаем буквицы на место. PDFBox — запасной.
-                val pageTexts = runCatching { kitePageTexts(file, preset) }
-                    .getOrElse {
+                val kite = runCatching { kitePages(file, preset) }.getOrNull()
+                val pageTexts = kite?.map { it.text }
+                    ?: run {
                         val pageCount = document.numberOfPages
                         val tracker = PdfStyleTracker()
                         (1..pageCount).map { page ->
@@ -95,10 +97,15 @@ class PdfParser : BookParser {
                         chaptersFromPages(cleanedPages, effectivePreset)
                     }
                 }
-                val withImages = if (assetsDir == null) {
+                val withFootnotes = if (kite == null) {
                     chapters
                 } else {
-                    attachPageImages(chapters, extractImages(document, assetsDir))
+                    attachFootnotes(chapters, kite)
+                }
+                val withImages = if (assetsDir == null) {
+                    withFootnotes
+                } else {
+                    attachPageImages(withFootnotes, extractImages(document, assetsDir))
                 }
                 ParsedBook(title, author, withImages)
             }
@@ -109,16 +116,19 @@ class PdfParser : BookParser {
         }
     }
 
+    internal data class KitePage(val text: String, val footnotes: List<ChapterNote>)
+
     /**
-     * Текст страницы через KitePDF: `structuredText.blocks` — это абзацы,
+     * Текст страниц через KitePDF: `structuredText.blocks` — это абзацы,
      * строки внутри блока склеиваем. Буквица — одиночная заглавная буква
      * с кеглем заметно больше основного: переносим её в начало абзаца.
-     * В стихах строки не склеиваем.
+     * Сноски внизу страницы (мелкий текст) вынимаем из тела и привязываем
+     * к маркерам на этой же странице («p12-3»).
      */
-    private fun kitePageTexts(file: File, preset: TextPreset): List<String> {
+    internal fun kitePages(file: File, preset: TextPreset): List<KitePage> {
         val document = io.github.yuroyami.kitepdf.PdfDocument.open(file.readBytes())
         val joiner = if (preset == TextPreset.POETRY) "\n" else " "
-        return document.pages.map { page ->
+        return document.pages.mapIndexed { pageIndex, page ->
             val blocks = page.structuredText.blocks
             val weights = HashMap<Int, Int>()
             for (block in blocks) {
@@ -130,15 +140,73 @@ class PdfParser : BookParser {
                 }
             }
             val body = (weights.maxByOrNull { it.value }?.key ?: 10).toFloat()
+            val bodyMinY = blocks
+                .flatMap { it.lines }
+                .flatMap { it.spans }
+                .filter { it.fontSize >= body * 0.85f }
+                .minOfOrNull { it.origin?.second ?: 0.0 } ?: 0.0
+
+            val footnotes = mutableListOf<ChapterNote>()
+            val footnoteLabels = mutableSetOf<String>()
+            val bodyBlocks = mutableListOf<Int>()
+            blocks.forEachIndexed { index, block ->
+                val spans = block.lines.flatMap { it.spans }
+                if (spans.isEmpty()) {
+                    bodyBlocks += index
+                    return@forEachIndexed
+                }
+                val allSmall = spans.all { it.fontSize < body * 0.85f }
+                val top = spans.maxOfOrNull { (it.origin?.second ?: 0.0) + it.fontSize } ?: 0.0
+                if (allSmall && top < bodyMinY) {
+                    val parsed = mutableListOf<ChapterNote>()
+                    var label: String? = null
+                    val text = StringBuilder()
+                    block.lines.forEach { line ->
+                        val lineText = line.spans.joinToString("") { it.text }.trim()
+                        if (lineText.isEmpty()) return@forEach
+                        val match = FOOTNOTE_LINE.find(lineText)
+                        if (match != null) {
+                            label?.let { previous ->
+                                parsed += ChapterNote(
+                                    "p${pageIndex + 1}-$previous",
+                                    text.toString().trim(),
+                                )
+                            }
+                            label = match.groupValues[1]
+                            text.setLength(0)
+                            text.append(match.groupValues[2])
+                        } else if (label != null) {
+                            if (text.isNotEmpty()) text.append(' ')
+                            text.append(lineText)
+                        }
+                    }
+                    label?.let { last ->
+                        parsed += ChapterNote(
+                            "p${pageIndex + 1}-$last",
+                            text.toString().trim(),
+                        )
+                    }
+                    if (parsed.isEmpty()) {
+                        // Мелкий блок без номера — это не сноска, оставляем в теле.
+                        bodyBlocks += index
+                    } else {
+                        footnotes += parsed
+                        parsed.forEach { note ->
+                            footnoteLabels += note.label.substringAfter('-')
+                        }
+                    }
+                } else {
+                    bodyBlocks += index
+                }
+            }
+
             val pageText = StringBuilder()
-            for (block in blocks) {
+            for (index in bodyBlocks) {
+                val block = blocks.getOrNull(index) ?: continue
                 val dropCaps = StringBuilder()
-                // Строки блока: текст, базовая линия и правые края спанов
-                // (по x понимаем, после какого слова стоит ссылка).
                 val lineText = mutableListOf<StringBuilder>()
                 val lineBaseline = mutableListOf<Double>()
                 val lineMarks = mutableListOf<List<Pair<Double, Int>>>()
-                // Ссылки: метка, x, базовая линия.
                 val markers = mutableListOf<Triple<String, Double, Double>>()
                 for (line in block.lines) {
                     val rawLine = line.spans.joinToString("") { it.text }.trim()
@@ -146,7 +214,12 @@ class PdfParser : BookParser {
                     val baseline = line.spans.firstOrNull()?.origin?.second ?: 0.0
                     if (maxSize <= body * 0.85f && NOTE_LABEL.matches(rawLine)) {
                         val x = line.spans.firstOrNull()?.bounds?.left ?: 0.0
-                        markers += Triple(rawLine, x, baseline)
+                        val label = if (rawLine in footnoteLabels) {
+                            "p${pageIndex + 1}-$rawLine"
+                        } else {
+                            rawLine
+                        }
+                        markers += Triple(label, x, baseline)
                         continue
                     }
                     val text = StringBuilder()
@@ -171,8 +244,6 @@ class PdfParser : BookParser {
                     }
                 }
                 if (lineText.isEmpty()) continue
-                // Ссылка принадлежит строке с ближайшей базовой линией снизу:
-                // верхний индекс поднят над своей строкой, а не над соседней.
                 val insertions = mutableMapOf<Int, MutableList<Pair<Int, String>>>()
                 for (marker in markers) {
                     val label = marker.first
@@ -180,10 +251,10 @@ class PdfParser : BookParser {
                     val markerY = marker.third
                     var target = -1
                     var bestY = Double.NEGATIVE_INFINITY
-                    lineBaseline.forEachIndexed { index, y ->
+                    lineBaseline.forEachIndexed { lineIndex, y ->
                         if (y <= markerY + 0.1 && y > bestY) {
                             bestY = y
-                            target = index
+                            target = lineIndex
                         }
                     }
                     if (target < 0) {
@@ -192,28 +263,25 @@ class PdfParser : BookParser {
                         } ?: -1
                     }
                     if (target < 0) continue
-                    val index = lineMarks[target]
+                    val insertion = lineMarks[target]
                         .lastOrNull { it.first <= markerX + 1.0 }
                         ?.second ?: 0
-                    insertions.getOrPut(target) { mutableListOf() } += index to label
+                    insertions.getOrPut(target) { mutableListOf() } += insertion to label
                 }
-                // Вставляем с конца строки, чтобы не сдвигать индексы.
                 insertions.forEach { (lineIndex, items) ->
                     val raw = lineText[lineIndex]
-                    items.sortedByDescending { it.first }.forEach { (index, label) ->
-                        raw.insert(index.coerceIn(0, raw.length), "⟦" + label + "⟧")
+                    items.sortedByDescending { it.first }.forEach { (position, label) ->
+                        raw.insert(position.coerceIn(0, raw.length), "⟦" + label + "⟧")
                     }
                 }
                 val builder = StringBuilder(dropCaps)
-                lineText.forEachIndexed { index, line ->
-                    if (index > 0) builder.append(joiner)
+                lineText.forEachIndexed { lineIndex, line ->
+                    if (lineIndex > 0) builder.append(joiner)
                     builder.append(line.toString().trim())
                 }
                 val joined = if (preset == TextPreset.POETRY) {
                     builder.toString()
                 } else {
-                    // Ссылка может стоять между дефисом и продолжением слова:
-                    // «придавав-⟦30⟧ шим» -> «придававшим⟦30⟧».
                     val withNote = HYPHEN_WITH_NOTE.replace(builder.toString()) { match ->
                         match.groupValues[1] + match.groupValues[3] + "⟦" +
                             match.groupValues[2] + "⟧"
@@ -224,7 +292,25 @@ class PdfParser : BookParser {
                 }
                 pageText.append(joined).append("\n\n")
             }
-            pageText.toString().trim()
+            KitePage(pageText.toString().trim(), footnotes)
+        }
+    }
+
+    /** Сноски страниц — в главу, на страницах которой они стоят. */
+    private fun attachFootnotes(chapters: List<Chapter>, pages: List<KitePage>): List<Chapter> {
+        if (chapters.isEmpty()) return chapters
+        val byChapter = mutableMapOf<Int, MutableList<ChapterNote>>()
+        pages.forEachIndexed { page, kitePage ->
+            if (kitePage.footnotes.isEmpty()) return@forEachIndexed
+            var target = 0
+            chapters.forEachIndexed { index, chapter ->
+                if (chapter.page.coerceAtLeast(0) <= page) target = index
+            }
+            byChapter.getOrPut(target) { mutableListOf() } += kitePage.footnotes
+        }
+        return chapters.mapIndexed { index, chapter ->
+            val notes = byChapter[index] ?: return@mapIndexed chapter
+            chapter.copy(footnotes = chapter.footnotes + notes)
         }
     }
 
@@ -466,6 +552,7 @@ class PdfParser : BookParser {
         val HYPHEN_WITH_NOTE =
             Regex("([\\p{L}])-\\s*⟦([\\d*]{1,3})⟧\\s+([\\p{Ll}])")
         val NOTE_LABEL = Regex("^[\\d*]{1,3}$")
+        val FOOTNOTE_LINE = Regex("^([*\\d]{1,3})[.)]?\\s+(.*)$")
         val CROSS_PAGE_HYPHEN = Regex("([\\p{L}])-[ \\t]*\\n\\s*\\n[ \\t]*([\\p{L}])")
         const val MIN_OUTLINE_ENTRIES = 3
         const val MAX_DEPTH = 2

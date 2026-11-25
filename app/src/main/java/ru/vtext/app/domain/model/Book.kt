@@ -15,6 +15,15 @@ data class Chapter(
     val page: Int = -1,
     /** Картинки главы: после какого фрагмента вставлять. */
     val images: List<ChapterImage> = emptyList(),
+    /** Сноски страницы: метка «p12-3» и текст. */
+    val footnotes: List<ChapterNote> = emptyList(),
+)
+
+/** Сноска внизу страницы PDF. */
+data class ChapterNote(
+    /** Уникальная метка: «p12-3» (страница 12, сноска 3). */
+    val label: String,
+    val text: String,
 )
 
 /** Картинка внутри главы (иллюстрация, схема, фото). */
