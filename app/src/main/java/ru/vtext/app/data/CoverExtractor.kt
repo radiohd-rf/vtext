@@ -19,7 +19,7 @@ object CoverExtractor {
             BookFormat.PDF -> extractPdf(source, dir)
             BookFormat.EPUB -> extractEpub(source, dir)
             BookFormat.FB2 -> extractFb2(source, dir)
-            BookFormat.TXT, BookFormat.DOCX -> null
+            BookFormat.TXT, BookFormat.DOCX, BookFormat.RTF -> null
         }
     }.getOrNull()
 

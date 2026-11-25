@@ -37,6 +37,7 @@ class DocxParser : BookParser {
 
             val title = readCoreProperty(zip, "title")?.takeIf { it.isNotBlank() } ?: fallbackTitle
             val author = readCoreProperty(zip, "creator")?.takeIf { it.isNotBlank() }
+            val styles = readStyles(zip)
 
             val paragraphs = document.getElementsByTagName("*")
             val blocks = mutableListOf<Pair<String, StringBuilder>>()
@@ -53,9 +54,14 @@ class DocxParser : BookParser {
             for (index in 0 until paragraphs.length) {
                 val node = paragraphs.item(index)
                 if (node !is Element || localName(node) != "p") continue
+                val styleId = paragraphStyle(node)
+                // Оглавление книги в тексте не читаем: это сотни строк со ссылками.
+                if (styleId != null && styleId in styles.skip) continue
                 val text = paragraphText(node).trim()
                 if (text.isEmpty()) continue
-                if (isHeading(node)) {
+                if (styleId != null &&
+                    (styleId in styles.headings || headingStyle.containsMatchIn(styleId))
+                ) {
                     flush()
                     currentTitle = text
                 } else {
@@ -174,11 +180,45 @@ class DocxParser : BookParser {
         return value.isBlank() || value !in setOf("0", "false", "off")
     }
 
-    private fun isHeading(paragraph: Element): Boolean {
-        val properties = firstChildElement(paragraph, "ppr") ?: return false
-        val style = firstChildElement(properties, "pstyle")?.let { styleValue(it) }
-        if (style != null && headingStyle.containsMatchIn(style)) return true
-        return firstChildElement(properties, "outlinelvl") != null
+    /**
+     * Заголовки и служебные стили из `word/styles.xml`. Идентификатор стиля
+     * (`w:styleId="1"`) ничего не говорит, имя («heading 1») и `outlineLvl`
+     * лежат в таблице стилей — без неё DOCX остаётся одной главой.
+     */
+    private fun readStyles(zip: ZipFile): DocxStyles {
+        val entry = zip.getEntry("word/styles.xml") ?: return DocxStyles(emptySet(), emptySet())
+        val document = parseXml(zip.readBytes(entry)) ?: return DocxStyles(emptySet(), emptySet())
+        val headings = mutableSetOf<String>()
+        val skip = mutableSetOf<String>()
+        val nodes = document.getElementsByTagName("*")
+        for (index in 0 until nodes.length) {
+            val node = nodes.item(index)
+            if (node !is Element || localName(node) != "style") continue
+            val id = node.getAttribute("w:styleId").ifBlank { node.getAttribute("styleId") }
+            if (id.isBlank()) continue
+            val name = firstChildElement(node, "name")
+                ?.let { it.getAttribute("w:val").ifBlank { it.getAttribute("val") } }
+                .orEmpty()
+            if (name.startsWith("toc", ignoreCase = true)) {
+                skip += id
+                continue
+            }
+            val outline = firstChildElement(node, "outlinelvl")
+                ?.let { it.getAttribute("w:val").ifBlank { it.getAttribute("val") } }
+                ?.toIntOrNull()
+            val named = headingStyle.containsMatchIn(name.lowercase())
+            if (named || (outline != null && outline <= HEADING_MAX_OUTLINE)) {
+                headings += id
+            }
+        }
+        return DocxStyles(headings, skip)
+    }
+
+    private data class DocxStyles(val headings: Set<String>, val skip: Set<String>)
+
+    private fun paragraphStyle(paragraph: Element): String? {
+        val properties = firstChildElement(paragraph, "ppr") ?: return null
+        return firstChildElement(properties, "pstyle")?.let { styleValue(it) }
     }
 
     private fun styleValue(element: Element): String? {
@@ -197,6 +237,7 @@ class DocxParser : BookParser {
     }
 
     private val NOTE_MARKER = Regex("⟦(.+)-([^-]+)⟧")
+    private val HEADING_MAX_OUTLINE = 8
 
     /** Тексты сносок из word/footnotes.xml по id. */
     private fun readFootnotes(zip: ZipFile): Map<String, String> {
@@ -252,7 +293,9 @@ class DocxParser : BookParser {
         val factory = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = false
             isExpandEntityReferences = false
-            isXIncludeAware = false
+            // isXIncludeAware на Android бросает UnsupportedOperationException
+            // и утянул бы за собой весь разбор (книга открывалась пустой).
+            runCatching { isXIncludeAware = false }
         }
         // DOCX приходит от пользователя: запрещаем DOCTYPE и внешние сущности (XXE).
         runCatching {
@@ -265,7 +308,8 @@ class DocxParser : BookParser {
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
         }
         factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes))
-    } catch (_: Exception) {
+    } catch (error: Exception) {
+        android.util.Log.e("VtextParse", "docx xml parse failed", error)
         null
     }
 

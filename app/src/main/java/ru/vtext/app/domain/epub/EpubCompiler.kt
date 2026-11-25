@@ -15,7 +15,7 @@ import ru.vtext.app.domain.model.Chapter
 object EpubCompiler {
 
     /** Версия формата: при изменении старые собранные книги пересобираются. */
-    const val VERSION = 1
+    const val VERSION = 2
 
     private const val MARKER = "vtext"
 

@@ -27,7 +27,24 @@ data class NoteSpan(val start: Int, val end: Int, val label: String)
 
 /** Разметка ссылок: `⟦12⟧` → «[12]» + диапазон для тапа. */
 object NoteMarkup {
-    private val MARKER = Regex("⟦((?:p\\d+-)?[\\d*]{1,3})⟧")
+    private val MARKER = Regex("⟦([^⟧]+)⟧")
+
+    /**
+     * Чистим текст, не трогая метки примечаний: `displayText` вырезает цифры,
+     * приклеенные к букве («mariages.21»), и от `⟦p10-1⟧` осталось бы `⟦p-1⟧`.
+     */
+    fun prepare(text: String, transform: (String) -> String): String {
+        if (!text.contains('⟦')) return transform(text)
+        val builder = StringBuilder()
+        var last = 0
+        MARKER.findAll(text).forEach { match ->
+            builder.append(transform(text.substring(last, match.range.first)))
+            builder.append(match.value)
+            last = match.range.last + 1
+        }
+        builder.append(transform(text.substring(last)))
+        return builder.toString()
+    }
 
     fun render(text: String): Pair<String, List<NoteSpan>> {
         if (!text.contains('⟦')) return text to emptyList()
@@ -262,7 +279,9 @@ class ReaderViewModel(
             chapter.images.filter { it.afterSegment < 0 }.forEach { imageItem(chapterIndex, it) }
             chapter.segments.forEachIndexed { segmentIndex, segment ->
                 val (text, noteSpans) = NoteMarkup.render(
-                    TextMarkup.strip(SileroText.displayText(segment)).trim(),
+                    TextMarkup.strip(
+                        NoteMarkup.prepare(segment) { SileroText.displayText(it) },
+                    ).trim(),
                 )
                 if (text.isNotEmpty()) {
                     items += ReaderItem.Paragraph(chapterIndex, segmentIndex, text, noteSpans)

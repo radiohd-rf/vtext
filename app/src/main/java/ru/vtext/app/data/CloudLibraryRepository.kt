@@ -494,6 +494,6 @@ class CloudLibraryRepository(
         const val DEFAULT_PUBLIC_KEY = "https://disk.yandex.ru/d/4E02W0jItTRutA"
         const val DEFAULT_NAME = "Книги Маши"
 
-        val TEXT_EXTENSIONS = setOf("txt", "fb2", "epub", "pdf", "docx")
+        val TEXT_EXTENSIONS = setOf("txt", "fb2", "epub", "pdf", "docx", "rtf")
     }
 }

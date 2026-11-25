@@ -50,15 +50,7 @@ class Fb2Parser : BookParser {
                 if (text.isNotBlank()) chapters += Chapter(title, TextSegmenter.segmentFor(text, preset))
             } else {
                 sections.forEachIndexed { index, section ->
-                    val sectionTitle = childElements(section, "title")
-                        .firstOrNull()
-                        ?.let { textOf(it).trim() }
-                        ?.ifBlank { null }
-                        ?: "Глава ${index + 1}"
-                    val text = paragraphsText(section)
-                    if (text.isNotBlank()) {
-                        chapters += Chapter(sectionTitle, TextSegmenter.segmentFor(text, preset))
-                    }
+                    appendSection(section, null, index, chapters, preset)
                 }
             }
         }
@@ -97,6 +89,7 @@ class Fb2Parser : BookParser {
     }
 
     private val NOTE_MARKER = Regex("⟦(.+)-([^-]+)⟧")
+    private val NUMBER_ONLY = Regex("^[0-9IVXLCDM]{1,6}$", RegexOption.IGNORE_CASE)
 
     private fun firstText(document: Document, tag: String): String? {
         val nodes = document.getElementsByTagName(tag)
@@ -114,6 +107,57 @@ class Fb2Parser : BookParser {
             if (value.isNotBlank()) return value
         }
         return null
+    }
+
+    /**
+     * Раздел FB2 в главы. Вложенные `<section>` — это подглавы: текст самого
+     * раздела становится отдельной главой, а подразделы обходятся рекурсивно.
+     * Числовые заголовки («1», «II») дополняются названием родителя —
+     * иначе в оглавлении остаются безымянные номера.
+     */
+    private fun appendSection(
+        section: Element,
+        parentTitle: String?,
+        index: Int,
+        chapters: MutableList<Chapter>,
+        preset: TextPreset,
+    ) {
+        val ownTitle = childElements(section, "title")
+            .firstOrNull()
+            ?.let { textOf(it).trim() }
+            ?.ifBlank { null }
+        val baseTitle = ownTitle ?: "Глава ${index + 1}"
+        val displayTitle = if (parentTitle != null && NUMBER_ONLY.matches(baseTitle)) {
+            "$parentTitle · $baseTitle"
+        } else {
+            baseTitle
+        }
+        val ownText = ownParagraphsText(section)
+        if (ownText.isNotBlank()) {
+            chapters += Chapter(displayTitle, TextSegmenter.segmentFor(ownText, preset))
+        }
+        val children = childElements(section, "section")
+        children.forEachIndexed { childIndex, child ->
+            appendSection(child, baseTitle, childIndex, chapters, preset)
+        }
+    }
+
+    /** Абзацы самого раздела, без вложенных `<section>`. */
+    private fun ownParagraphsText(section: Element): String {
+        val builder = StringBuilder()
+        val children = section.childNodes
+        for (i in 0 until children.length) {
+            val child = children.item(i) as? Element ?: continue
+            val name = localName(child)
+            if (name == "title" || name == "section") continue
+            if (name == "p") {
+                val text = textOf(child).trim()
+                if (text.isNotBlank()) builder.append(text).append("\n\n")
+            } else {
+                collectParagraphs(child, builder)
+            }
+        }
+        return builder.toString().trim()
     }
 
     private fun childElements(parent: Element, name: String): List<Element> {

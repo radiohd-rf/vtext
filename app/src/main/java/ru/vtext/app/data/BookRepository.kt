@@ -25,6 +25,7 @@ import ru.vtext.app.domain.epub.EpubCompiler
 import ru.vtext.app.domain.parser.EpubParser
 import ru.vtext.app.domain.parser.Fb2Parser
 import ru.vtext.app.domain.parser.PdfParser
+import ru.vtext.app.domain.parser.RtfParser
 import ru.vtext.app.domain.parser.TxtParser
 
 /**
@@ -40,6 +41,7 @@ class BookRepository(private val context: Context) {
         BookFormat.EPUB to EpubParser(),
         BookFormat.PDF to PdfParser(),
         BookFormat.DOCX to DocxParser(),
+        BookFormat.RTF to RtfParser(),
     )
     private val cache = ConcurrentHashMap<String, Book>()
     private val parseLocks = ConcurrentHashMap<String, Mutex>()
@@ -265,7 +267,15 @@ class BookRepository(private val context: Context) {
             } else {
                 source ?: return@withLock null
                 val assets = File(dir, "epub-assets").apply { mkdirs() }
-                val parsed = parsers.getValue(format).parse(source, meta.title, meta.preset, assets)
+                val parsed = runCatching {
+                    parsers.getValue(format).parse(source, meta.title, meta.preset, assets)
+                }.onFailure {
+                    android.util.Log.e("VtextParse", "parse failed: $id", it)
+                }.getOrThrow()
+                android.util.Log.i(
+                    "VtextParse",
+                    "parsed $id (${format.name}): ${parsed.chapters.size} chapters",
+                )
                 if (format == BookFormat.EPUB) {
                     parsed.chapters
                 } else {
@@ -282,9 +292,12 @@ class BookRepository(private val context: Context) {
                                 chapters = text,
                                 assetsDir = assets,
                             )
-                            EpubParser()
+                            val roundtrip = EpubParser()
                                 .parse(compiledEpub, meta.title, meta.preset, assets)
                                 .chapters
+                            // EPUB хранит только текст: сноски и номера страниц
+                            // возвращаем из исходного разбора.
+                            mergeChapterMeta(text, roundtrip)
                         }.getOrDefault(text)
                     }
                 }
@@ -365,11 +378,13 @@ class BookRepository(private val context: Context) {
             extension == "epub" -> BookFormat.EPUB
             extension == "pdf" -> BookFormat.PDF
             extension == "docx" -> BookFormat.DOCX
+            extension == "rtf" -> BookFormat.RTF
             mime == "text/plain" -> BookFormat.TXT
             mime == "application/epub+zip" -> BookFormat.EPUB
             mime == "application/pdf" -> BookFormat.PDF
             mime == DOCX_MIME -> BookFormat.DOCX
             mime?.contains("fictionbook") == true -> BookFormat.FB2
+            mime == "application/rtf" || mime == "text/rtf" -> BookFormat.RTF
             else -> null
         }
     }
@@ -413,6 +428,25 @@ class BookRepository(private val context: Context) {
         val file = File(dir, "meta.json")
         if (!file.isFile) return 0
         return runCatching { JSONObject(file.readText()).optInt("segmentVersion", 0) }.getOrDefault(0)
+    }
+
+    /**
+     * После сборки EPUB и обратного разбора возвращает в главы то, чего в EPUB
+     * нет: сноски страниц и номера страниц (для просмотра оригинала).
+     */
+    private fun mergeChapterMeta(source: List<Chapter>, target: List<Chapter>): List<Chapter> {
+        if (source.size != target.size) return target
+        return target.mapIndexed { index, chapter ->
+            val original = source[index]
+            if (original.footnotes.isEmpty() && original.page < 0) {
+                chapter
+            } else {
+                chapter.copy(
+                    footnotes = original.footnotes,
+                    page = original.page,
+                )
+            }
+        }
     }
 
     private fun readMeta(dir: File): Book? {
@@ -543,6 +577,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 36
+        const val SEGMENT_VERSION = 41
     }
 }

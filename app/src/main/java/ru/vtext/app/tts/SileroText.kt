@@ -375,7 +375,7 @@ internal object SileroText {
     private val FOOTNOTE_RE = Regex("\\[\\d{1,3}]")
 
     /** Ссылка на примечание из PDF-извлечения: ⟦12⟧. */
-    private val NOTE_MARKER_RE = Regex("⟦(?:p\\d+-)?[\\d*]{1,3}⟧")
+    private val NOTE_MARKER_RE = Regex("⟦[^⟧]+⟧")
 
     /** Сноски, приклеенные к слову: «mariages.21», «dites.1», «peur,2». Годы (4 цифры) не трогаем. */
     private val GLUED_NUMBER_RE = Regex(

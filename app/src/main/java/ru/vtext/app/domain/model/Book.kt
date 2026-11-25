@@ -3,7 +3,7 @@ package ru.vtext.app.domain.model
 /** Чем книга является для приложения: текстом для озвучки или готовым аудио. */
 enum class BookKind { TEXT, AUDIO }
 
-enum class BookFormat { TXT, FB2, EPUB, PDF, DOCX }
+enum class BookFormat { TXT, FB2, EPUB, PDF, DOCX, RTF }
 
 /** Глава книги, разбитая на короткие фрагменты — единицы озвучивания. */
 data class Chapter(

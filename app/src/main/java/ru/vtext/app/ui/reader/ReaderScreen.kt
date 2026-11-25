@@ -478,7 +478,9 @@ fun ReaderScreen(
             }
 
             val onNote: (String) -> Unit = { label ->
-                noteSheet = NoteSheetState(label, viewModel.noteFor(label))
+                // Метка сноски страницы — «p10-1», в заголовке показываем номер.
+                val display = if (label.contains('-')) label.substringAfterLast('-') else label
+                noteSheet = NoteSheetState(display, viewModel.noteFor(label))
             }
             val percent = state.book?.let {
                 ru.vtext.app.domain.bookPercent(

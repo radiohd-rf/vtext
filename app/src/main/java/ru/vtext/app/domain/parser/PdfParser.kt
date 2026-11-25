@@ -3,8 +3,14 @@ package ru.vtext.app.domain.parser
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import com.tom_roush.pdfbox.contentstream.operator.Operator
+import com.tom_roush.pdfbox.cos.COSBase
+import com.tom_roush.pdfbox.cos.COSName
+import com.tom_roush.pdfbox.pdfparser.PDFStreamParser
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.PDResources
+import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
@@ -148,67 +154,38 @@ class PdfParser : BookParser {
 
             val footnotes = mutableListOf<ChapterNote>()
             val footnoteLabels = mutableSetOf<String>()
-            val bodyBlocks = mutableListOf<Int>()
-            blocks.forEachIndexed { index, block ->
-                val spans = block.lines.flatMap { it.spans }
-                if (spans.isEmpty()) {
-                    bodyBlocks += index
-                    return@forEachIndexed
+            // Сноски — строки мелким кеглем ниже последней строки тела. Смотрим
+            // построчно: KitePDF нередко отдаёт всю страницу одним блоком, и
+            // тогда «мелкий блок» не выделяется.
+            val footnoteLines = mutableListOf<String>()
+            val keptLines = blocks.map { block ->
+                block.lines.filter { line ->
+                    val spans = line.spans
+                    if (spans.isEmpty()) return@filter true
+                    val maxSize = spans.maxOfOrNull { it.fontSize.toFloat() } ?: body
+                    val y = spans.firstOrNull()?.origin?.second ?: 0.0
+                    val isFootnote = maxSize < body * 0.85f && y < bodyMinY
+                    if (isFootnote) {
+                        footnoteLines += spans.joinToString("") { it.text }.trim()
+                    }
+                    !isFootnote
                 }
-                val allSmall = spans.all { it.fontSize < body * 0.85f }
-                val top = spans.maxOfOrNull { (it.origin?.second ?: 0.0) + it.fontSize } ?: 0.0
-                if (allSmall && top < bodyMinY) {
-                    val parsed = mutableListOf<ChapterNote>()
-                    var label: String? = null
-                    val text = StringBuilder()
-                    block.lines.forEach { line ->
-                        val lineText = line.spans.joinToString("") { it.text }.trim()
-                        if (lineText.isEmpty()) return@forEach
-                        val match = FOOTNOTE_LINE.find(lineText)
-                        if (match != null) {
-                            label?.let { previous ->
-                                parsed += ChapterNote(
-                                    "p${pageIndex + 1}-$previous",
-                                    text.toString().trim(),
-                                )
-                            }
-                            label = match.groupValues[1]
-                            text.setLength(0)
-                            text.append(match.groupValues[2])
-                        } else if (label != null) {
-                            if (text.isNotEmpty()) text.append(' ')
-                            text.append(lineText)
-                        }
-                    }
-                    label?.let { last ->
-                        parsed += ChapterNote(
-                            "p${pageIndex + 1}-$last",
-                            text.toString().trim(),
-                        )
-                    }
-                    if (parsed.isEmpty()) {
-                        // Мелкий блок без номера — это не сноска, оставляем в теле.
-                        bodyBlocks += index
-                    } else {
-                        footnotes += parsed
-                        parsed.forEach { note ->
-                            footnoteLabels += note.label.substringAfter('-')
-                        }
-                    }
-                } else {
-                    bodyBlocks += index
-                }
+            }
+            parseFootnoteLines(footnoteLines, pageIndex).forEach { note ->
+                footnotes += note
+                footnoteLabels += note.label.substringAfter('-')
             }
 
             val pageText = StringBuilder()
-            for (index in bodyBlocks) {
-                val block = blocks.getOrNull(index) ?: continue
+            blocks.forEachIndexed { index, block ->
+                val lines = keptLines[index]
+                if (lines.isEmpty()) return@forEachIndexed
                 val dropCaps = StringBuilder()
                 val lineText = mutableListOf<StringBuilder>()
                 val lineBaseline = mutableListOf<Double>()
                 val lineMarks = mutableListOf<List<Pair<Double, Int>>>()
                 val markers = mutableListOf<Triple<String, Double, Double>>()
-                for (line in block.lines) {
+                for (line in lines) {
                     val rawLine = line.spans.joinToString("") { it.text }.trim()
                     val maxSize = line.spans.maxOfOrNull { it.fontSize.toFloat() } ?: body
                     val baseline = line.spans.firstOrNull()?.origin?.second ?: 0.0
@@ -243,7 +220,7 @@ class PdfParser : BookParser {
                         lineMarks += marks
                     }
                 }
-                if (lineText.isEmpty()) continue
+                if (lineText.isEmpty()) return@forEachIndexed
                 val insertions = mutableMapOf<Int, MutableList<Pair<Int, String>>>()
                 for (marker in markers) {
                     val label = marker.first
@@ -296,21 +273,71 @@ class PdfParser : BookParser {
         }
     }
 
-    /** Сноски страниц — в главу, на страницах которой они стоят. */
+    /** Строки сносок страницы → примечания «p<страница>-<номер>». */
+    internal fun parseFootnoteLines(lines: List<String>, pageIndex: Int): List<ChapterNote> {
+        val result = mutableListOf<ChapterNote>()
+        var label: String? = null
+        val text = StringBuilder()
+
+        fun flush() {
+            val current = label
+            if (current != null) {
+                val body = text.toString().trim()
+                if (body.isNotBlank()) {
+                    result += ChapterNote("p${pageIndex + 1}-$current", body)
+                }
+            }
+            label = null
+            text.setLength(0)
+        }
+
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+            val match = FOOTNOTE_LINE.find(trimmed)
+            when {
+                NOTE_LABEL.matches(trimmed) -> {
+                    flush()
+                    label = trimmed
+                }
+                match != null -> {
+                    flush()
+                    label = match.groupValues[1]
+                    text.append(match.groupValues[2])
+                }
+                label != null -> {
+                    if (text.isNotEmpty()) text.append(' ')
+                    text.append(trimmed)
+                }
+            }
+        }
+        flush()
+        return result
+    }
+
+    /** Сноски страниц — в главу, где стоит маркер `⟦p12-3⟧`. */
     private fun attachFootnotes(chapters: List<Chapter>, pages: List<KitePage>): List<Chapter> {
         if (chapters.isEmpty()) return chapters
-        val byChapter = mutableMapOf<Int, MutableList<ChapterNote>>()
-        pages.forEachIndexed { page, kitePage ->
-            if (kitePage.footnotes.isEmpty()) return@forEachIndexed
-            var target = 0
-            chapters.forEachIndexed { index, chapter ->
-                if (chapter.page.coerceAtLeast(0) <= page) target = index
+        val all = pages.flatMap { it.footnotes }.distinctBy { it.label }
+        if (all.isEmpty()) return chapters
+        val used = mutableSetOf<String>()
+        val result = chapters.map { chapter ->
+            val text = chapter.segments.joinToString(" ")
+            val notes = all.filter { note -> text.contains("⟦" + note.label + "⟧") }
+            if (notes.isEmpty()) {
+                chapter
+            } else {
+                used += notes.map { it.label }
+                chapter.copy(footnotes = chapter.footnotes + notes)
             }
-            byChapter.getOrPut(target) { mutableListOf() } += kitePage.footnotes
         }
-        return chapters.mapIndexed { index, chapter ->
-            val notes = byChapter[index] ?: return@mapIndexed chapter
-            chapter.copy(footnotes = chapter.footnotes + notes)
+        val leftover = all.filter { it.label !in used }
+        if (leftover.isEmpty()) return result
+        // Маркер не распознан (или потерян при склейке строк) — не теряем текст:
+        // такие сноски кладём в последнюю главу.
+        val last = result.lastIndex
+        return result.mapIndexed { index, chapter ->
+            if (index != last) chapter else chapter.copy(footnotes = chapter.footnotes + leftover)
         }
     }
 
@@ -463,26 +490,91 @@ class PdfParser : BookParser {
         return text.takeIf { it.lowercase() !in placeholders }
     }
 
-    /** Встроенные картинки страниц: страница (с нуля) → имена файлов в assetsDir. */
+    /**
+     * Картинки, которые страница реально рисует. Смотреть только в ресурсы
+     * нельзя: многие PDF держат общий словарь XObject на всех страницах,
+     * и тогда одна и та же иллюстрация сохранялась бы сотни раз (книга
+     * А6 отдавала 1 ГБ картинок на 49 исходных). Поэтому идём по потоку
+     * содержимого (оператор `Do`) и повторно используем уже сохранённый файл.
+     */
     private fun extractImages(document: PDDocument, dir: File): Map<Int, List<String>> {
         val result = mutableMapOf<Int, MutableList<String>>()
         dir.mkdirs()
+        val saved = HashMap<COSBase, String>()
+        var total = 0
         for (pageIndex in 0 until document.numberOfPages) {
+            if (total >= MAX_IMAGES_PER_BOOK) break
             val page = document.getPage(pageIndex)
             val resources = page.resources ?: continue
+            val drawn = mutableListOf<PDImageXObject>()
+            collectDrawnImages(page, resources, mutableSetOf(), drawn, 0)
+            if (drawn.isEmpty()) continue
             var count = 0
-            for (name in resources.xObjectNames) {
-                if (count >= MAX_IMAGES_PER_PAGE) break
-                val xObject = runCatching { resources.getXObject(name) }.getOrNull() ?: continue
-                if (xObject !is PDImageXObject) continue
+            for (xObject in drawn) {
+                if (count >= MAX_IMAGES_PER_PAGE || total >= MAX_IMAGES_PER_BOOK) break
+                val key = xObject.cosObject
+                val existing = saved[key]
+                if (existing != null) {
+                    result.getOrPut(pageIndex) { mutableListOf() } += existing
+                    count += 1
+                    continue
+                }
                 val image = runCatching { xObject.image }.getOrNull() ?: continue
                 if (image.width < MIN_IMAGE_PX || image.height < MIN_IMAGE_PX) continue
                 val file = saveImage(image, pageIndex, count, dir) ?: continue
+                saved[key] = file
                 result.getOrPut(pageIndex) { mutableListOf() } += file
                 count += 1
+                total += 1
             }
         }
         return result
+    }
+
+    /** Изображения из потока содержимого страницы (и вложенных форм). */
+    private fun collectDrawnImages(
+        content: com.tom_roush.pdfbox.contentstream.PDContentStream,
+        resources: PDResources,
+        seen: MutableSet<COSBase>,
+        out: MutableList<PDImageXObject>,
+        depth: Int,
+    ) {
+        if (depth > MAX_FORM_DEPTH) return
+        val tokens = runCatching {
+            PDFStreamParser(content).also { it.parse() }.tokens
+        }.getOrNull() ?: return
+        var lastName: COSName? = null
+        for (token in tokens) {
+            when (token) {
+                is COSName -> lastName = token
+                is Operator -> {
+                    if (token.name == "Do") {
+                        lastName?.let { name ->
+                            val xObject = runCatching { resources.getXObject(name) }.getOrNull()
+                            when (xObject) {
+                                is PDImageXObject ->
+                                    if (seen.add(xObject.cosObject)) out += xObject
+                                is PDFormXObject -> {
+                                    val formResources = xObject.resources
+                                    if (formResources != null) {
+                                        collectDrawnImages(
+                                            xObject,
+                                            formResources,
+                                            seen,
+                                            out,
+                                            depth + 1,
+                                        )
+                                    }
+                                }
+                                else -> Unit
+                            }
+                        }
+                    }
+                    lastName = null
+                }
+                else -> lastName = null
+            }
+        }
     }
 
     private fun saveImage(
@@ -545,6 +637,8 @@ class PdfParser : BookParser {
         const val MIN_IMAGE_PX = 80
         const val MAX_IMAGE_SIDE = 1600
         const val MAX_IMAGES_PER_PAGE = 8
+        const val MAX_IMAGES_PER_BOOK = 600
+        const val MAX_FORM_DEPTH = 4
         val TITLE_PLACEHOLDERS = setOf("untitled", "без названия", "unknown")
         val AUTHOR_PLACEHOLDERS = setOf("anonymous", "unknown", "user", "admin")
         val WHITESPACE = Regex("\\s+")
