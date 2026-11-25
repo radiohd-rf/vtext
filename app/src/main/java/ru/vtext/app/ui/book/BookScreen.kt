@@ -75,6 +75,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
@@ -140,6 +141,20 @@ fun BookScreen(
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Остаток таймера сна — для слота в карусели и кнопки в транспорте.
+    var sleepRemaining by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(state.player.sleepEndsAt) {
+        val endsAt = state.player.sleepEndsAt
+        if (endsAt == null) {
+            sleepRemaining = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            sleepRemaining = (endsAt - System.currentTimeMillis()).coerceAtLeast(0L)
+            if (sleepRemaining == 0L) break
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
     val engineType by container.ttsManager.engineType.collectAsStateWithLifecycle()
     val systemVoices by container.ttsManager.systemEngine.voices.collectAsStateWithLifecycle()
     val systemVoice by container.ttsManager.systemEngine.selectedVoice.collectAsStateWithLifecycle()
@@ -209,6 +224,7 @@ fun BookScreen(
                     onVoice = { activeSheet = PlayerSheet.VOICE },
                     onSleep = { activeSheet = PlayerSheet.SLEEP },
                     onBookmarks = { bookmarksOpen = true },
+                    sleepRemainingMs = sleepRemaining,
                 )
             }
         }
@@ -219,6 +235,7 @@ fun BookScreen(
             sheet = sheet,
             player = state.player,
             engineType = engineType,
+            sleepRemainingMs = sleepRemaining,
             systemVoices = systemVoices,
             systemVoice = systemVoice,
             onSystemVoice = { container.ttsManager.setVoice(it) },
@@ -275,6 +292,7 @@ private fun PlayerContent(
     onVoice: () -> Unit,
     onSleep: () -> Unit,
     onBookmarks: () -> Unit,
+    sleepRemainingMs: Long,
 ) {
     val player = state.player
     val chapter = book.chapters.getOrNull(player.chapterIndex) ?: return
@@ -326,6 +344,7 @@ private fun PlayerContent(
                         viewModel = viewModel,
                         onSpeed = onSpeed,
                         onSleep = onSleep,
+                        sleepRemainingMs = sleepRemainingMs,
                     )
                 }
             }
@@ -350,6 +369,7 @@ private fun PlayerContent(
                         viewModel = viewModel,
                         onSpeed = onSpeed,
                         onSleep = onSleep,
+                        sleepRemainingMs = sleepRemainingMs,
                     )
                 }
             }
@@ -519,6 +539,7 @@ private fun PlayerControls(
     viewModel: BookViewModel,
     onSpeed: () -> Unit,
     onSleep: () -> Unit,
+    sleepRemainingMs: Long,
 ) {
     val player = state.player
     Column(
@@ -587,13 +608,24 @@ private fun PlayerControls(
                         modifier = Modifier.size(30.dp),
                     )
                 }
-                PlayerIconButton(
-                    icon = Icons.Filled.Alarm,
-                    description = stringResource(R.string.sheet_sleep_title),
-                    onClick = onSleep,
-                    active = player.sleepTimerMinutes != null ||
-                        player.sleepUntilChapterEnd,
-                )
+                if (player.sleepTimerMinutes != null && sleepRemainingMs > 0L) {
+                    Text(
+                        text = formatSleepCountdown(sleepRemainingMs),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onSleep)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                } else {
+                    PlayerIconButton(
+                        icon = Icons.Filled.Alarm,
+                        description = stringResource(R.string.sheet_sleep_title),
+                        onClick = onSleep,
+                        active = player.sleepUntilChapterEnd,
+                    )
+                }
             }
             Spacer(Modifier.height(22.dp))
             val progress = if (chapter.segments.isEmpty()) {
@@ -832,6 +864,7 @@ private fun PlayerOptionsSheet(
     sheet: PlayerSheet,
     player: PlayerState,
     engineType: ru.vtext.app.tts.TtsEngineType,
+    sleepRemainingMs: Long,
     systemVoices: List<ru.vtext.app.tts.VoiceInfo>,
     systemVoice: String?,
     onSystemVoice: (String?) -> Unit,
@@ -867,6 +900,7 @@ private fun PlayerOptionsSheet(
             PlayerSheet.SLEEP -> SleepSheet(
                 current = player.sleepTimerMinutes,
                 untilChapterEnd = player.sleepUntilChapterEnd,
+                sleepRemainingMs = sleepRemainingMs,
                 onTimer = onSleep,
                 onChapterEnd = onSleepChapter,
             )
@@ -1092,6 +1126,7 @@ private fun VoiceSheet(current: String?, onSelect: (String) -> Unit) {
 private fun SleepSheet(
     current: Int?,
     untilChapterEnd: Boolean,
+    sleepRemainingMs: Long,
     onTimer: (Int?) -> Unit,
     onChapterEnd: () -> Unit,
 ) {
@@ -1195,8 +1230,15 @@ private fun SleepSheet(
                                     )
                                 }
                             } else {
+                                val countdown = option.minutes?.let { minutes ->
+                                    if (current == minutes && sleepRemainingMs > 0L) {
+                                        formatSleepCountdown(sleepRemainingMs)
+                                    } else {
+                                        null
+                                    }
+                                }
                                 Text(
-                                    text = option.label,
+                                    text = countdown ?: option.label,
                                     style = if (option.minutes != null) {
                                         MaterialTheme.typography.headlineMedium.copy(
                                             fontSize = 28.sp,
@@ -1261,6 +1303,17 @@ private fun centeredCarouselIndex(
     return info.visibleItemsInfo.minByOrNull { item ->
         kotlin.math.abs(item.offset + item.size / 2f - center)
     }?.index
+}
+
+/** Остаток таймера сна: «04:59». */
+private fun formatSleepCountdown(millis: Long): String {
+    val totalSeconds = ((millis.coerceAtLeast(0L) + 999) / 1000).toInt()
+    return String.format(
+        java.util.Locale.getDefault(),
+        "%02d:%02d",
+        totalSeconds / 60,
+        totalSeconds % 60,
+    )
 }
 
 private fun formatSpeedScale(value: Float): String {

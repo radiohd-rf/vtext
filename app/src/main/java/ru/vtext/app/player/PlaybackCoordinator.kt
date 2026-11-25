@@ -32,6 +32,8 @@ data class PlayerState(
     val speed: Float = 1f,
     val fragmentPauseMs: Int = 0,
     val sleepTimerMinutes: Int? = null,
+    /** Когда сработает таймер сна (wall clock), null — таймер не задан. */
+    val sleepEndsAt: Long? = null,
     /** Таймер сна «до конца главы». */
     val sleepUntilChapterEnd: Boolean = false,
     /** Закладки текущей книги. */
@@ -236,14 +238,27 @@ class PlaybackCoordinator(
         sleepJob?.cancel()
         sleepJob = null
         if (minutes == null) {
-            _state.update { it.copy(sleepTimerMinutes = null, sleepUntilChapterEnd = false) }
+            _state.update {
+                it.copy(
+                    sleepTimerMinutes = null,
+                    sleepEndsAt = null,
+                    sleepUntilChapterEnd = false,
+                )
+            }
             return
         }
-        _state.update { it.copy(sleepTimerMinutes = minutes, sleepUntilChapterEnd = false) }
+        val endsAt = System.currentTimeMillis() + minutes * 60_000L
+        _state.update {
+            it.copy(
+                sleepTimerMinutes = minutes,
+                sleepEndsAt = endsAt,
+                sleepUntilChapterEnd = false,
+            )
+        }
         sleepJob = scope.launch {
             delay(minutes * 60_000L)
             pause()
-            _state.update { it.copy(sleepTimerMinutes = null) }
+            _state.update { it.copy(sleepTimerMinutes = null, sleepEndsAt = null) }
         }
     }
 
@@ -289,7 +304,13 @@ class PlaybackCoordinator(
     fun setSleepUntilChapterEnd() {
         sleepJob?.cancel()
         sleepJob = null
-        _state.update { it.copy(sleepTimerMinutes = null, sleepUntilChapterEnd = true) }
+        _state.update {
+            it.copy(
+                sleepTimerMinutes = null,
+                sleepEndsAt = null,
+                sleepUntilChapterEnd = true,
+            )
+        }
     }
 
     fun stop() {
@@ -407,6 +428,7 @@ class PlaybackCoordinator(
                             isPlaying = false,
                             sleepUntilChapterEnd = false,
                             sleepTimerMinutes = null,
+                            sleepEndsAt = null,
                         )
                     }
                     return
@@ -425,7 +447,9 @@ class PlaybackCoordinator(
         sleepJob?.cancel()
         sleepJob = null
         pause()
-        _state.update { it.copy(isFinished = true, sleepTimerMinutes = null) }
+        _state.update {
+            it.copy(isFinished = true, sleepTimerMinutes = null, sleepEndsAt = null)
+        }
     }
 
     private fun saveProgress() {
