@@ -577,6 +577,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 41
+        const val SEGMENT_VERSION = 43
     }
 }

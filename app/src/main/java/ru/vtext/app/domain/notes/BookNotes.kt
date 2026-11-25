@@ -11,9 +11,11 @@ data class NoteRef(
 
 /**
  * Индекс примечаний книги: разделы по главам, внутри — метки и тексты.
- * Строится по главе «Примечания»/«Комментарии»/«Notes»: номера в ней
- * идут подряд, сбрасываясь на каждом разделе, поэтому режем по ожидаемому
- * номеру, а не по любому числу в тексте.
+ * Строится по главам «Примечания»/«Комментарии»/«Notes»: раздел примечаний
+ * относится к главам, которые стоят перед ним, поэтому в книгах с двумя
+ * блоками примечаний (к предисловию и к основному тексту) каждый получает
+ * свой. Внутри блока номера идут подряд, сбрасываясь на каждом разделе,
+ * поэтому режем по ожидаемому номеру (или по маркерам ⟦N⟧ из PDF).
  */
 class BookNotes private constructor(
     private val sections: List<Section>,
@@ -39,6 +41,7 @@ class BookNotes private constructor(
                 "Глава\\s+\\d+(?:\\.\\s*[^0-9]{0,60})?)",
         )
 
+        private val MARKER = Regex("⟦([^⟧]{1,6})⟧")
         private val WHITESPACE = Regex("\\s+")
 
         fun parse(book: Book): BookNotes? {
@@ -49,71 +52,92 @@ class BookNotes private constructor(
                 }
             }.toMap()
             val hasPageNotes = pageNotes.values.any { it.isNotEmpty() }
-            val chapter = book.chapters.firstOrNull { NOTES_TITLE.containsMatchIn(it.title) }
-            if (chapter == null) {
-                return if (hasPageNotes) {
-                    BookNotes(emptyList(), emptyMap(), pageNotes, "")
-                } else {
-                    null
+            val notesIndexes = book.chapters.indices.filter { index ->
+                NOTES_TITLE.containsMatchIn(book.chapters[index].title)
+            }
+            if (notesIndexes.isEmpty()) {
+                return if (hasPageNotes) BookNotes(emptyList(), emptyMap(), pageNotes, "") else null
+            }
+
+            val chapterSections = mutableMapOf<Int, Section>()
+            var sourceTitle = ""
+            notesIndexes.forEach { notesIndex ->
+                val chapter = book.chapters[notesIndex]
+                if (sourceTitle.isBlank()) sourceTitle = chapter.title
+                val text = chapter.segments
+                    .joinToString(" ")
+                    .replace(WHITESPACE, " ")
+                    .trim()
+                if (text.isBlank()) return@forEach
+                val sections = sectionsOf(text, chapter.title)
+                if (sections.isEmpty()) return@forEach
+                // Блок примечаний относится к главам после предыдущего блока.
+                val previous = notesIndexes.lastOrNull { it < notesIndex } ?: -1
+                var current: Section? = sections.firstOrNull()
+                for (index in (previous + 1) until notesIndex) {
+                    val key = normalize(book.chapters[index].title)
+                    val match = sections.firstOrNull { it.key == key }
+                        ?: sections.firstOrNull {
+                            key.isNotBlank() && (it.key.startsWith(key) || key.startsWith(it.key))
+                        }
+                    if (match != null) current = match
+                    current?.let { chapterSections[index] = it }
                 }
             }
-            val text = chapter.segments
-                .joinToString(" ")
-                .replace(WHITESPACE, " ")
-                .trim()
-            if (text.isBlank()) {
-                return if (hasPageNotes) {
-                    BookNotes(emptyList(), emptyMap(), pageNotes, chapter.title)
-                } else {
-                    null
-                }
-            }
+            if (chapterSections.isEmpty() && !hasPageNotes) return null
+            return BookNotes(emptyList(), chapterSections, pageNotes, sourceTitle)
+        }
+
+        /** Разделы внутри блока примечаний; если их нет — весь блок одним разделом. */
+        private fun sectionsOf(text: String, title: String): List<Section> {
             val headings = SECTION.findAll(text).filter { match ->
-                val title = match.groupValues[1]
+                val heading = match.groupValues[1]
                 // Настоящий раздел начинается с заглавной и сразу за ним идёт «1 »;
                 // строчные колонтитулы («введение») и числа в цитатах отсеиваются.
-                val uppercase = title.firstOrNull()?.isUpperCase() == true
+                val uppercase = heading.firstOrNull()?.isUpperCase() == true
                 val after = text.substring(match.range.last + 1).trimStart()
                 uppercase && after.startsWith("1 ")
             }.toList()
             if (headings.isEmpty()) {
-                return if (hasPageNotes) {
-                    BookNotes(emptyList(), emptyMap(), pageNotes, chapter.title)
-                } else {
-                    null
-                }
+                val notes = splitNotes(text, title)
+                if (notes.isEmpty()) return emptyList()
+                return listOf(Section(normalize(title), title, notes))
             }
-            val sections = headings.mapIndexed { index, match ->
+            return headings.mapIndexed { index, match ->
                 val start = match.range.last + 1
                 val end = headings.getOrNull(index + 1)?.range?.first ?: text.length
-                val title = match.groupValues[1].trim()
-                Section(normalize(title), title, splitNotes(text.substring(start, end), title))
+                val heading = match.groupValues[1].trim()
+                Section(normalize(heading), heading, splitNotes(text.substring(start, end), heading))
             }
-            return BookNotes(
-                sections,
-                assignSections(book, sections),
-                pageNotes,
-                chapter.title,
-            )
-        }
-
-        /** Каждой главе — её раздел примечаний; подглавы наследуют предыдущий. */
-        private fun assignSections(book: Book, sections: List<Section>): Map<Int, Section> {
-            val result = mutableMapOf<Int, Section>()
-            var current: Section? = null
-            book.chapters.forEachIndexed { index, chapter ->
-                val key = normalize(chapter.title)
-                val match = sections.firstOrNull { it.key == key }
-                    ?: sections.firstOrNull {
-                        key.isNotBlank() && (it.key.startsWith(key) || key.startsWith(it.key))
-                    }
-                if (match != null) current = match
-                current?.let { result[index] = it }
-            }
-            return result
         }
 
         private fun splitNotes(body: String, section: String): Map<String, NoteRef> {
+            val byMarker = splitNotesByMarkers(body, section)
+            if (byMarker.isNotEmpty()) return byMarker
+            return splitNotesByNumbers(body, section)
+        }
+
+        /** PDF: примечания размечены маркерами ⟦1⟧, ⟦2⟧, ⟦*⟧. */
+        private fun splitNotesByMarkers(body: String, section: String): Map<String, NoteRef> {
+            val cuts = MARKER.findAll(body).take(MAX_NOTES).toList()
+            if (cuts.isEmpty()) return emptyMap()
+            val notes = mutableMapOf<String, NoteRef>()
+            cuts.forEachIndexed { index, cut ->
+                val stop = cuts.getOrNull(index + 1)?.range?.first ?: body.length
+                val label = cut.groupValues[1].trim()
+                val text = body.substring(cut.range.last + 1, stop)
+                    .replace(WHITESPACE, " ")
+                    .trim()
+                    .trimEnd('.', ',', ';', ':')
+                if (label.isNotBlank() && text.isNotBlank() && label !in notes) {
+                    notes[label] = NoteRef(label, text, section)
+                }
+            }
+            return notes
+        }
+
+        /** Текст: примечания разделены номером с пробелом («1 Текст…»). */
+        private fun splitNotesByNumbers(body: String, section: String): Map<String, NoteRef> {
             val cuts = mutableListOf<Triple<String, Int, Int>>()
             var position = 0
             var expected = 1

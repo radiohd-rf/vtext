@@ -430,6 +430,15 @@ class PdfParser : BookParser {
                 next += 1
             }
             val title = samePage.map { it.text }.distinct().joinToString(" · ")
+                // Титул часто набран вразрядку и рассыпается на обрывки
+                // («А. ЧЕХОВ · ИЗ СИ · БС · В САХАЛИН») — называем книгой.
+                .let { merged ->
+                    if (startPage <= TITLE_PAGE_LIMIT && merged.contains(" · ")) {
+                        "Титул"
+                    } else {
+                        merged
+                    }
+                }
             val depth = samePage.minOf { it.depth }
             val endPage = headings.drop(next)
                 .firstOrNull { it.page > startPage }
@@ -639,6 +648,7 @@ class PdfParser : BookParser {
         const val MAX_IMAGES_PER_PAGE = 8
         const val MAX_IMAGES_PER_BOOK = 600
         const val MAX_FORM_DEPTH = 4
+        const val TITLE_PAGE_LIMIT = 2
         val TITLE_PLACEHOLDERS = setOf("untitled", "без названия", "unknown")
         val AUTHOR_PLACEHOLDERS = setOf("anonymous", "unknown", "user", "admin")
         val WHITESPACE = Regex("\\s+")

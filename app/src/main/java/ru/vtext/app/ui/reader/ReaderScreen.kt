@@ -192,6 +192,8 @@ fun ReaderScreen(
     var currentItem by remember { mutableStateOf<ReaderItem?>(null) }
     // Интерфейс читалки лежит поверх текста: тап по центру скрывает его.
     var uiVisible by rememberSaveable { mutableStateOf(true) }
+    // Высота подвала: панель примечания всегда должна быть выше него.
+    var footerHeightPx by remember { mutableStateOf(0) }
     // Постраничный режим: страницы текущей главы и индекс видимой.
     val measurer = rememberTextMeasurer()
     var pages by remember { mutableStateOf<List<ReaderPage>>(emptyList()) }
@@ -712,7 +714,9 @@ fun ReaderScreen(
                     onToc = { showToc = true },
                     onAppearance = { showSettings = true },
                     onBookmarks = { showBookmarks = true },
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .onSizeChanged { footerHeightPx = it.height },
                 )
             }
 
@@ -730,6 +734,8 @@ fun ReaderScreen(
                     NotePanel(
                         state = sheet,
                         onDismiss = { noteSheet = null },
+                        // Всегда выше подвала, иначе у короткой сноски он торчит сверху.
+                        minHeight = with(LocalDensity.current) { footerHeightPx.toDp() } + 8.dp,
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
@@ -1167,6 +1173,7 @@ private fun notesInRange(notes: List<NoteSpan>, from: Int, to: Int): List<NoteSp
 private fun NotePanel(
     state: NoteSheetState,
     onDismiss: () -> Unit,
+    minHeight: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -1176,6 +1183,7 @@ private fun NotePanel(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = minHeight)
             .offset { IntOffset(0, offsetY.roundToInt()) },
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         color = MaterialTheme.colorScheme.surface,

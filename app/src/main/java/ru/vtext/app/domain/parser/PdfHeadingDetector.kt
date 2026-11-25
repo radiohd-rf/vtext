@@ -28,7 +28,11 @@ class PdfLayoutExtractor : PDFTextStripper() {
         val first = visible.first()
         val normalized = visibleText(visible)
         if (normalized.isEmpty()) return
-        val size = visible.maxOf { it.fontSizeInPt }
+        // Размер строки — по большинству символов, а не максимум: буквица
+        // (одна крупная буква в начале абзаца) иначе делала заголовком
+        // первую строку каждого раздела.
+        val size = visible.groupingBy { it.fontSizeInPt }.eachCount()
+            .maxByOrNull { it.value }?.key ?: 0f
         if (size <= 0f) return
         val fontName = first.font?.name.orEmpty().lowercase()
         lines += PdfLineInfo(
