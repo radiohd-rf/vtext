@@ -5,6 +5,26 @@ import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.input.pointer.pointerInput
@@ -46,13 +66,11 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -148,6 +166,14 @@ fun ReaderScreen(
     var showBookmarks by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var currentItem by remember { mutableStateOf<ReaderItem?>(null) }
+    // Интерфейс читалки лежит поверх текста: тап по центру скрывает его.
+    var uiVisible by rememberSaveable { mutableStateOf(true) }
+    // Постраничный режим: страницы текущей главы и индекс видимой.
+    val measurer = rememberTextMeasurer()
+    var pages by remember { mutableStateOf<List<ReaderPage>>(emptyList()) }
+    var pagesChapter by remember { mutableStateOf(-1) }
+    var pageIndex by remember { mutableStateOf(0) }
+    var wantLastPage by remember { mutableStateOf(false) }
 
     DisposableEffect(style.brightness) {
         val window = context.findActivity()?.window
@@ -167,10 +193,14 @@ fun ReaderScreen(
     }
 
     LaunchedEffect(state.items, state.startIndex) {
-        if (state.items.isNotEmpty()) listState.scrollToItem(state.startIndex)
+        if (style.scrollMode && state.items.isNotEmpty()) {
+            listState.scrollToItem(state.startIndex)
+        }
     }
 
-    LaunchedEffect(listState, state.items) {
+    LaunchedEffect(listState, state.items, style.scrollMode) {
+        // В постраничном режиме позицию задают страницы, а не прокрутка.
+        if (!style.scrollMode) return@LaunchedEffect
         snapshotFlow { listState.firstVisibleItemIndex }
             .collectLatest { index ->
                 delay(350)
@@ -180,12 +210,241 @@ fun ReaderScreen(
             }
     }
 
+    // Возврат из постраничного режима — прокрутка к текущему абзацу.
+    LaunchedEffect(style.scrollMode) {
+        if (style.scrollMode && state.items.isNotEmpty()) {
+            listState.scrollToItem(
+                viewModel.itemIndexFor(state.chapterIndex, state.segmentIndex),
+            )
+        }
+    }
+
     ReaderThemeStyle(style) {
-        Scaffold(
-            containerColor = colors.background,
-            snackbarHost = { SnackbarHost(snackbar) },
-            topBar = {
-                Column {
+        BoxWithConstraints(Modifier.fillMaxSize().background(colors.background)) {
+            val density = LocalDensity.current
+            val layoutDirection = LocalLayoutDirection.current
+            val insets = WindowInsets.safeDrawing.asPaddingValues()
+            val contentTop = insets.calculateTopPadding() + 4.dp
+            val contentBottom = insets.calculateBottomPadding() + 28.dp
+            val widthPx = constraints.maxWidth -
+                with(density) { insets.calculateLeftPadding(layoutDirection).roundToPx() } -
+                with(density) { insets.calculateRightPadding(layoutDirection).roundToPx() }
+            val contentHeightPx = with(density) {
+                (constraints.maxHeight - contentTop.roundToPx() - contentBottom.roundToPx())
+                    .coerceAtLeast(1)
+            }
+
+            // Страницы главы пересобираются при смене главы, шрифта, размера
+            // экрана и режима чтения; позиция остаётся на текущем абзаце.
+            LaunchedEffect(
+                state.chapterIndex,
+                state.items.size,
+                style.font,
+                style.fontSizeSp,
+                style.lineHeight,
+                style.marginDp,
+                style.scrollMode,
+                state.verse,
+                widthPx,
+                contentHeightPx,
+            ) {
+                if (style.scrollMode) {
+                    pages = emptyList()
+                    pagesChapter = -1
+                    return@LaunchedEffect
+                }
+                // Пока двигают ползунок шрифта, страницы не пересобираем на каждый шаг.
+                if (pagesChapter != state.chapterIndex) {
+                    pages = emptyList()
+                } else if (pages.isNotEmpty()) {
+                    delay(120)
+                }
+                val built = paginate(
+                    items = state.items,
+                    chapterIndex = state.chapterIndex,
+                    style = style,
+                    verse = state.verse,
+                    measurer = measurer,
+                    widthPx = widthPx,
+                    heightPx = contentHeightPx,
+                    density = density,
+                )
+                pages = built
+                pagesChapter = state.chapterIndex
+                pageIndex = if (wantLastPage) {
+                    wantLastPage = false
+                    built.lastIndex.coerceAtLeast(0)
+                } else {
+                    built.indexOfFirst { page ->
+                        page.blocks.any {
+                            it.startsItem && (it.segmentIndex ?: -1) >= state.segmentIndex
+                        }
+                    }.coerceAtLeast(0)
+                }
+            }
+
+            fun firstBlock(page: ReaderPage?): ReaderPageBlock? =
+                page?.blocks?.firstOrNull { !it.isHeader } ?: page?.blocks?.firstOrNull()
+
+            fun applyPagePosition(page: ReaderPage?) {
+                val block = firstBlock(page) ?: return
+                currentItem = state.items.firstOrNull {
+                    it is ReaderItem.Paragraph &&
+                        it.chapterIndex == block.chapterIndex &&
+                        it.segmentIndex == block.segmentIndex
+                }
+                viewModel.selectPosition(block.chapterIndex, block.segmentIndex ?: 0)
+            }
+
+            fun goNextPage() {
+                if (pages.isEmpty()) return
+                if (pageIndex < pages.lastIndex) {
+                    pageIndex += 1
+                    applyPagePosition(pages.getOrNull(pageIndex))
+                } else if (state.chapterIndex < state.chapterCount - 1) {
+                    pages = emptyList()
+                    pageIndex = 0
+                    viewModel.selectPosition(state.chapterIndex + 1, 0)
+                }
+            }
+
+            fun goPrevPage() {
+                if (pages.isEmpty()) return
+                if (pageIndex > 0) {
+                    pageIndex -= 1
+                    applyPagePosition(pages.getOrNull(pageIndex))
+                } else if (state.chapterIndex > 0) {
+                    pages = emptyList()
+                    pageIndex = 0
+                    wantLastPage = true
+                    viewModel.selectPosition(state.chapterIndex - 1, 0)
+                }
+            }
+
+            // Первый абзац видимой страницы — по нему ставим закладку.
+            LaunchedEffect(pages, pageIndex) {
+                val page = pages.getOrNull(pageIndex) ?: return@LaunchedEffect
+                val block = firstBlock(page) ?: return@LaunchedEffect
+                currentItem = state.items.firstOrNull {
+                    it is ReaderItem.Paragraph &&
+                        it.chapterIndex == block.chapterIndex &&
+                        it.segmentIndex == block.segmentIndex
+                }
+            }
+
+            val percent = state.book?.let {
+                ru.vtext.app.domain.bookPercent(
+                    it.chapters,
+                    state.chapterIndex,
+                    state.segmentIndex,
+                )
+            } ?: 0
+            val onSeek: (Float) -> Unit = { fraction ->
+                val lastIndex = state.items.lastIndex
+                if (lastIndex >= 0) {
+                    val index = (lastIndex * fraction.coerceIn(0f, 1f))
+                        .roundToInt()
+                        .coerceIn(0, lastIndex)
+                    val item = state.items.getOrNull(index)
+                    if (item != null) {
+                        currentItem = item
+                        val chapter = item.chapterIndex
+                        val segment = (item as? ReaderItem.Paragraph)?.segmentIndex ?: 0
+                        viewModel.selectPosition(chapter, segment)
+                        if (style.scrollMode) {
+                            scope.launch { listState.scrollToItem(index) }
+                        } else if (chapter == pagesChapter) {
+                            val target = pages.indexOfFirst { page ->
+                                page.blocks.any {
+                                    it.startsItem && (it.segmentIndex ?: -1) >= segment
+                                }
+                            }
+                            if (target >= 0) pageIndex = target
+                        }
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .pointerInput(style.scrollMode) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            val up = waitForUpOrCancellation()
+                            if (up != null) {
+                                val width = size.width.toFloat()
+                                val x = up.position.x
+                                if (!style.scrollMode) {
+                                    when {
+                                        x < width * 0.3f -> goPrevPage()
+                                        x > width * 0.7f -> goNextPage()
+                                        else -> uiVisible = !uiVisible
+                                    }
+                                } else if (uiVisible) {
+                                    if (x in width * 0.3f..width * 0.7f) uiVisible = false
+                                } else {
+                                    uiVisible = true
+                                }
+                            }
+                        }
+                    },
+            ) {
+                when {
+                    state.loading -> Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                text = stringResource(R.string.reader_parsing),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = colors.muted,
+                            )
+                        }
+                    }
+                    state.error != null || state.book == null -> Text(
+                        text = state.error ?: stringResource(R.string.book_not_found),
+                        modifier = Modifier.padding(24.dp),
+                        color = colors.muted,
+                    )
+                    style.scrollMode -> LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
+                    ) {
+                        itemsIndexed(
+                            items = state.items,
+                            key = { _, item -> itemKey(item) },
+                        ) { _, item ->
+                            when (item) {
+                                is ReaderItem.Header -> ReaderHeader(item.title, style)
+                                is ReaderItem.Paragraph -> ReaderParagraph(item.text, style, state.verse)
+                            }
+                        }
+                    }
+                    else -> pages.getOrNull(pageIndex)?.let { page ->
+                        ReaderPageContent(page, style)
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = uiVisible,
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it },
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.background)
+                        // Пустое место шапки не должно скрывать интерфейс.
+                        .pointerInput(Unit) { detectTapGestures { } },
+                ) {
                     TopAppBar(
                         title = {
                             Text(
@@ -222,74 +481,30 @@ fun ReaderScreen(
                         },
                     )
                 }
-            },
-        bottomBar = {
-            val percent = state.book?.let {
-                ru.vtext.app.domain.bookPercent(
-                    it.chapters,
-                    state.chapterIndex,
-                    state.segmentIndex,
-                )
-            } ?: 0
-            val onSeek: (Float) -> Unit = { fraction ->
-                val lastIndex = state.items.lastIndex
-                if (lastIndex >= 0) {
-                    val index = (lastIndex * fraction.coerceIn(0f, 1f))
-                        .roundToInt()
-                        .coerceIn(0, lastIndex)
-                    scope.launch { listState.scrollToItem(index) }
-                    state.items.getOrNull(index)?.let { item ->
-                        currentItem = item
-                        viewModel.onPosition(item, index)
-                    }
-                }
             }
-            ReaderFooter(
-                chapterTitle = state.chapterTitle,
-                percent = percent,
-                onSeek = onSeek,
-                onToc = { showToc = true },
-                onAppearance = { showSettings = true },
-                onBookmarks = { showBookmarks = true },
+
+            AnimatedVisibility(
+                visible = uiVisible,
+                enter = fadeIn() + slideInVertically { it },
+                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                ReaderFooter(
+                    chapterTitle = state.chapterTitle,
+                    percent = percent,
+                    onSeek = onSeek,
+                    onToc = { showToc = true },
+                    onAppearance = { showSettings = true },
+                    onBookmarks = { showBookmarks = true },
+                )
+            }
+
+            SnackbarHost(
+                hostState = snackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding(),
             )
-        },
-        ) { padding ->
-            when {
-                state.loading -> Box(
-                    Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            text = stringResource(R.string.reader_parsing),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.muted,
-                        )
-                    }
-                }
-                state.error != null || state.book == null -> Text(
-                    text = state.error ?: stringResource(R.string.book_not_found),
-                    modifier = Modifier.padding(padding).padding(24.dp),
-                    color = colors.muted,
-                )
-                else -> LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
-                ) {
-                    itemsIndexed(
-                        items = state.items,
-                        key = { _, item -> itemKey(item) },
-                    ) { _, item ->
-                        when (item) {
-                            is ReaderItem.Header -> ReaderHeader(item.title, style)
-                            is ReaderItem.Paragraph -> ReaderParagraph(item.text, style, state.verse)
-                        }
-                    }
-                }
-            }
         }
 
         if (showToc && state.book != null) {
@@ -335,6 +550,153 @@ fun ReaderScreen(
     }
 }
 
+private fun headerTextStyle(style: ReaderStyle): TextStyle = TextStyle(
+    fontFamily = style.font.family,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = (style.fontSizeSp * 1.3f).sp,
+    lineHeight = (style.fontSizeSp * 1.3f * 1.3f).sp,
+)
+
+private fun bodyTextStyle(style: ReaderStyle): TextStyle = TextStyle(
+    fontFamily = style.font.family,
+    fontSize = style.fontSizeSp.sp,
+    lineHeight = (style.fontSizeSp * style.lineHeight).sp,
+)
+
+/** Кусок текста на странице: заголовок или абзац (возможно, обрезанный). */
+private data class ReaderPageBlock(
+    val text: String,
+    val isHeader: Boolean,
+    val chapterIndex: Int,
+    val segmentIndex: Int?,
+    /** Блок начинает элемент книги — по нему восстанавливаем позицию. */
+    val startsItem: Boolean,
+    val topDp: Dp,
+    val bottomDp: Dp,
+)
+
+private data class ReaderPage(val blocks: List<ReaderPageBlock>)
+
+/**
+ * Раскладывает главу по страницам: меряет текст тем же стилем, что и показ,
+ * и режет абзац по границам строк, если он не влез целиком.
+ */
+private fun paginate(
+    items: List<ReaderItem>,
+    chapterIndex: Int,
+    style: ReaderStyle,
+    verse: Boolean,
+    measurer: TextMeasurer,
+    widthPx: Int,
+    heightPx: Int,
+    density: Density,
+): List<ReaderPage> {
+    val marginPx = with(density) { style.marginDp.dp.roundToPx() }
+    val textWidth = (widthPx - marginPx * 2).coerceAtLeast(1)
+    val pageHeight = heightPx.toFloat()
+    val pages = mutableListOf<ReaderPage>()
+    var blocks = mutableListOf<ReaderPageBlock>()
+    var used = 0f
+
+    fun flush() {
+        if (blocks.isNotEmpty()) pages += ReaderPage(blocks)
+        blocks = mutableListOf()
+        used = 0f
+    }
+
+    for (item in items) {
+        if (item.chapterIndex != chapterIndex) continue
+        val isHeader = item is ReaderItem.Header
+        val fullText = when (item) {
+            is ReaderItem.Header -> item.title
+            is ReaderItem.Paragraph -> item.text
+        }.trim()
+        if (fullText.isEmpty()) continue
+        val textStyle = if (isHeader) headerTextStyle(style) else bodyTextStyle(style)
+        val top = if (isHeader) 26 else if (verse) 6 else 7
+        val bottom = if (isHeader) 10 else if (verse) 6 else 7
+        val segment = (item as? ReaderItem.Paragraph)?.segmentIndex
+        var remaining = fullText
+        var startsItem = true
+        while (remaining.isNotEmpty()) {
+            val topDp = if (startsItem) top.dp else 0.dp
+            val layout = measurer.measure(
+                text = AnnotatedString(remaining),
+                style = textStyle,
+                constraints = Constraints(maxWidth = textWidth),
+            )
+            val topPx = with(density) { topDp.roundToPx() }
+            val bottomPx = with(density) { bottom.dp.roundToPx() }
+            if (used + topPx + layout.size.height + bottomPx <= pageHeight) {
+                blocks += ReaderPageBlock(
+                    remaining, isHeader, chapterIndex, segment, startsItem, topDp, bottom.dp,
+                )
+                used += topPx + layout.size.height + bottomPx
+                break
+            }
+            val available = pageHeight - used - topPx
+            var lastLine = -1
+            for (line in 0 until layout.lineCount) {
+                if (layout.getLineBottom(line) <= available) lastLine = line else break
+            }
+            if (lastLine < 0) {
+                if (blocks.isNotEmpty()) {
+                    flush()
+                    continue
+                }
+                // Пустая страница: даже одна строка не влезает — берём её.
+                lastLine = 0
+            }
+            val end = layout.getLineEnd(lastLine, visibleEnd = true)
+            if (end <= 0) {
+                blocks += ReaderPageBlock(
+                    remaining, isHeader, chapterIndex, segment, startsItem, topDp, bottom.dp,
+                )
+                used += topPx + layout.size.height + bottomPx
+                break
+            }
+            blocks += ReaderPageBlock(
+                text = remaining.substring(0, end).trimEnd(),
+                isHeader = isHeader,
+                chapterIndex = chapterIndex,
+                segmentIndex = segment,
+                startsItem = startsItem,
+                topDp = topDp,
+                bottomDp = bottom.dp,
+            )
+            used += topPx + layout.getLineBottom(lastLine) + bottomPx
+            remaining = remaining.substring(end).trimStart()
+            startsItem = false
+            flush()
+        }
+    }
+    flush()
+    return pages
+}
+
+/** Одна страница: заголовок и абзацы с теми же отступами, что при разбивке. */
+@Composable
+private fun ReaderPageContent(page: ReaderPage, style: ReaderStyle) {
+    val colors = style.theme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 4.dp, bottom = 28.dp),
+    ) {
+        page.blocks.forEach { block ->
+            Text(
+                text = block.text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = style.marginDp.dp)
+                    .padding(top = block.topDp, bottom = block.bottomDp),
+                color = colors.text,
+                style = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style),
+            )
+        }
+    }
+}
+
 @Composable
 private fun ReaderHeader(title: String, style: ReaderStyle) {
     val colors = style.theme.colors
@@ -349,12 +711,7 @@ private fun ReaderHeader(title: String, style: ReaderStyle) {
                 bottom = 10.dp,
             ),
         color = colors.text,
-        style = TextStyle(
-            fontFamily = style.font.family,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = (style.fontSizeSp * 1.3f).sp,
-            lineHeight = (style.fontSizeSp * 1.3f * 1.3f).sp,
-        ),
+        style = headerTextStyle(style),
     )
 }
 
@@ -367,11 +724,7 @@ private fun ReaderParagraph(text: String, style: ReaderStyle, verse: Boolean) {
             .fillMaxWidth()
             .padding(horizontal = style.marginDp.dp, vertical = if (verse) 6.dp else 7.dp),
         color = colors.text,
-        style = TextStyle(
-            fontFamily = style.font.family,
-            fontSize = style.fontSizeSp.sp,
-            lineHeight = (style.fontSizeSp * style.lineHeight).sp,
-        ),
+        style = bodyTextStyle(style),
     )
 }
 
@@ -457,7 +810,9 @@ private fun ReaderFooter(
         Modifier
             .fillMaxWidth()
             .background(colors.background)
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            // Тап по пустому месту подвала не должен листать страницу.
+            .pointerInput(Unit) { detectTapGestures { } },
     ) {
         HorizontalDivider(color = colors.outlineVariant)
         Row(
@@ -769,6 +1124,28 @@ private fun ReaderSettingsSheet(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.reader_scroll_mode),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = stringResource(R.string.reader_scroll_mode_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = style.scrollMode,
+                    onCheckedChange = { onChange(style.copy(scrollMode = it)) },
+                )
+            }
+            Spacer(Modifier.height(6.dp))
 
             Text(
                 text = stringResource(R.string.reader_theme),

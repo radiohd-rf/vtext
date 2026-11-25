@@ -35,6 +35,11 @@ class ReaderSettingsStore(context: Context) {
         get() = prefs.getFloat(KEY_BRIGHTNESS, -1f).coerceIn(-1f, 1f)
         set(value) { prefs.edit().putFloat(KEY_BRIGHTNESS, value.coerceIn(-1f, 1f)).apply() }
 
+    /** true — прокрутка текста, false — пролистывание страницами. */
+    var scrollMode: Boolean
+        get() = prefs.getBoolean(KEY_SCROLL_MODE, true)
+        set(value) { prefs.edit().putBoolean(KEY_SCROLL_MODE, value).apply() }
+
     companion object {
         const val MIN_SIZE = 14
         const val MAX_SIZE = 30
@@ -52,5 +57,6 @@ class ReaderSettingsStore(context: Context) {
         private const val KEY_LINE_HEIGHT = "line_height"
         private const val KEY_MARGIN = "margin"
         private const val KEY_BRIGHTNESS = "brightness"
+        private const val KEY_SCROLL_MODE = "scroll_mode"
     }
 }

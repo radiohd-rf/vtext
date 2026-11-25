@@ -25,6 +25,8 @@ data class ReaderStyle(
     val lineHeight: Float = ReaderSettingsStore.DEFAULT_LINE_HEIGHT,
     val marginDp: Int = ReaderSettingsStore.DEFAULT_MARGIN,
     val brightness: Float = -1f,
+    /** true — текст прокручивается, false — листается страницами. */
+    val scrollMode: Boolean = true,
 )
 
 data class ReaderColors(
@@ -110,6 +112,7 @@ fun ReaderSettingsStore.toStyle(): ReaderStyle = ReaderStyle(
     lineHeight = lineHeight,
     marginDp = marginDp,
     brightness = brightness,
+    scrollMode = scrollMode,
 )
 
 fun ReaderSettingsStore.save(style: ReaderStyle) {
@@ -119,6 +122,7 @@ fun ReaderSettingsStore.save(style: ReaderStyle) {
     lineHeight = style.lineHeight
     marginDp = style.marginDp
     brightness = style.brightness
+    scrollMode = style.scrollMode
 }
 
 @Composable
