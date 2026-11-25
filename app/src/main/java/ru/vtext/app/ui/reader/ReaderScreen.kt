@@ -17,6 +17,13 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.runtime.MutableState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import ru.vtext.app.domain.notes.NoteRef
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.material3.Switch
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -92,6 +99,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -99,8 +108,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
@@ -173,6 +184,7 @@ fun ReaderScreen(
         }
     }
 
+    var noteSheet by remember { mutableStateOf<NoteSheetState?>(null) }
     var showToc by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -464,6 +476,9 @@ fun ReaderScreen(
                 }
             }
 
+            val onNote: (String) -> Unit = { label ->
+                noteSheet = NoteSheetState(label, viewModel.noteFor(label))
+            }
             val percent = state.book?.let {
                 ru.vtext.app.domain.bookPercent(
                     it.chapters,
@@ -597,7 +612,13 @@ fun ReaderScreen(
                         ) { _, item ->
                             when (item) {
                                 is ReaderItem.Header -> ReaderHeader(item.title, style)
-                                is ReaderItem.Paragraph -> ReaderParagraph(item.text, style, state.verse)
+                                is ReaderItem.Paragraph -> ReaderParagraph(
+                                    text = item.text,
+                                    notes = item.notes,
+                                    style = style,
+                                    verse = state.verse,
+                                    onNote = onNote,
+                                )
                                 is ReaderItem.Image -> ReaderImageItem(item, style)
                             }
                         }
@@ -613,6 +634,7 @@ fun ReaderScreen(
                                             page = prev,
                                             style = style,
                                             offsetX = -pageWidth + pageOffsetX,
+                                            onNote = onNote,
                                         )
                                     }
                                 } else if (pageOffsetX < 0f) {
@@ -621,10 +643,11 @@ fun ReaderScreen(
                                             page = next,
                                             style = style,
                                             offsetX = pageWidth + pageOffsetX,
+                                            onNote = onNote,
                                         )
                                     }
                                 }
-                                PageLayer(current, style, pageOffsetX)
+                                PageLayer(current, style, pageOffsetX, onNote)
                             }
                         }
                     }
@@ -688,6 +711,25 @@ fun ReaderScreen(
                     onBookmarks = { showBookmarks = true },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
+            }
+
+            // Панель примечания — от низа экрана, поверх подвала.
+            noteSheet?.let { sheet ->
+                Box(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.3f))
+                            .pointerInput(Unit) {
+                                detectTapGestures { noteSheet = null }
+                            },
+                    )
+                    NotePanel(
+                        state = sheet,
+                        onDismiss = { noteSheet = null },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
             }
 
             SnackbarHost(
@@ -770,6 +812,8 @@ private data class ReaderPageBlock(
     val imagePath: String? = null,
     /** Высота картинки в пикселях (для вёрстки страницы). */
     val imageHeight: Int = 0,
+    /** Ссылки на примечания внутри текста блока. */
+    val notes: List<NoteSpan> = emptyList(),
 )
 
 private data class ReaderPage(val blocks: List<ReaderPageBlock>)
@@ -850,6 +894,7 @@ private fun paginate(
             is ReaderItem.Paragraph -> item.text
             else -> ""
         }.trim()
+        val itemNotes = (item as? ReaderItem.Paragraph)?.notes.orEmpty()
         if (fullText.isEmpty()) continue
         val textStyle = if (isHeader) headerTextStyle(style) else bodyTextStyle(style)
         val top = if (isHeader) 26 else if (verse) 6 else 7
@@ -874,7 +919,15 @@ private fun paginate(
             val bottomPx = with(density) { bottom.dp.roundToPx() }
             if (used + topPx + layout.size.height + bottomPx <= pageHeight) {
                 blocks += ReaderPageBlock(
-                    remaining, isHeader, chapterIndex, segment, startsItem, topDp, bottom.dp, offset,
+                    text = remaining,
+                    isHeader = isHeader,
+                    chapterIndex = chapterIndex,
+                    segmentIndex = segment,
+                    startsItem = startsItem,
+                    topDp = topDp,
+                    bottomDp = bottom.dp,
+                    charOffset = offset,
+                    notes = notesInRange(itemNotes, offset, offset + remaining.length),
                 )
                 used += topPx + layout.size.height + bottomPx
                 break
@@ -910,6 +963,7 @@ private fun paginate(
                 topDp = topDp,
                 bottomDp = bottom.dp,
                 charOffset = offset,
+                notes = notesInRange(itemNotes, offset, offset + end),
             )
             used += topPx + layout.getLineBottom(lastLine) + bottomPx
             offset += end
@@ -928,19 +982,28 @@ private fun paginate(
 /** Одна страница: заголовок и абзацы с теми же отступами, что при разбивке. */
 /** Страница на своём месте: при пролистывании сдвигается на offsetX. */
 @Composable
-private fun PageLayer(page: ReaderPage, style: ReaderStyle, offsetX: Float) {
+private fun PageLayer(
+    page: ReaderPage,
+    style: ReaderStyle,
+    offsetX: Float,
+    onNote: (String) -> Unit,
+) {
     Box(
         Modifier
             .fillMaxSize()
             .offset { IntOffset(offsetX.roundToInt(), 0) }
             .background(style.theme.colors.background),
     ) {
-        ReaderPageContent(page, style)
+        ReaderPageContent(page, style, onNote)
     }
 }
 
 @Composable
-private fun ReaderPageContent(page: ReaderPage, style: ReaderStyle) {
+private fun ReaderPageContent(
+    page: ReaderPage,
+    style: ReaderStyle,
+    onNote: (String) -> Unit,
+) {
     val colors = style.theme.colors
     Column(
         modifier = Modifier
@@ -961,12 +1024,15 @@ private fun ReaderPageContent(page: ReaderPage, style: ReaderStyle) {
                         .height(with(density) { block.imageHeight.toDp() }),
                 )
             } else {
+                val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
                 Text(
-                    text = block.text,
+                    text = styledText(block.text, block.notes, colors.accent),
+                    onTextLayout = { layout.value = it },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = style.marginDp.dp)
-                        .padding(top = block.topDp, bottom = block.bottomDp),
+                        .padding(top = block.topDp, bottom = block.bottomDp)
+                        .noteTap(block.notes, layout, onNote),
                     color = colors.text,
                     style = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style),
                 )
@@ -1032,6 +1098,133 @@ private fun decodeScaledBitmap(path: String, maxSide: Int): Bitmap? {
     return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
 }
 
+private data class NoteSheetState(val label: String, val note: NoteRef?)
+
+/** Текст со ссылками: диапазоны [NoteSpan] окрашиваем цветом акцента. */
+private fun styledText(text: String, notes: List<NoteSpan>, color: Color): AnnotatedString {
+    if (notes.isEmpty()) return AnnotatedString(text)
+    return buildAnnotatedString {
+        append(text)
+        notes.forEach { span ->
+            val start = span.start.coerceIn(0, text.length)
+            val end = span.end.coerceIn(start, text.length)
+            if (start < end) {
+                addStyle(
+                    SpanStyle(
+                        color = color,
+                        textDecoration = TextDecoration.Underline,
+                    ),
+                    start,
+                    end,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Тап по ссылке примечания: ищем метку по позиции в макете текста.
+ * Если попали — событие поглощаем, иначе страница листается как обычно.
+ */
+private fun Modifier.noteTap(
+    notes: List<NoteSpan>,
+    layout: MutableState<TextLayoutResult?>,
+    onNote: (String) -> Unit,
+): Modifier {
+    if (notes.isEmpty()) return this
+    return pointerInput(notes) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+            val result = layout.value ?: return@awaitEachGesture
+            if (up.position.x !in 0f..result.size.width.toFloat() ||
+                up.position.y !in 0f..result.size.height.toFloat()
+            ) {
+                return@awaitEachGesture
+            }
+            val offset = result.getOffsetForPosition(up.position)
+            val note = notes.firstOrNull { offset >= it.start && offset < it.end }
+            if (note != null) {
+                up.consume()
+                onNote(note.label)
+            }
+        }
+    }
+}
+
+/** Ссылки, попавшие в кусок текста [from, to): сдвигаем к началу куска. */
+private fun notesInRange(notes: List<NoteSpan>, from: Int, to: Int): List<NoteSpan> =
+    notes.mapNotNull { span ->
+        val start = maxOf(span.start, from)
+        val end = minOf(span.end, to)
+        if (start < end) NoteSpan(start - from, end - from, span.label) else null
+    }
+
+@Composable
+private fun NotePanel(
+    state: NoteSheetState,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 3.dp,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(
+                            MaterialTheme.colorScheme.outlineVariant,
+                            RoundedCornerShape(2.dp),
+                        ),
+                )
+            }
+            Text(
+                text = stringResource(R.string.note_title, state.label),
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            state.note?.section?.takeIf { it.isNotBlank() }?.let { section ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = section,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            val scroll = rememberScrollState()
+            Text(
+                text = state.note?.text ?: stringResource(R.string.note_not_found),
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontStyle = FontStyle.Italic,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(scroll),
+            )
+        }
+    }
+}
+
 @Composable
 private fun ReaderHeader(title: String, style: ReaderStyle) {
     val colors = style.theme.colors
@@ -1051,13 +1244,22 @@ private fun ReaderHeader(title: String, style: ReaderStyle) {
 }
 
 @Composable
-private fun ReaderParagraph(text: String, style: ReaderStyle, verse: Boolean) {
+private fun ReaderParagraph(
+    text: String,
+    notes: List<NoteSpan>,
+    style: ReaderStyle,
+    verse: Boolean,
+    onNote: (String) -> Unit,
+) {
     val colors = style.theme.colors
+    val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
     Text(
-        text = text,
+        text = styledText(text, notes, colors.accent),
+        onTextLayout = { layout.value = it },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = style.marginDp.dp, vertical = if (verse) 6.dp else 7.dp),
+            .padding(horizontal = style.marginDp.dp, vertical = if (verse) 6.dp else 7.dp)
+            .noteTap(notes, layout, onNote),
         color = colors.text,
         style = bodyTextStyle(style),
     )

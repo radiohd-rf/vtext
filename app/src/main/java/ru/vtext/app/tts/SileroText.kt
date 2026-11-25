@@ -132,7 +132,7 @@ internal object SileroText {
 
     /** Полная подготовка текста: словарь, сноски, сокращения, римские числа, годы, латиница, цифры. */
     fun normalizeForSpeech(text: String, userTerms: Map<String, String> = emptyMap()): String {
-        var value = stripFootnotes(text)
+        var value = stripNoteMarkers(stripFootnotes(text))
         value = dropStandaloneRomanLines(value)
         value = expandAbbreviations(value)
         value = expandInitials(value)
@@ -326,6 +326,9 @@ internal object SileroText {
     fun stripFootnotes(text: String): String =
         GLUED_NUMBER_RE.replace(FOOTNOTE_RE.replace(text, ""), "")
 
+    /** Убирает ссылки на примечания (⟦12⟧) — для озвучки. */
+    fun stripNoteMarkers(text: String): String = NOTE_MARKER_RE.replace(text, "")
+
     /** Текст для показа: без сносок и приклеенных номеров, но с разметкой эмфазы. */
     fun displayText(text: String): String = stripFootnotes(text)
 
@@ -370,6 +373,9 @@ internal object SileroText {
 
     private val LATIN_WORD = Regex("[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’]*")
     private val FOOTNOTE_RE = Regex("\\[\\d{1,3}]")
+
+    /** Ссылка на примечание из PDF-извлечения: ⟦12⟧. */
+    private val NOTE_MARKER_RE = Regex("⟦[\\d*]{1,3}⟧")
 
     /** Сноски, приклеенные к слову: «mariages.21», «dites.1», «peur,2». Годы (4 цифры) не трогаем. */
     private val GLUED_NUMBER_RE = Regex(

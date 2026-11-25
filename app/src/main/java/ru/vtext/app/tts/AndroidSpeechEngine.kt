@@ -91,7 +91,7 @@ class AndroidSpeechEngine(
 
     override fun speak(text: String, utteranceId: String) {
         if (!ready || text.isBlank()) return
-        val spoken = ru.vtext.app.domain.TextMarkup.strip(text)
+        val spoken = SileroText.stripNoteMarkers(ru.vtext.app.domain.TextMarkup.strip(text))
         tts?.setSpeechRate(rate)
         val params = Bundle().apply {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume)

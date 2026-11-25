@@ -133,9 +133,24 @@ class PdfParser : BookParser {
             val pageText = StringBuilder()
             for (block in blocks) {
                 val dropCaps = StringBuilder()
-                val lines = mutableListOf<String>()
+                // Строки блока: текст, базовая линия и правые края спанов
+                // (по x понимаем, после какого слова стоит ссылка).
+                val lineText = mutableListOf<StringBuilder>()
+                val lineBaseline = mutableListOf<Double>()
+                val lineMarks = mutableListOf<List<Pair<Double, Int>>>()
+                // Ссылки: метка, x, базовая линия.
+                val markers = mutableListOf<Triple<String, Double, Double>>()
                 for (line in block.lines) {
+                    val rawLine = line.spans.joinToString("") { it.text }.trim()
+                    val maxSize = line.spans.maxOfOrNull { it.fontSize.toFloat() } ?: body
+                    val baseline = line.spans.firstOrNull()?.origin?.second ?: 0.0
+                    if (maxSize <= body * 0.85f && NOTE_LABEL.matches(rawLine)) {
+                        val x = line.spans.firstOrNull()?.bounds?.left ?: 0.0
+                        markers += Triple(rawLine, x, baseline)
+                        continue
+                    }
                     val text = StringBuilder()
+                    val marks = mutableListOf<Pair<Double, Int>>()
                     for (span in line.spans) {
                         val value = span.text
                         val trimmed = value.trim()
@@ -147,20 +162,63 @@ class PdfParser : BookParser {
                             continue
                         }
                         text.append(value)
+                        marks += (span.bounds?.right ?: 0.0) to text.length
                     }
-                    val lineText = text.toString().trim()
-                    if (lineText.isNotEmpty()) lines.add(lineText)
+                    if (text.isNotBlank()) {
+                        lineText += text
+                        lineBaseline += baseline
+                        lineMarks += marks
+                    }
                 }
-                if (lines.isEmpty()) continue
+                if (lineText.isEmpty()) continue
+                // Ссылка принадлежит строке с ближайшей базовой линией снизу:
+                // верхний индекс поднят над своей строкой, а не над соседней.
+                val insertions = mutableMapOf<Int, MutableList<Pair<Int, String>>>()
+                for (marker in markers) {
+                    val label = marker.first
+                    val markerX = marker.second
+                    val markerY = marker.third
+                    var target = -1
+                    var bestY = Double.NEGATIVE_INFINITY
+                    lineBaseline.forEachIndexed { index, y ->
+                        if (y <= markerY + 0.1 && y > bestY) {
+                            bestY = y
+                            target = index
+                        }
+                    }
+                    if (target < 0) {
+                        target = lineBaseline.indices.minByOrNull {
+                            kotlin.math.abs(lineBaseline[it] - markerY)
+                        } ?: -1
+                    }
+                    if (target < 0) continue
+                    val index = lineMarks[target]
+                        .lastOrNull { it.first <= markerX + 1.0 }
+                        ?.second ?: 0
+                    insertions.getOrPut(target) { mutableListOf() } += index to label
+                }
+                // Вставляем с конца строки, чтобы не сдвигать индексы.
+                insertions.forEach { (lineIndex, items) ->
+                    val raw = lineText[lineIndex]
+                    items.sortedByDescending { it.first }.forEach { (index, label) ->
+                        raw.insert(index.coerceIn(0, raw.length), "⟦" + label + "⟧")
+                    }
+                }
                 val builder = StringBuilder(dropCaps)
-                lines.forEachIndexed { index, line ->
+                lineText.forEachIndexed { index, line ->
                     if (index > 0) builder.append(joiner)
-                    builder.append(line)
+                    builder.append(line.toString().trim())
                 }
                 val joined = if (preset == TextPreset.POETRY) {
                     builder.toString()
                 } else {
-                    HYPHEN_BREAK.replace(builder.toString()) { match ->
+                    // Ссылка может стоять между дефисом и продолжением слова:
+                    // «придавав-⟦30⟧ шим» -> «придававшим⟦30⟧».
+                    val withNote = HYPHEN_WITH_NOTE.replace(builder.toString()) { match ->
+                        match.groupValues[1] + match.groupValues[3] + "⟦" +
+                            match.groupValues[2] + "⟧"
+                    }
+                    HYPHEN_BREAK.replace(withNote) { match ->
                         match.groupValues[1] + match.groupValues[2]
                     }
                 }
@@ -405,6 +463,9 @@ class PdfParser : BookParser {
         val AUTHOR_PLACEHOLDERS = setOf("anonymous", "unknown", "user", "admin")
         val WHITESPACE = Regex("\\s+")
         val HYPHEN_BREAK = Regex("([\\p{L}])-\\s+([\\p{Ll}])")
+        val HYPHEN_WITH_NOTE =
+            Regex("([\\p{L}])-\\s*⟦([\\d*]{1,3})⟧\\s+([\\p{Ll}])")
+        val NOTE_LABEL = Regex("^[\\d*]{1,3}$")
         val CROSS_PAGE_HYPHEN = Regex("([\\p{L}])-[ \\t]*\\n\\s*\\n[ \\t]*([\\p{L}])")
         const val MIN_OUTLINE_ENTRIES = 3
         const val MAX_DEPTH = 2

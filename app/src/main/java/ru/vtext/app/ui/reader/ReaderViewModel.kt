@@ -17,8 +17,35 @@ import ru.vtext.app.data.ProgressStore
 import ru.vtext.app.data.ReaderSettingsStore
 import ru.vtext.app.domain.TextMarkup
 import ru.vtext.app.domain.bookPercent
+import ru.vtext.app.domain.notes.BookNotes
+import ru.vtext.app.domain.notes.NoteRef
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.tts.SileroText
+
+/** Ссылка на примечание внутри текста: диапазон символов и метка. */
+data class NoteSpan(val start: Int, val end: Int, val label: String)
+
+/** Разметка ссылок: `⟦12⟧` → «[12]» + диапазон для тапа. */
+object NoteMarkup {
+    private val MARKER = Regex("⟦([\\d*]{1,3})⟧")
+
+    fun render(text: String): Pair<String, List<NoteSpan>> {
+        if (!text.contains('⟦')) return text to emptyList()
+        val builder = StringBuilder()
+        val spans = mutableListOf<NoteSpan>()
+        var last = 0
+        MARKER.findAll(text).forEach { match ->
+            builder.append(text, last, match.range.first)
+            val label = match.groupValues[1]
+            val start = builder.length
+            builder.append('[').append(label).append(']')
+            spans += NoteSpan(start, builder.length, label)
+            last = match.range.last + 1
+        }
+        builder.append(text, last, text.length)
+        return builder.toString() to spans
+    }
+}
 
 /** Элемент ленты читалки: заголовок главы или абзац. */
 sealed interface ReaderItem {
@@ -30,6 +57,7 @@ sealed interface ReaderItem {
         override val chapterIndex: Int,
         val segmentIndex: Int,
         val text: String,
+        val notes: List<NoteSpan> = emptyList(),
     ) : ReaderItem
 
     data class Image(
@@ -54,6 +82,8 @@ data class ReaderUiState(
     val positionIndex: Int = 0,
     /** Стихи: строки идут отдельными абзацами, между ними нужен меньший отступ. */
     val verse: Boolean = false,
+    /** Индекс примечаний книги (глава «Примечания»). */
+    val notes: BookNotes? = null,
     val error: String? = null,
 ) {
     val chapterCount: Int get() = book?.chapters?.size ?: 0
@@ -114,6 +144,7 @@ class ReaderViewModel(
                 bookmarks = bookmarks.list(bookId),
                 positionIndex = startIndex,
                 verse = verse,
+                notes = BookNotes.parse(book),
             )
         }
     }
@@ -145,6 +176,10 @@ class ReaderViewModel(
             )
         }
     }
+
+    /** Примечание для текущей главы и метки ссылки. */
+    fun noteFor(label: String): NoteRef? =
+        _state.value.notes?.noteFor(_state.value.chapterIndex, label)
 
     fun itemIndexFor(chapterIndex: Int, segmentIndex: Int): Int {
         val items = _state.value.items
@@ -220,9 +255,11 @@ class ReaderViewModel(
             }
             chapter.images.filter { it.afterSegment < 0 }.forEach { imageItem(chapterIndex, it) }
             chapter.segments.forEachIndexed { segmentIndex, segment ->
-                val text = TextMarkup.strip(SileroText.displayText(segment)).trim()
+                val (text, noteSpans) = NoteMarkup.render(
+                    TextMarkup.strip(SileroText.displayText(segment)).trim(),
+                )
                 if (text.isNotEmpty()) {
-                    items += ReaderItem.Paragraph(chapterIndex, segmentIndex, text)
+                    items += ReaderItem.Paragraph(chapterIndex, segmentIndex, text, noteSpans)
                 }
                 chapter.images.filter { it.afterSegment == segmentIndex }.forEach {
                     imageItem(chapterIndex, it)
