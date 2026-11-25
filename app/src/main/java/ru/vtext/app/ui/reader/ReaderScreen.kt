@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -189,14 +191,6 @@ fun ReaderScreen(
                                 )
                             }
                         },
-                        actions = {
-                            IconButton(onClick = { showToc = true }) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.List,
-                                    contentDescription = stringResource(R.string.reader_toc),
-                                )
-                            }
-                        },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = colors.background,
                             titleContentColor = colors.text,
@@ -214,11 +208,17 @@ fun ReaderScreen(
                                 ?.getOrNull(state.chapterIndex)?.page ?: -1
                             onOpenPdf(page)
                         },
-                        onAppearance = { showSettings = true },
-                        onBookmarks = { showBookmarks = true },
                     )
                 }
             },
+        bottomBar = {
+            ReaderFooter(
+                chapterTitle = state.chapterTitle,
+                onToc = { showToc = true },
+                onAppearance = { showSettings = true },
+                onBookmarks = { showBookmarks = true },
+            )
+        },
         ) { padding ->
             when {
                 state.loading -> Box(
@@ -352,8 +352,6 @@ private fun ReaderActions(
     onToggleRotation: () -> Unit,
     onListen: () -> Unit,
     onOpenPdf: () -> Unit,
-    onAppearance: () -> Unit,
-    onBookmarks: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
@@ -400,11 +398,70 @@ private fun ReaderActions(
                         modifier = Modifier.size(20.dp),
                     )
                 }
+
+            }
+        }
+        HorizontalDivider(color = colors.outlineVariant)
+    }
+}
+
+/**
+ * Подвал читалки: сверху строка оглавления с названием главы,
+ * ниже — оформление текста и закладки.
+ */
+@Composable
+private fun ReaderFooter(
+    chapterTitle: String?,
+    onToc: () -> Unit,
+    onAppearance: () -> Unit,
+    onBookmarks: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.background)
+            .navigationBarsPadding(),
+    ) {
+        HorizontalDivider(color = colors.outlineVariant)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToc)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.List,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = colors.onSurface,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = chapterTitle?.takeIf { it.isNotBlank() }
+                    ?: stringResource(R.string.reader_toc),
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides COMPACT_ACTION_SIZE) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 IconButton(onClick = onAppearance, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
                     Icon(
                         Icons.Filled.TextFields,
                         contentDescription = stringResource(R.string.reader_appearance),
                         modifier = Modifier.size(20.dp),
+                        tint = colors.onSurface,
                     )
                 }
                 IconButton(onClick = onBookmarks, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
@@ -412,11 +469,11 @@ private fun ReaderActions(
                         Icons.Filled.BookmarkBorder,
                         contentDescription = stringResource(R.string.bookmarks),
                         modifier = Modifier.size(20.dp),
+                        tint = colors.onSurface,
                     )
                 }
             }
         }
-        HorizontalDivider(color = colors.outlineVariant)
     }
 }
 
