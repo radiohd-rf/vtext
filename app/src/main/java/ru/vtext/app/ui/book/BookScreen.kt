@@ -141,6 +141,8 @@ fun BookScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val engineType by container.ttsManager.engineType.collectAsStateWithLifecycle()
+    val systemVoices by container.ttsManager.systemEngine.voices.collectAsStateWithLifecycle()
+    val systemVoice by container.ttsManager.systemEngine.selectedVoice.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var activeSheet by remember { mutableStateOf<PlayerSheet?>(null) }
     var chapterSheet by remember { mutableStateOf(false) }
@@ -217,10 +219,9 @@ fun BookScreen(
             sheet = sheet,
             player = state.player,
             engineType = engineType,
-            onOpenSettings = {
-                activeSheet = null
-                onSettings()
-            },
+            systemVoices = systemVoices,
+            systemVoice = systemVoice,
+            onSystemVoice = { container.ttsManager.setVoice(it) },
             onDismiss = { activeSheet = null },
             onSpeed = viewModel::setSpeed,
             onVoice = { id ->
@@ -831,7 +832,9 @@ private fun PlayerOptionsSheet(
     sheet: PlayerSheet,
     player: PlayerState,
     engineType: ru.vtext.app.tts.TtsEngineType,
-    onOpenSettings: () -> Unit,
+    systemVoices: List<ru.vtext.app.tts.VoiceInfo>,
+    systemVoice: String?,
+    onSystemVoice: (String?) -> Unit,
     onDismiss: () -> Unit,
     onSpeed: (Float) -> Unit,
     onVoice: (String) -> Unit,
@@ -855,7 +858,11 @@ private fun PlayerOptionsSheet(
             PlayerSheet.VOICE -> if (engineType == ru.vtext.app.tts.TtsEngineType.SILERO) {
                 VoiceSheet(current = player.sileroVoice, onSelect = onVoice)
             } else {
-                SystemVoiceSheet(onOpenSettings = onOpenSettings)
+                SystemVoiceSheet(
+                    voices = systemVoices,
+                    selected = systemVoice,
+                    onSelect = onSystemVoice,
+                )
             }
             PlayerSheet.SLEEP -> SleepSheet(
                 current = player.sleepTimerMinutes,
@@ -868,28 +875,112 @@ private fun PlayerOptionsSheet(
 }
 
 @Composable
-private fun SystemVoiceSheet(onOpenSettings: () -> Unit) {
+private fun SystemVoiceSheet(
+    voices: List<ru.vtext.app.tts.VoiceInfo>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val initialIndex = voices.indexOfFirst { it.name == selected }.coerceAtLeast(0)
+    var appliedIndex by remember(voices) { mutableIntStateOf(initialIndex) }
+    var pendingIndex by remember(voices) { mutableIntStateOf(initialIndex) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .height(198.dp)
+            .padding(bottom = 10.dp),
     ) {
         Text(
             text = stringResource(R.string.sheet_voice_title),
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = stringResource(R.string.voice_settings_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(18.dp))
-        Button(onClick = onOpenSettings) {
-            Text(stringResource(R.string.open_settings))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (voices.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.voices_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                return@Box
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val side = (maxWidth - VOICE_ITEM_WIDTH) / 2
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(voices) {
+                        listState.scrollToItem(initialIndex)
+                    }
+                    LaunchedEffect(listState, voices) {
+                        if (voices.isEmpty()) return@LaunchedEffect
+                        snapshotFlow { centeredCarouselIndex(listState) }
+                            .filterNotNull()
+                            .distinctUntilChanged()
+                            .collect { index ->
+                                pendingIndex = index
+                                if (index != appliedIndex && index in voices.indices) {
+                                    onSelect(voices[index].name)
+                                    appliedIndex = index
+                                }
+                            }
+                    }
+                    LazyRow(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = side),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        flingBehavior = rememberSnapFlingBehavior(listState),
+                    ) {
+                        itemsIndexed(voices) { index, voice ->
+                            val isSelected = index == pendingIndex
+                            val scale by animateFloatAsState(
+                                targetValue = if (isSelected) 1f else 0.9f,
+                                label = "systemVoiceItem",
+                            )
+                            Text(
+                                text = "Голос ${index + 1}",
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontSize = 24.sp,
+                                    lineHeight = 30.sp,
+                                ),
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier
+                                    .width(VOICE_ITEM_WIDTH)
+                                    .graphicsLayer {
+                                        scaleX = scale
+                                        scaleY = scale
+                                    }
+                                    .clickable {
+                                        scope.launch { listState.animateScrollToItem(index) }
+                                    }
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+                Box(
+                    Modifier
+                        .offset(y = (-10).dp)
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
         }
     }
 }
