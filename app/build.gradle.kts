@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "ru.vtext.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "ru.vtext.app"
@@ -53,8 +53,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
 
     buildFeatures {
@@ -79,6 +81,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.4")
     implementation("androidx.media:media:1.7.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("io.github.yuroyami:kitepdf-pdf:0.14.0")
 
     // Аудиокниги: ExoPlayer + MediaSession (фоновое воспроизведение, наушники).
     implementation("androidx.media3:media3-exoplayer:1.4.1")
@@ -87,7 +90,7 @@ dependencies {
     // TorchScript Lite для Silero v5.
     implementation("org.pytorch:pytorch_android_lite:2.1.0")
 
-    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    implementation(platform("androidx.compose:compose-bom:2025.09.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")

@@ -308,6 +308,8 @@ fun ReaderScreen(
                 )
                 pages = built
                 pagesChapter = state.chapterIndex
+                // Недокрученная анимация не должна сдвигать новую страницу.
+                pageOffsetX = 0f
                 pageIndex = if (wantLastPage) {
                     wantLastPage = false
                     built.lastIndex.coerceAtLeast(0)
@@ -372,16 +374,24 @@ fun ReaderScreen(
                     density = density,
                 )
                 val anchorPage = pageIndexFor(full, anchorSegment, anchorOffset)
-                val pageStart = full.getOrNull(anchorPage)?.blocks?.firstOrNull()
+                // Заголовок главы в начале страницы не считается текстом:
+                // сравниваем с первым абзацем страницы.
+                val pageStart = full.getOrNull(anchorPage)?.blocks
+                    ?.firstOrNull { it.segmentIndex != null }
                 val anchorAtPageStart = pageStart != null &&
                     (pageStart.segmentIndex ?: -1) == anchorSegment &&
                     pageStart.charOffset == anchorOffset
                 if (anchorPage >= 0 && !anchorAtPageStart) {
                     // Текущая страница началась с середины полной страницы —
-                    // показываем её с начала.
+                    // показываем её с начала и запоминаем это место.
                     pages = full
                     pageIndex = anchorPage
                     applyPagePosition(full.getOrNull(pageIndex))
+                    full.getOrNull(pageIndex)?.blocks?.firstOrNull()?.let { block ->
+                        anchorChapter = block.chapterIndex
+                        anchorSegment = block.segmentIndex ?: 0
+                        anchorOffset = block.charOffset
+                    }
                 } else if (anchorPage > 0) {
                     pages = full
                     pageIndex = anchorPage - 1

@@ -37,15 +37,20 @@ class PdfParser : BookParser {
                 val title = cleanMetadata(info?.title, TITLE_PLACEHOLDERS) ?: fallbackTitle
                 val author = cleanMetadata(info?.author, AUTHOR_PLACEHOLDERS)
 
-                val pageCount = document.numberOfPages
-                val tracker = PdfStyleTracker()
-                val pageTexts = (1..pageCount).map { page ->
-                    val stripper = PdfTextExtractor(tracker).apply {
-                        startPage = page
-                        endPage = page
+                // Основной путь: KitePDF даёт готовые абзацы и кегли,
+                // по ним возвращаем буквицы на место. PDFBox — запасной.
+                val pageTexts = runCatching { kitePageTexts(file, preset) }
+                    .getOrElse {
+                        val pageCount = document.numberOfPages
+                        val tracker = PdfStyleTracker()
+                        (1..pageCount).map { page ->
+                            val stripper = PdfTextExtractor(tracker).apply {
+                                startPage = page
+                                endPage = page
+                            }
+                            runCatching { stripper.getText(document) }.getOrDefault("")
+                        }
                     }
-                    runCatching { stripper.getText(document) }.getOrDefault("")
-                }
                 // Убираем номера страниц и повторяющиеся колонтитулы до разбиения на фрагменты.
                 val cleanedPages = ImportTextCleaner.cleanPages(
                     pageTexts,
@@ -101,6 +106,67 @@ class PdfParser : BookParser {
             // Повреждённый, зашифрованный или недоступный PDF — вернём пустую книгу,
             // репозиторий подставит заглушку.
             ParsedBook(fallbackTitle, null, emptyList())
+        }
+    }
+
+    /**
+     * Текст страницы через KitePDF: `structuredText.blocks` — это абзацы,
+     * строки внутри блока склеиваем. Буквица — одиночная заглавная буква
+     * с кеглем заметно больше основного: переносим её в начало абзаца.
+     * В стихах строки не склеиваем.
+     */
+    private fun kitePageTexts(file: File, preset: TextPreset): List<String> {
+        val document = io.github.yuroyami.kitepdf.PdfDocument.open(file.readBytes())
+        val joiner = if (preset == TextPreset.POETRY) "\n" else " "
+        return document.pages.map { page ->
+            val blocks = page.structuredText.blocks
+            val weights = HashMap<Int, Int>()
+            for (block in blocks) {
+                for (line in block.lines) {
+                    for (span in line.spans) {
+                        val size = span.fontSize.toInt()
+                        weights[size] = (weights[size] ?: 0) + span.text.length
+                    }
+                }
+            }
+            val body = (weights.maxByOrNull { it.value }?.key ?: 10).toFloat()
+            val pageText = StringBuilder()
+            for (block in blocks) {
+                val dropCaps = StringBuilder()
+                val lines = mutableListOf<String>()
+                for (line in block.lines) {
+                    val text = StringBuilder()
+                    for (span in line.spans) {
+                        val value = span.text
+                        val trimmed = value.trim()
+                        if (trimmed.length == 1 &&
+                            span.fontSize >= body * 1.5f &&
+                            trimmed.first().isUpperCase()
+                        ) {
+                            dropCaps.append(trimmed)
+                            continue
+                        }
+                        text.append(value)
+                    }
+                    val lineText = text.toString().trim()
+                    if (lineText.isNotEmpty()) lines.add(lineText)
+                }
+                if (lines.isEmpty()) continue
+                val builder = StringBuilder(dropCaps)
+                lines.forEachIndexed { index, line ->
+                    if (index > 0) builder.append(joiner)
+                    builder.append(line)
+                }
+                val joined = if (preset == TextPreset.POETRY) {
+                    builder.toString()
+                } else {
+                    HYPHEN_BREAK.replace(builder.toString()) { match ->
+                        match.groupValues[1] + match.groupValues[2]
+                    }
+                }
+                pageText.append(joined).append("\n\n")
+            }
+            pageText.toString().trim()
         }
     }
 
@@ -338,6 +404,7 @@ class PdfParser : BookParser {
         val TITLE_PLACEHOLDERS = setOf("untitled", "без названия", "unknown")
         val AUTHOR_PLACEHOLDERS = setOf("anonymous", "unknown", "user", "admin")
         val WHITESPACE = Regex("\\s+")
+        val HYPHEN_BREAK = Regex("([\\p{L}])-\\s+([\\p{Ll}])")
         val CROSS_PAGE_HYPHEN = Regex("([\\p{L}])-[ \\t]*\\n\\s*\\n[ \\t]*([\\p{L}])")
         const val MIN_OUTLINE_ENTRIES = 3
         const val MAX_DEPTH = 2

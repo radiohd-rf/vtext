@@ -198,7 +198,9 @@ class PdfTextExtractor(
             val startsLower = line.text.firstOrNull()?.isLowerCase() == true
             val previousEndsSentence =
                 previous.text.lastOrNull()?.let { it in SENTENCE_ENDINGS } == true
-            val continuesSentence = startsLower && !previousEndsSentence && !largeGap
+            // Абзац не начинается со строчной: это продолжение предложения,
+            // даже если вёрстка дала большой интервал (буквица, отбивка).
+            val continuesSentence = startsLower && !previousEndsSentence
             line.newParagraph = !continuesSentence && (
                 line.startX > leftMargin + indent || shortBefore || largeGap || dashStarts
                 )

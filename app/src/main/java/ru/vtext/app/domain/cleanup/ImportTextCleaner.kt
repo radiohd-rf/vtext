@@ -202,13 +202,14 @@ object ImportTextCleaner {
 
             val kept = lines.filterIndexed { index, _ -> index !in toRemove }.joinToString("\n")
             val tidy = tidy(kept)
-            if (options.joinHyphenation) {
+            val prepared = if (options.joinHyphenation) {
                 val joined = joinHyphenatedWords(tidy)
                 joinedHyphenations += joined.second
                 joined.first
             } else {
                 tidy
             }
+            fixDropCaps(prepared)
         }
 
         return CleanupResult(
@@ -217,6 +218,54 @@ object ImportTextCleaner {
             removedRunningLines = removedRunningLines,
             joinedHyphenations = joinedHyphenations,
         )
+    }
+
+    /**
+     * Буквица PDF: первая буква абзаца набрана крупно и при извлечении
+     * оказывается отдельной строкой («Д в 1930-е…»), а сам абзац начинается
+     * с обрезанного слова («ворец Советов…»). Возвращаем букву на место.
+     */
+    private fun fixDropCaps(text: String): String {
+        if (text.isBlank()) return text
+        val lines = text.lines().toMutableList()
+        var changed = false
+        for (i in lines.indices) {
+            val current = lines[i].trim()
+            // Вариант 1: буква стоит отдельной строкой между половинами абзаца.
+            if (current.length == 1 && DROP_CAP_LETTER.matches(current)) {
+                var previous = i - 1
+                while (previous >= 0 && lines[previous].isBlank()) previous -= 1
+                var next = i + 1
+                while (next < lines.size && lines[next].isBlank()) next += 1
+                if (previous < 0 || next >= lines.size) continue
+                val prev = lines[previous]
+                if (prev.trimStart().firstOrNull()?.isLowerCase() != true) continue
+                if (prev.trimEnd().endsWith("-")) continue
+                if (lines[next].trimStart().firstOrNull()?.isLowerCase() != true) continue
+                val trimmed = prev.trimStart()
+                lines[previous] = prev.substring(0, prev.length - trimmed.length) + current + trimmed
+                lines[i] = ""
+                changed = true
+                continue
+            }
+            // Вариант 2: буква приклеена к продолжению — «Д в 1930-е…».
+            val match = DROP_CAP.find(current) ?: continue
+            var previous = i - 1
+            while (previous >= 0 && lines[previous].isBlank()) previous -= 1
+            if (previous < 0) continue
+            val prev = lines[previous]
+            // Буквица принадлежит только началу абзаца с потерянной буквой:
+            // строка начинается со строчной и не является переносом слова.
+            if (prev.trimStart().firstOrNull()?.isLowerCase() != true) continue
+            if (prev.trimEnd().endsWith("-")) continue
+            val letter = match.groupValues[1]
+            val rest = match.groupValues[2]
+            val trimmed = prev.trimStart()
+            lines[previous] = prev.substring(0, prev.length - trimmed.length) + letter + trimmed
+            lines[i] = rest
+            changed = true
+        }
+        return if (changed) lines.joinToString("\n") else text
     }
 
     private fun detectPageNumberOffset(
@@ -335,6 +384,8 @@ object ImportTextCleaner {
     private const val PAGE_BREAK = '\u000C'
 
     private val WHITESPACE = Regex("\\s+")
+    private val DROP_CAP = Regex("^([А-ЯЁA-Z])\\s+([а-яёa-z].*)$")
+    private val DROP_CAP_LETTER = Regex("^[А-ЯЁA-Z]$")
     private val NUMBERS = Regex("(?<!\\d)\\d{1,4}(?!\\d)")
     private val TRAILING_SPACES = Regex("[ \\t]+$", RegexOption.MULTILINE)
     private val MANY_BREAKS = Regex("\\n{3,}")
