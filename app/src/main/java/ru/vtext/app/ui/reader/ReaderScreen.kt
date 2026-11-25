@@ -20,11 +20,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.input.pointer.pointerInput
@@ -492,14 +487,10 @@ fun ReaderScreen(
                 }
             }
 
-            AnimatedVisibility(
-                visible = uiVisible,
-                enter = fadeIn() + slideInVertically { -it },
-                exit = fadeOut() + slideOutVertically { -it },
-                modifier = Modifier.align(Alignment.TopCenter),
-            ) {
+            if (uiVisible) {
                 Column(
                     Modifier
+                        .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .background(colors.background)
                         // Пустое место шапки не должно скрывать интерфейс.
@@ -543,12 +534,7 @@ fun ReaderScreen(
                 }
             }
 
-            AnimatedVisibility(
-                visible = uiVisible,
-                enter = fadeIn() + slideInVertically { it },
-                exit = fadeOut() + slideOutVertically { it },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
+            if (uiVisible) {
                 ReaderFooter(
                     chapterTitle = state.chapterTitle,
                     percent = percent,
@@ -556,6 +542,7 @@ fun ReaderScreen(
                     onToc = { showToc = true },
                     onAppearance = { showSettings = true },
                     onBookmarks = { showBookmarks = true },
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
 
@@ -897,10 +884,11 @@ private fun ReaderFooter(
     onToc: () -> Unit,
     onAppearance: () -> Unit,
     onBookmarks: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .background(colors.background)
             .navigationBarsPadding()
