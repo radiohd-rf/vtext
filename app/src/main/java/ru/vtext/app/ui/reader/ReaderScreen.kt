@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +45,7 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -458,6 +460,7 @@ private fun ReaderFooter(
                 modifier = Modifier.weight(1f),
             )
         }
+        Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(
             progress = { percent.coerceIn(0, 100) / 100f },
             modifier = Modifier
@@ -469,19 +472,21 @@ private fun ReaderFooter(
             drawStopIndicator = {},
         )
         Text(
-            text = "$percent%",
+            text = stringResource(R.string.reading_progress, percent),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
-            textAlign = TextAlign.End,
+                .padding(horizontal = 16.dp)
+                .padding(top = 6.dp),
+            textAlign = TextAlign.Center,
         )
+        Spacer(Modifier.height(8.dp))
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides COMPACT_ACTION_SIZE) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -517,8 +522,13 @@ private fun ReaderTocSheet(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight().padding(bottom = 24.dp)) {
             Text(
                 text = stringResource(R.string.reader_toc),
                 style = MaterialTheme.typography.headlineSmall,
