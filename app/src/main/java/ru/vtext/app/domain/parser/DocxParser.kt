@@ -27,6 +27,7 @@ class DocxParser : BookParser {
         file: File,
         fallbackTitle: String,
         preset: TextPreset,
+        assetsDir: File?,
     ): ParsedBook {
         ZipFile(file).use { zip ->
             val documentEntry = zip.getEntry("word/document.xml")

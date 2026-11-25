@@ -5,6 +5,12 @@ import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.Canvas
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Constraints
@@ -582,6 +588,7 @@ fun ReaderScreen(
                             when (item) {
                                 is ReaderItem.Header -> ReaderHeader(item.title, style)
                                 is ReaderItem.Paragraph -> ReaderParagraph(item.text, style, state.verse)
+                                is ReaderItem.Image -> ReaderImageItem(item, style)
                             }
                         }
                     }
@@ -749,6 +756,10 @@ private data class ReaderPageBlock(
     val bottomDp: Dp,
     /** Смещение куска внутри исходного абзаца. */
     val charOffset: Int = 0,
+    /** Картинка: путь к файлу, если блок — изображение. */
+    val imagePath: String? = null,
+    /** Высота картинки в пикселях (для вёрстки страницы). */
+    val imageHeight: Int = 0,
 )
 
 private data class ReaderPage(val blocks: List<ReaderPageBlock>)
@@ -796,6 +807,28 @@ private fun paginate(
     var started = startSegment <= 0
     for (item in items) {
         if (item.chapterIndex != chapterIndex) continue
+        if (item is ReaderItem.Image) {
+            val imageHeight = imageHeightPx(item.path, textWidth, heightPx, density)
+            val top = 8.dp
+            val bottom = 8.dp
+            val topPx = with(density) { top.roundToPx() }
+            val bottomPx = with(density) { bottom.roundToPx() }
+            val total = topPx + imageHeight + bottomPx
+            if (blocks.isNotEmpty() && used + total > pageHeight) flush()
+            blocks += ReaderPageBlock(
+                text = item.alt,
+                isHeader = false,
+                chapterIndex = chapterIndex,
+                segmentIndex = item.afterSegment,
+                startsItem = false,
+                topDp = top,
+                bottomDp = bottom,
+                imagePath = item.path,
+                imageHeight = imageHeight,
+            )
+            used += total
+            continue
+        }
         val isHeader = item is ReaderItem.Header
         val itemSegment = (item as? ReaderItem.Paragraph)?.segmentIndex
         if (!started) {
@@ -805,6 +838,7 @@ private fun paginate(
         val fullText = when (item) {
             is ReaderItem.Header -> item.title
             is ReaderItem.Paragraph -> item.text
+            else -> ""
         }.trim()
         if (fullText.isEmpty()) continue
         val textStyle = if (isHeader) headerTextStyle(style) else bodyTextStyle(style)
@@ -904,17 +938,88 @@ private fun ReaderPageContent(page: ReaderPage, style: ReaderStyle) {
             .padding(top = 4.dp, bottom = 28.dp),
     ) {
         page.blocks.forEach { block ->
-            Text(
-                text = block.text,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = style.marginDp.dp)
-                    .padding(top = block.topDp, bottom = block.bottomDp),
-                color = colors.text,
-                style = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style),
-            )
+            val imagePath = block.imagePath
+            if (imagePath != null) {
+                val density = LocalDensity.current
+                ReaderImage(
+                    path = imagePath,
+                    alt = block.text.takeIf { it.isNotBlank() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = style.marginDp.dp)
+                        .padding(top = block.topDp, bottom = block.bottomDp)
+                        .height(with(density) { block.imageHeight.toDp() }),
+                )
+            } else {
+                Text(
+                    text = block.text,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = style.marginDp.dp)
+                        .padding(top = block.topDp, bottom = block.bottomDp),
+                    color = colors.text,
+                    style = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style),
+                )
+            }
         }
     }
+}
+
+/** Картинка в ленте: ширина по экрану, пропорции из файла. */
+@Composable
+private fun ReaderImageItem(item: ReaderItem.Image, style: ReaderStyle) {
+    val ratio = remember(item.path) { imageAspect(item.path) }
+    if (ratio > 0f) {
+        ReaderImage(
+            path = item.path,
+            alt = item.alt.takeIf { it.isNotBlank() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = style.marginDp.dp, vertical = 10.dp)
+                .aspectRatio(ratio),
+        )
+    }
+}
+
+@Composable
+private fun ReaderImage(path: String, alt: String?, modifier: Modifier = Modifier) {
+    val bitmap = remember(path) { decodeScaledBitmap(path, 1600) }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = alt,
+            modifier = modifier,
+            contentScale = ContentScale.Fit,
+        )
+    }
+}
+
+private fun imageAspect(path: String): Float {
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    runCatching { BitmapFactory.decodeFile(path, options) }
+    if (options.outWidth <= 0 || options.outHeight <= 0) return 0f
+    return options.outWidth.toFloat() / options.outHeight
+}
+
+private fun imageHeightPx(path: String, width: Int, pageHeight: Int, density: Density): Int {
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    runCatching { BitmapFactory.decodeFile(path, options) }
+    if (options.outWidth <= 0 || options.outHeight <= 0) return 0
+    val height = width.toFloat() * options.outHeight / options.outWidth
+    val maxHeight = pageHeight - with(density) { 40.dp.roundToPx() }
+    return height.roundToInt().coerceIn(1, maxHeight.coerceAtLeast(1))
+}
+
+private fun decodeScaledBitmap(path: String, maxSide: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    runCatching { BitmapFactory.decodeFile(path, bounds) }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > maxSide || bounds.outHeight / sample > maxSide) {
+        sample *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
 }
 
 @Composable
@@ -1493,6 +1598,7 @@ private val ReaderFont.family: FontFamily
 private fun itemKey(item: ReaderItem): String = when (item) {
     is ReaderItem.Header -> "h-${item.chapterIndex}"
     is ReaderItem.Paragraph -> "p-${item.chapterIndex}-${item.segmentIndex}"
+    is ReaderItem.Image -> "i-${item.chapterIndex}-${item.afterSegment}-${item.path.hashCode()}"
 }
 
 private fun Context.findActivity(): Activity? {

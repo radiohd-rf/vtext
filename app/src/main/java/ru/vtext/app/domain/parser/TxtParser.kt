@@ -20,6 +20,7 @@ class TxtParser : BookParser {
         file: File,
         fallbackTitle: String,
         preset: TextPreset,
+        assetsDir: File?,
     ): ParsedBook {
         val raw = TextDecoder.decode(file.readBytes())
             .replace("\r\n", "\n")

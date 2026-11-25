@@ -1,8 +1,12 @@
 package ru.vtext.app.domain.parser
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import java.io.File
 import ru.vtext.app.domain.PoetryDetector
@@ -10,6 +14,7 @@ import ru.vtext.app.domain.TextSegmenter
 import ru.vtext.app.domain.cleanup.CleanupOptions
 import ru.vtext.app.domain.cleanup.ImportTextCleaner
 import ru.vtext.app.domain.model.Chapter
+import ru.vtext.app.domain.model.ChapterImage
 import ru.vtext.app.domain.model.ParsedBook
 import ru.vtext.app.domain.model.TextPreset
 
@@ -24,6 +29,7 @@ class PdfParser : BookParser {
         file: File,
         fallbackTitle: String,
         preset: TextPreset,
+        assetsDir: File?,
     ): ParsedBook {
         return try {
             PDDocument.load(file).use { document ->
@@ -84,7 +90,12 @@ class PdfParser : BookParser {
                         chaptersFromPages(cleanedPages, effectivePreset)
                     }
                 }
-                ParsedBook(title, author, chapters)
+                val withImages = if (assetsDir == null) {
+                    chapters
+                } else {
+                    attachPageImages(chapters, extractImages(document, assetsDir))
+                }
+                ParsedBook(title, author, withImages)
             }
         } catch (_: Exception) {
             // Повреждённый, зашифрованный или недоступный PDF — вернём пустую книгу,
@@ -242,7 +253,88 @@ class PdfParser : BookParser {
         return text.takeIf { it.lowercase() !in placeholders }
     }
 
+    /** Встроенные картинки страниц: страница (с нуля) → имена файлов в assetsDir. */
+    private fun extractImages(document: PDDocument, dir: File): Map<Int, List<String>> {
+        val result = mutableMapOf<Int, MutableList<String>>()
+        dir.mkdirs()
+        for (pageIndex in 0 until document.numberOfPages) {
+            val page = document.getPage(pageIndex)
+            val resources = page.resources ?: continue
+            var count = 0
+            for (name in resources.xObjectNames) {
+                if (count >= MAX_IMAGES_PER_PAGE) break
+                val xObject = runCatching { resources.getXObject(name) }.getOrNull() ?: continue
+                if (xObject !is PDImageXObject) continue
+                val image = runCatching { xObject.image }.getOrNull() ?: continue
+                if (image.width < MIN_IMAGE_PX || image.height < MIN_IMAGE_PX) continue
+                val file = saveImage(image, pageIndex, count, dir) ?: continue
+                result.getOrPut(pageIndex) { mutableListOf() } += file
+                count += 1
+            }
+        }
+        return result
+    }
+
+    private fun saveImage(
+        image: Bitmap,
+        page: Int,
+        index: Int,
+        dir: File,
+    ): String? = runCatching {
+        val scale = minOf(1f, MAX_IMAGE_SIDE.toFloat() / maxOf(image.width, image.height))
+        val scaled = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                image,
+                (image.width * scale).toInt().coerceAtLeast(1),
+                (image.height * scale).toInt().coerceAtLeast(1),
+                true,
+            )
+        } else {
+            image
+        }
+        // JPEG без прозрачности: подложка белая, иначе схемы уходят в чёрный.
+        val opaque = Bitmap.createBitmap(scaled.width, scaled.height, Bitmap.Config.ARGB_8888)
+        Canvas(opaque).apply {
+            drawColor(Color.WHITE)
+            drawBitmap(scaled, 0f, 0f, null)
+        }
+        if (scaled !== image) scaled.recycle()
+        val name = "pdf-${page + 1}-$index.jpg"
+        File(dir, name).outputStream().use { out ->
+            opaque.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        }
+        opaque.recycle()
+        name
+    }.getOrNull()
+
+    /** Каждая картинка — в конец той главы, на странице которой она стоит. */
+    private fun attachPageImages(
+        chapters: List<Chapter>,
+        perPage: Map<Int, List<String>>,
+    ): List<Chapter> {
+        if (chapters.isEmpty() || perPage.isEmpty()) return chapters
+        val byChapter = mutableMapOf<Int, MutableList<ChapterImage>>()
+        perPage.toSortedMap().forEach { (page, files) ->
+            var target = 0
+            chapters.forEachIndexed { index, chapter ->
+                if (chapter.page.coerceAtLeast(0) <= page) target = index
+            }
+            val last = chapters[target].segments.lastIndex.coerceAtLeast(0)
+            files.forEach { file ->
+                byChapter.getOrPut(target) { mutableListOf() } +=
+                    ChapterImage(last, file, "Иллюстрация")
+            }
+        }
+        return chapters.mapIndexed { index, chapter ->
+            val images = byChapter[index] ?: return@mapIndexed chapter
+            chapter.copy(images = chapter.images + images)
+        }
+    }
+
     private companion object {
+        const val MIN_IMAGE_PX = 80
+        const val MAX_IMAGE_SIDE = 1600
+        const val MAX_IMAGES_PER_PAGE = 8
         val TITLE_PLACEHOLDERS = setOf("untitled", "без названия", "unknown")
         val AUTHOR_PLACEHOLDERS = setOf("anonymous", "unknown", "user", "admin")
         val WHITESPACE = Regex("\\s+")

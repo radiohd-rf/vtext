@@ -19,6 +19,7 @@ class Fb2Parser : BookParser {
         file: File,
         fallbackTitle: String,
         preset: TextPreset,
+        assetsDir: File?,
     ): ParsedBook {
         val raw = TextDecoder.decode(file.readBytes())
         val xml = XmlSanitizer.sanitize(raw)

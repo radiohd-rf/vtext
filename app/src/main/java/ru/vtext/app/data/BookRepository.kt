@@ -17,9 +17,11 @@ import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.BookFormat
 import ru.vtext.app.domain.model.BookKind
 import ru.vtext.app.domain.model.Chapter
+import ru.vtext.app.domain.model.ChapterImage
 import ru.vtext.app.domain.model.TextPreset
 import ru.vtext.app.domain.parser.BookParser
 import ru.vtext.app.domain.parser.DocxParser
+import ru.vtext.app.domain.epub.EpubCompiler
 import ru.vtext.app.domain.parser.EpubParser
 import ru.vtext.app.domain.parser.Fb2Parser
 import ru.vtext.app.domain.parser.PdfParser
@@ -122,6 +124,9 @@ class BookRepository(private val context: Context) {
             ?.filter { it.name.startsWith("source.") || it.name == "chapters.json" }
             ?.forEach { it.delete() }
         File(dir, "cover").delete()
+        File(dir, "book.epub").delete()
+        File(dir, "epub.version").delete()
+        File(dir, "epub-assets").deleteRecursively()
         val source = File(dir, "source.${format.name.lowercase()}")
         input.use { stream ->
             source.outputStream().use { output -> stream.copyTo(output) }
@@ -153,6 +158,9 @@ class BookRepository(private val context: Context) {
             ?.filter { it.name.startsWith("source.") || it.name == "chapters.json" }
             ?.forEach { it.delete() }
         File(dir, "cover").delete()
+        File(dir, "book.epub").delete()
+        File(dir, "epub.version").delete()
+        File(dir, "epub-assets").deleteRecursively()
         val source = File(dir, "source.${format.name.lowercase()}")
         input.use { stream ->
             source.outputStream().use { output -> stream.copyTo(output) }
@@ -244,14 +252,49 @@ class BookRepository(private val context: Context) {
             }
             val cachedChapters = readChapters(dir)
             val cachedVersion = readSegmentVersion(dir)
-            val useCache = cachedChapters != null && cachedVersion == SEGMENT_VERSION
+            val compiledEpub = File(dir, "book.epub")
+            // Не-EPUB книги один раз собираются в EPUB: дальше читалка работает
+            // только с ним, а картинки уже лежат в epub-assets.
+            val needsCompile = format != BookFormat.EPUB &&
+                (!compiledEpub.isFile || readEpubVersion(dir) != EpubCompiler.VERSION)
+            val useCache = cachedChapters != null &&
+                cachedVersion == SEGMENT_VERSION &&
+                !needsCompile
             val chapters = if (useCache) {
                 cachedChapters
             } else {
                 source ?: return@withLock null
-                val parsed = parsers.getValue(format).parse(source, meta.title, meta.preset).chapters
-                // Если повторный разбор не удался, лучше оставить старый кэш.
-                parsed.ifEmpty { cachedChapters ?: emptyList() }
+                val assets = File(dir, "epub-assets").apply { mkdirs() }
+                val parsed = parsers.getValue(format).parse(source, meta.title, meta.preset, assets)
+                if (format == BookFormat.EPUB) {
+                    parsed.chapters
+                } else {
+                    // Если повторный разбор не удался, лучше оставить старый кэш.
+                    val text = parsed.chapters.ifEmpty { cachedChapters ?: emptyList() }
+                    if (text.isEmpty()) {
+                        emptyList()
+                    } else {
+                        runCatching {
+                            EpubCompiler.write(
+                                target = compiledEpub,
+                                title = parsed.title.ifBlank { meta.title },
+                                author = parsed.author ?: meta.author,
+                                chapters = text,
+                                assetsDir = assets,
+                            )
+                            EpubParser()
+                                .parse(compiledEpub, meta.title, meta.preset, assets)
+                                .chapters
+                        }.getOrDefault(text)
+                    }
+                }
+            }
+            // В epub-assets могли остаться картинки от прошлой сборки.
+            runCatching {
+                val referenced = chapters.flatMap { it.images }.map { it.file }.toSet()
+                File(dir, "epub-assets").listFiles()?.forEach { file ->
+                    if (file.name !in referenced) file.delete()
+                }
             }
             val book = meta.copy(
                 chapters = chapters,
@@ -280,7 +323,14 @@ class BookRepository(private val context: Context) {
      */
     suspend fun warmUpDeferredBooks(limit: Int = 2) {
         listBooks()
-            .filter { it.kind == BookKind.TEXT && it.format != null && it.chapterCount == 0 }
+            .filter { it.kind == BookKind.TEXT && it.format != null }
+            .filter { book ->
+                if (book.chapterCount == 0) return@filter true
+                if (book.format == BookFormat.EPUB) return@filter false
+                // Старые книги без собранного EPUB тоже готовим заранее.
+                val dir = File(root, book.id)
+                !File(dir, "book.epub").isFile || readEpubVersion(dir) != EpubCompiler.VERSION
+            }
             .take(limit)
             .forEach { book ->
                 runCatching { loadBook(book.id) }
@@ -408,16 +458,29 @@ class BookRepository(private val context: Context) {
         book.chapters.forEach { chapter ->
             val segments = JSONArray()
             chapter.segments.forEach { segments.put(it) }
+            val images = JSONArray()
+            chapter.images.forEach { image ->
+                images.put(
+                    JSONObject()
+                        .put("afterSegment", image.afterSegment)
+                        .put("file", image.file)
+                        .put("alt", image.alt),
+                )
+            }
             chapters.put(
                 JSONObject()
                     .put("title", chapter.title)
                     .put("segments", segments)
                     .put("depth", chapter.depth)
-                    .put("page", chapter.page),
+                    .put("page", chapter.page)
+                    .put("images", images),
             )
         }
         File(dir, "chapters.json").writeText(chapters.toString())
     }
+
+    private fun readEpubVersion(dir: File): Int? =
+        File(dir, "epub.version").takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
 
     private fun readChapters(dir: File): List<Chapter>? {
         val file = File(dir, "chapters.json")
@@ -427,11 +490,27 @@ class BookRepository(private val context: Context) {
             (0 until array.length()).map { index ->
                 val obj = array.getJSONObject(index)
                 val segments = obj.getJSONArray("segments")
+                val imagesArray = obj.optJSONArray("images")
+                val images = if (imagesArray == null) {
+                    emptyList()
+                } else {
+                    (0 until imagesArray.length()).mapNotNull { imageIndex ->
+                        val image = imagesArray.optJSONObject(imageIndex) ?: return@mapNotNull null
+                        val file = image.optString("file")
+                        if (file.isBlank()) return@mapNotNull null
+                        ChapterImage(
+                            afterSegment = image.optInt("afterSegment", -1),
+                            file = file,
+                            alt = image.optString("alt"),
+                        )
+                    }
+                }
                 Chapter(
                     title = obj.optString("title", "Глава ${index + 1}"),
                     segments = (0 until segments.length()).map { segments.getString(it) },
                     depth = obj.optInt("depth", 0),
                     page = obj.optInt("page", -1),
+                    images = images,
                 )
             }
         }.getOrNull()
@@ -440,6 +519,6 @@ class BookRepository(private val context: Context) {
     private companion object {
         const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        const val SEGMENT_VERSION = 21
+        const val SEGMENT_VERSION = 23
     }
 }

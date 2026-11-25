@@ -13,6 +13,17 @@ data class Chapter(
     val depth: Int = 0,
     /** Номер страницы PDF (с нуля), если глава пришла из PDF; -1 для остальных форматов. */
     val page: Int = -1,
+    /** Картинки главы: после какого фрагмента вставлять. */
+    val images: List<ChapterImage> = emptyList(),
+)
+
+/** Картинка внутри главы (иллюстрация, схема, фото). */
+data class ChapterImage(
+    /** Номер фрагмента, после которого вставляется картинка (-1 — перед первым). */
+    val afterSegment: Int,
+    /** Имя файла в books/<id>/epub-assets. */
+    val file: String,
+    val alt: String = "",
 )
 
 data class Book(

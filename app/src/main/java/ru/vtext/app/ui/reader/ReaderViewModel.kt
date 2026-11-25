@@ -31,6 +31,13 @@ sealed interface ReaderItem {
         val segmentIndex: Int,
         val text: String,
     ) : ReaderItem
+
+    data class Image(
+        override val chapterIndex: Int,
+        val afterSegment: Int,
+        val path: String,
+        val alt: String,
+    ) : ReaderItem
 }
 
 data class ReaderUiState(
@@ -117,6 +124,7 @@ class ReaderViewModel(
         val resolved = when (item) {
             is ReaderItem.Paragraph -> item.chapterIndex to item.segmentIndex
             is ReaderItem.Header -> item.chapterIndex to 0
+            is ReaderItem.Image -> item.chapterIndex to item.afterSegment.coerceAtLeast(0)
             null -> return
         }
         val samePlace = resolved.first == current.chapterIndex && resolved.second == current.segmentIndex
@@ -199,16 +207,29 @@ class ReaderViewModel(
 
     private fun buildItems(book: Book): List<ReaderItem> {
         val items = ArrayList<ReaderItem>()
+        val assets = java.io.File(repository.bookDir(bookId), "epub-assets")
+        fun imageItem(chapterIndex: Int, image: ru.vtext.app.domain.model.ChapterImage) {
+            val file = java.io.File(assets, image.file)
+            if (file.isFile) {
+                items += ReaderItem.Image(chapterIndex, image.afterSegment, file.absolutePath, image.alt)
+            }
+        }
         book.chapters.forEachIndexed { chapterIndex, chapter ->
             if (chapter.title.isNotBlank()) {
                 items += ReaderItem.Header(chapterIndex, chapter.title)
             }
+            chapter.images.filter { it.afterSegment < 0 }.forEach { imageItem(chapterIndex, it) }
             chapter.segments.forEachIndexed { segmentIndex, segment ->
                 val text = TextMarkup.strip(SileroText.displayText(segment)).trim()
                 if (text.isNotEmpty()) {
                     items += ReaderItem.Paragraph(chapterIndex, segmentIndex, text)
                 }
+                chapter.images.filter { it.afterSegment == segmentIndex }.forEach {
+                    imageItem(chapterIndex, it)
+                }
             }
+            val last = chapter.segments.lastIndex
+            chapter.images.filter { it.afterSegment > last }.forEach { imageItem(chapterIndex, it) }
         }
         return items
     }
