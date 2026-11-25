@@ -39,6 +39,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -212,8 +213,16 @@ fun ReaderScreen(
                 }
             },
         bottomBar = {
+            val percent = state.book?.let {
+                ru.vtext.app.domain.bookPercent(
+                    it.chapters,
+                    state.chapterIndex,
+                    state.segmentIndex,
+                )
+            } ?: 0
             ReaderFooter(
                 chapterTitle = state.chapterTitle,
+                percent = percent,
                 onToc = { showToc = true },
                 onAppearance = { showSettings = true },
                 onBookmarks = { showBookmarks = true },
@@ -412,6 +421,7 @@ private fun ReaderActions(
 @Composable
 private fun ReaderFooter(
     chapterTitle: String?,
+    percent: Int,
     onToc: () -> Unit,
     onAppearance: () -> Unit,
     onBookmarks: () -> Unit,
@@ -448,6 +458,25 @@ private fun ReaderFooter(
                 modifier = Modifier.weight(1f),
             )
         }
+        LinearProgressIndicator(
+            progress = { percent.coerceIn(0, 100) / 100f },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .height(3.dp),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = colors.outlineVariant,
+            drawStopIndicator = {},
+        )
+        Text(
+            text = "$percent%",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            textAlign = TextAlign.End,
+        )
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides COMPACT_ACTION_SIZE) {
             Row(
                 modifier = Modifier
