@@ -96,6 +96,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.Job
+import kotlin.math.abs
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -177,6 +187,9 @@ fun ReaderScreen(
     // Ручная пересборка страниц (перемотка таймлайном).
     var pagingGeneration by remember { mutableStateOf(0) }
     var paginatedGeneration by remember { mutableStateOf(0) }
+    // Сдвиг страницы при пролистывании (пиксели) и текущая анимация доводки.
+    var pageOffsetX by remember { mutableStateOf(0f) }
+    var pageTurnJob by remember { mutableStateOf<Job?>(null) }
 
     DisposableEffect(style.brightness) {
         val window = context.findActivity()?.window
@@ -318,7 +331,7 @@ fun ReaderScreen(
                 viewModel.selectPosition(block.chapterIndex, block.segmentIndex ?: 0)
             }
 
-            fun goNextPage() {
+            fun commitNextPage() {
                 if (pages.isEmpty()) return
                 if (pageIndex < pages.lastIndex) {
                     pageIndex += 1
@@ -333,7 +346,7 @@ fun ReaderScreen(
                 }
             }
 
-            fun goPrevPage() {
+            fun commitPrevPage() {
                 if (pages.isEmpty()) return
                 if (pageIndex > 0) {
                     pageIndex -= 1
@@ -375,6 +388,52 @@ fun ReaderScreen(
                     anchorOffset = 0
                     wantLastPage = true
                     viewModel.selectPosition(state.chapterIndex - 1, 0)
+                }
+            }
+
+            fun hasNeighbor(direction: Int): Boolean =
+                pages.getOrNull(pageIndex + direction) != null
+
+            /** Листание тапом: страница уезжает целиком, затем меняется номер. */
+            fun turnPage(direction: Int) {
+                val width = widthPx.toFloat()
+                if (!hasNeighbor(direction)) {
+                    if (direction > 0) commitNextPage() else commitPrevPage()
+                    return
+                }
+                pageTurnJob?.cancel()
+                pageTurnJob = scope.launch {
+                    animate(
+                        initialValue = pageOffsetX,
+                        targetValue = -direction * width,
+                        animationSpec = tween(200, easing = FastOutSlowInEasing),
+                    ) { value, _ -> pageOffsetX = value }
+                    if (direction > 0) commitNextPage() else commitPrevPage()
+                    pageOffsetX = 0f
+                }
+            }
+
+            /** Отпускание пальца: доводим страницу или возвращаем на место. */
+            fun settleTurn(offset: Float, velocityX: Float, width: Float) {
+                val flip = abs(offset) > width * 0.25f || abs(velocityX) > width * 2.5f
+                val direction = if (offset < 0f || (offset == 0f && velocityX < 0f)) 1 else -1
+                pageTurnJob?.cancel()
+                pageTurnJob = scope.launch {
+                    if (flip && !hasNeighbor(direction)) {
+                        pageOffsetX = 0f
+                        if (direction > 0) commitNextPage() else commitPrevPage()
+                        return@launch
+                    }
+                    val target = if (flip) -direction * width else 0f
+                    animate(
+                        initialValue = pageOffsetX,
+                        targetValue = target,
+                        animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    ) { value, _ -> pageOffsetX = value }
+                    if (flip) {
+                        if (direction > 0) commitNextPage() else commitPrevPage()
+                        pageOffsetX = 0f
+                    }
                 }
             }
 
@@ -426,22 +485,67 @@ fun ReaderScreen(
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .pointerInput(style, widthPx, contentHeightPx, uiVisible) {
                         awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            val up = waitForUpOrCancellation()
-                            if (up != null) {
-                                val width = size.width.toFloat()
-                                val x = up.position.x
-                                if (!style.scrollMode) {
-                                    when {
-                                        x < width * 0.3f -> goPrevPage()
-                                        x > width * 0.7f -> goNextPage()
-                                        else -> uiVisible = !uiVisible
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            if (style.scrollMode) {
+                                val up = waitForUpOrCancellation()
+                                if (up != null) {
+                                    val width = size.width.toFloat()
+                                    val x = up.position.x
+                                    if (uiVisible) {
+                                        if (x in width * 0.3f..width * 0.7f) uiVisible = false
+                                    } else {
+                                        uiVisible = true
                                     }
-                                } else if (uiVisible) {
-                                    if (x in width * 0.3f..width * 0.7f) uiVisible = false
-                                } else {
-                                    uiVisible = true
                                 }
+                                return@awaitEachGesture
+                            }
+
+                            // Постранично: страница едет за пальцем.
+                            var dragging = false
+                            var dragBase = 0f
+                            var dragX = 0f
+                            var upX = down.position.x
+                            val slop = viewConfiguration.touchSlop
+                            val tracker = VelocityTracker()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                if (!change.pressed) {
+                                    upX = change.position.x
+                                    break
+                                }
+                                if (!dragging) {
+                                    val dx = change.position.x - down.position.x
+                                    val dy = change.position.y - down.position.y
+                                    if (abs(dx) > slop || abs(dy) > slop) {
+                                        dragging = true
+                                        dragBase = pageOffsetX
+                                        pageTurnJob?.cancel()
+                                    }
+                                }
+                                if (dragging) {
+                                    dragX += change.positionChange().x
+                                    val direction = if (dragX < 0) 1 else -1
+                                    // За краем главы — тянется с сопротивлением.
+                                    val value = if (hasNeighbor(direction)) dragX else dragX * 0.25f
+                                    pageOffsetX = dragBase + value
+                                    change.consume()
+                                }
+                            }
+                            if (!dragging) {
+                                val width = size.width.toFloat()
+                                when {
+                                    upX < width * 0.3f -> turnPage(-1)
+                                    upX > width * 0.7f -> turnPage(1)
+                                    else -> uiVisible = !uiVisible
+                                }
+                            } else {
+                                settleTurn(
+                                    offset = pageOffsetX,
+                                    velocityX = tracker.calculateVelocity().x,
+                                    width = size.width.toFloat(),
+                                )
                             }
                         }
                     },
@@ -481,8 +585,31 @@ fun ReaderScreen(
                             }
                         }
                     }
-                    else -> pages.getOrNull(pageIndex)?.let { page ->
-                        ReaderPageContent(page, style)
+                    else -> {
+                        val current = pages.getOrNull(pageIndex)
+                        if (current != null) {
+                            val pageWidth = widthPx.toFloat()
+                            Box(Modifier.fillMaxSize()) {
+                                if (pageOffsetX > 0f) {
+                                    pages.getOrNull(pageIndex - 1)?.let { prev ->
+                                        PageLayer(
+                                            page = prev,
+                                            style = style,
+                                            offsetX = -pageWidth + pageOffsetX,
+                                        )
+                                    }
+                                } else if (pageOffsetX < 0f) {
+                                    pages.getOrNull(pageIndex + 1)?.let { next ->
+                                        PageLayer(
+                                            page = next,
+                                            style = style,
+                                            offsetX = pageWidth + pageOffsetX,
+                                        )
+                                    }
+                                }
+                                PageLayer(current, style, pageOffsetX)
+                            }
+                        }
                     }
                 }
             }
@@ -755,6 +882,19 @@ private fun paginate(
 }
 
 /** Одна страница: заголовок и абзацы с теми же отступами, что при разбивке. */
+/** Страница на своём месте: при пролистывании сдвигается на offsetX. */
+@Composable
+private fun PageLayer(page: ReaderPage, style: ReaderStyle, offsetX: Float) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .offset { IntOffset(offsetX.roundToInt(), 0) }
+            .background(style.theme.colors.background),
+    ) {
+        ReaderPageContent(page, style)
+    }
+}
+
 @Composable
 private fun ReaderPageContent(page: ReaderPage, style: ReaderStyle) {
     val colors = style.theme.colors
