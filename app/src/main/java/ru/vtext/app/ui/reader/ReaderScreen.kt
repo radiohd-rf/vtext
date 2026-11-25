@@ -444,27 +444,27 @@ private fun ReaderFooter(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onToc)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.List,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(24.dp),
                 tint = colors.onSurface,
             )
             Spacer(Modifier.width(10.dp))
             Text(
                 text = chapterTitle?.takeIf { it.isNotBlank() }
                     ?: stringResource(R.string.reader_toc),
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 color = colors.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(10.dp))
         LinearProgressIndicator(
             progress = { percent.coerceIn(0, 100) / 100f },
             modifier = Modifier
@@ -482,15 +482,15 @@ private fun ReaderFooter(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(top = 6.dp),
+                .padding(top = 8.dp),
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides COMPACT_ACTION_SIZE) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -713,7 +713,7 @@ private fun ReaderSettingsSheet(
                     )
                 }
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(10.dp))
 
             ReaderSlider(
                 title = stringResource(R.string.reader_font_size),
