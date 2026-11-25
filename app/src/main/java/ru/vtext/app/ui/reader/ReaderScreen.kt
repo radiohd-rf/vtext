@@ -535,7 +535,7 @@ private fun ReaderTocSheet(
     }
     val view = LocalView.current
     val screenHeight = with(density) { view.height.toDp() }
-    val sheetHeight = (screenHeight - statusBarHeight - 24.dp).coerceAtLeast(240.dp)
+    val sheetHeight = (screenHeight - statusBarHeight - 44.dp).coerceAtLeast(240.dp)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
