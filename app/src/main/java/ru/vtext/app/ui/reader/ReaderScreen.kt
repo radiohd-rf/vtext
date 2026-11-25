@@ -92,6 +92,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -174,6 +175,17 @@ fun ReaderScreen(
     var pagesChapter by remember { mutableStateOf(-1) }
     var pageIndex by remember { mutableStateOf(0) }
     var wantLastPage by remember { mutableStateOf(false) }
+    // Высоты шапки и подвала: страница верстается в видимой области.
+    var overlayTopPx by remember { mutableStateOf(0) }
+    var overlayBottomPx by remember { mutableStateOf(0) }
+    var paginatedHeight by remember { mutableStateOf(0) }
+    // Якорь страницы: абзац и смещение в нём, чтобы при пересборке не терять место.
+    var anchorChapter by remember { mutableStateOf(-1) }
+    var anchorSegment by remember { mutableStateOf(-1) }
+    var anchorOffset by remember { mutableStateOf(0) }
+    // Ручная пересборка страниц (перемотка таймлайном).
+    var pagingGeneration by remember { mutableStateOf(0) }
+    var paginatedGeneration by remember { mutableStateOf(0) }
 
     DisposableEffect(style.brightness) {
         val window = context.findActivity()?.window
@@ -233,6 +245,17 @@ fun ReaderScreen(
                 (constraints.maxHeight - contentTop.roundToPx() - contentBottom.roundToPx())
                     .coerceAtLeast(1)
             }
+            val insetsTopPx = with(density) { insets.calculateTopPadding().roundToPx() }
+            val insetsBottomPx = with(density) { insets.calculateBottomPadding().roundToPx() }
+            // Панели лежат поверх экрана; при видимом интерфейсе страница
+            // занимает только область между ними, чтобы текст не прятался.
+            val topOverlapPx = (overlayTopPx - insetsTopPx).coerceAtLeast(0)
+            val bottomOverlapPx = (overlayBottomPx - insetsBottomPx).coerceAtLeast(0)
+            val pageAreaHeightPx = if (uiVisible && overlayTopPx > 0 && overlayBottomPx > 0) {
+                (contentHeightPx - topOverlapPx - bottomOverlapPx).coerceAtLeast(1)
+            } else {
+                contentHeightPx
+            }
 
             // Страницы главы пересобираются при смене главы, шрифта, размера
             // экрана и режима чтения; позиция остаётся на текущем абзаце.
@@ -246,19 +269,37 @@ fun ReaderScreen(
                 style.scrollMode,
                 state.verse,
                 widthPx,
-                contentHeightPx,
+                pageAreaHeightPx,
+                pagingGeneration,
             ) {
                 if (style.scrollMode) {
                     pages = emptyList()
                     pagesChapter = -1
                     return@LaunchedEffect
                 }
-                // Пока двигают ползунок шрифта, страницы не пересобираем на каждый шаг.
+                // Пока панели не измерены, страницу не собираем: иначе она
+                // соберётся на весь экран и прыгнет.
+                if (uiVisible && (overlayTopPx <= 0 || overlayBottomPx <= 0)) {
+                    return@LaunchedEffect
+                }
+                // Пока двигают ползунок шрифта, страницы не пересобираем на каждый
+                // шаг; смена высоты области (интерфейс, поворот) и перемотка — сразу.
+                val heightChanged = paginatedHeight != pageAreaHeightPx ||
+                    paginatedGeneration != pagingGeneration
+                if (anchorChapter != state.chapterIndex) {
+                    anchorChapter = state.chapterIndex
+                    anchorSegment = state.segmentIndex
+                    anchorOffset = 0
+                }
                 if (pagesChapter != state.chapterIndex) {
                     pages = emptyList()
-                } else if (pages.isNotEmpty()) {
+                } else if (!heightChanged && pages.isNotEmpty()) {
                     delay(120)
                 }
+                paginatedHeight = pageAreaHeightPx
+                paginatedGeneration = pagingGeneration
+                // Страницы собираются от текущего места, поэтому верхняя строка
+                // остаётся на месте при смене размера области.
                 val built = paginate(
                     items = state.items,
                     chapterIndex = state.chapterIndex,
@@ -266,8 +307,10 @@ fun ReaderScreen(
                     verse = state.verse,
                     measurer = measurer,
                     widthPx = widthPx,
-                    heightPx = contentHeightPx,
+                    heightPx = pageAreaHeightPx,
                     density = density,
+                    startSegment = anchorSegment,
+                    startOffset = anchorOffset,
                 )
                 pages = built
                 pagesChapter = state.chapterIndex
@@ -275,11 +318,12 @@ fun ReaderScreen(
                     wantLastPage = false
                     built.lastIndex.coerceAtLeast(0)
                 } else {
-                    built.indexOfFirst { page ->
-                        page.blocks.any {
-                            it.startsItem && (it.segmentIndex ?: -1) >= state.segmentIndex
-                        }
-                    }.coerceAtLeast(0)
+                    0
+                }
+                built.getOrNull(pageIndex)?.blocks?.firstOrNull()?.let { block ->
+                    anchorChapter = block.chapterIndex
+                    anchorSegment = block.segmentIndex ?: -1
+                    anchorOffset = block.charOffset
                 }
             }
 
@@ -288,6 +332,9 @@ fun ReaderScreen(
 
             fun applyPagePosition(page: ReaderPage?) {
                 val block = firstBlock(page) ?: return
+                anchorChapter = block.chapterIndex
+                anchorSegment = block.segmentIndex ?: -1
+                anchorOffset = block.charOffset
                 currentItem = state.items.firstOrNull {
                     it is ReaderItem.Paragraph &&
                         it.chapterIndex == block.chapterIndex &&
@@ -304,6 +351,9 @@ fun ReaderScreen(
                 } else if (state.chapterIndex < state.chapterCount - 1) {
                     pages = emptyList()
                     pageIndex = 0
+                    anchorChapter = state.chapterIndex + 1
+                    anchorSegment = 0
+                    anchorOffset = 0
                     viewModel.selectPosition(state.chapterIndex + 1, 0)
                 }
             }
@@ -313,9 +363,41 @@ fun ReaderScreen(
                 if (pageIndex > 0) {
                     pageIndex -= 1
                     applyPagePosition(pages.getOrNull(pageIndex))
+                    return
+                }
+                // Список мог начинаться с текущего места — пересобираем главу
+                // с начала и встаём на страницу перед текущей.
+                val full = paginate(
+                    items = state.items,
+                    chapterIndex = state.chapterIndex,
+                    style = style,
+                    verse = state.verse,
+                    measurer = measurer,
+                    widthPx = widthPx,
+                    heightPx = pageAreaHeightPx,
+                    density = density,
+                )
+                val anchorPage = pageIndexFor(full, anchorSegment, anchorOffset)
+                val pageStart = full.getOrNull(anchorPage)?.blocks?.firstOrNull()
+                val anchorAtPageStart = pageStart != null &&
+                    (pageStart.segmentIndex ?: -1) == anchorSegment &&
+                    pageStart.charOffset == anchorOffset
+                if (anchorPage >= 0 && !anchorAtPageStart) {
+                    // Текущая страница началась с середины полной страницы —
+                    // показываем её с начала.
+                    pages = full
+                    pageIndex = anchorPage
+                    applyPagePosition(full.getOrNull(pageIndex))
+                } else if (anchorPage > 0) {
+                    pages = full
+                    pageIndex = anchorPage - 1
+                    applyPagePosition(full.getOrNull(pageIndex))
                 } else if (state.chapterIndex > 0) {
                     pages = emptyList()
                     pageIndex = 0
+                    anchorChapter = state.chapterIndex - 1
+                    anchorSegment = 0
+                    anchorOffset = 0
                     wantLastPage = true
                     viewModel.selectPosition(state.chapterIndex - 1, 0)
                 }
@@ -353,13 +435,11 @@ fun ReaderScreen(
                         viewModel.selectPosition(chapter, segment)
                         if (style.scrollMode) {
                             scope.launch { listState.scrollToItem(index) }
-                        } else if (chapter == pagesChapter) {
-                            val target = pages.indexOfFirst { page ->
-                                page.blocks.any {
-                                    it.startsItem && (it.segmentIndex ?: -1) >= segment
-                                }
-                            }
-                            if (target >= 0) pageIndex = target
+                        } else {
+                            anchorChapter = chapter
+                            anchorSegment = segment
+                            anchorOffset = 0
+                            pagingGeneration += 1
                         }
                     }
                 }
@@ -369,7 +449,7 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .pointerInput(style.scrollMode) {
+                    .pointerInput(style, widthPx, pageAreaHeightPx, uiVisible) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false)
                             val up = waitForUpOrCancellation()
@@ -427,7 +507,12 @@ fun ReaderScreen(
                         }
                     }
                     else -> pages.getOrNull(pageIndex)?.let { page ->
-                        ReaderPageContent(page, style)
+                        ReaderPageContent(
+                            page = page,
+                            style = style,
+                            topPad = if (uiVisible) with(density) { topOverlapPx.toDp() } else 0.dp,
+                            bottomPad = if (uiVisible) with(density) { bottomOverlapPx.toDp() } else 0.dp,
+                        )
                     }
                 }
             }
@@ -442,6 +527,7 @@ fun ReaderScreen(
                     Modifier
                         .fillMaxWidth()
                         .background(colors.background)
+                        .onSizeChanged { overlayTopPx = it.height }
                         // Пустое место шапки не должно скрывать интерфейс.
                         .pointerInput(Unit) { detectTapGestures { } },
                 ) {
@@ -489,14 +575,16 @@ fun ReaderScreen(
                 exit = fadeOut() + slideOutVertically { it },
                 modifier = Modifier.align(Alignment.BottomCenter),
             ) {
-                ReaderFooter(
-                    chapterTitle = state.chapterTitle,
-                    percent = percent,
-                    onSeek = onSeek,
-                    onToc = { showToc = true },
-                    onAppearance = { showSettings = true },
-                    onBookmarks = { showBookmarks = true },
-                )
+                Box(Modifier.onSizeChanged { overlayBottomPx = it.height }) {
+                    ReaderFooter(
+                        chapterTitle = state.chapterTitle,
+                        percent = percent,
+                        onSeek = onSeek,
+                        onToc = { showToc = true },
+                        onAppearance = { showSettings = true },
+                        onBookmarks = { showBookmarks = true },
+                    )
+                }
             }
 
             SnackbarHost(
@@ -573,9 +661,22 @@ private data class ReaderPageBlock(
     val startsItem: Boolean,
     val topDp: Dp,
     val bottomDp: Dp,
+    /** Смещение куска внутри исходного абзаца. */
+    val charOffset: Int = 0,
 )
 
 private data class ReaderPage(val blocks: List<ReaderPageBlock>)
+
+/** Страница, на которой начинается позиция (абзац + смещение). */
+private fun pageIndexFor(pages: List<ReaderPage>, segment: Int, offset: Int): Int {
+    var best = -1
+    pages.forEachIndexed { index, page ->
+        val first = page.blocks.firstOrNull() ?: return@forEachIndexed
+        val seg = first.segmentIndex ?: -1
+        if (seg < segment || (seg == segment && first.charOffset <= offset)) best = index
+    }
+    return best.coerceAtLeast(0)
+}
 
 /**
  * Раскладывает главу по страницам: меряет текст тем же стилем, что и показ,
@@ -590,6 +691,8 @@ private fun paginate(
     widthPx: Int,
     heightPx: Int,
     density: Density,
+    startSegment: Int = -1,
+    startOffset: Int = 0,
 ): List<ReaderPage> {
     val marginPx = with(density) { style.marginDp.dp.roundToPx() }
     val textWidth = (widthPx - marginPx * 2).coerceAtLeast(1)
@@ -604,9 +707,15 @@ private fun paginate(
         used = 0f
     }
 
+    var started = startSegment <= 0
     for (item in items) {
         if (item.chapterIndex != chapterIndex) continue
         val isHeader = item is ReaderItem.Header
+        val itemSegment = (item as? ReaderItem.Paragraph)?.segmentIndex
+        if (!started) {
+            if (itemSegment == null || itemSegment < startSegment) continue
+            started = true
+        }
         val fullText = when (item) {
             is ReaderItem.Header -> item.title
             is ReaderItem.Paragraph -> item.text
@@ -615,9 +724,15 @@ private fun paginate(
         val textStyle = if (isHeader) headerTextStyle(style) else bodyTextStyle(style)
         val top = if (isHeader) 26 else if (verse) 6 else 7
         val bottom = if (isHeader) 10 else if (verse) 6 else 7
-        val segment = (item as? ReaderItem.Paragraph)?.segmentIndex
-        var remaining = fullText
-        var startsItem = true
+        val segment = itemSegment
+        val startPos = if (segment != null && segment == startSegment) {
+            startOffset.coerceIn(0, fullText.length)
+        } else {
+            0
+        }
+        var remaining = fullText.substring(startPos)
+        var startsItem = startPos == 0
+        var offset = startPos
         while (remaining.isNotEmpty()) {
             val topDp = if (startsItem) top.dp else 0.dp
             val layout = measurer.measure(
@@ -629,12 +744,13 @@ private fun paginate(
             val bottomPx = with(density) { bottom.dp.roundToPx() }
             if (used + topPx + layout.size.height + bottomPx <= pageHeight) {
                 blocks += ReaderPageBlock(
-                    remaining, isHeader, chapterIndex, segment, startsItem, topDp, bottom.dp,
+                    remaining, isHeader, chapterIndex, segment, startsItem, topDp, bottom.dp, offset,
                 )
                 used += topPx + layout.size.height + bottomPx
                 break
             }
-            val available = pageHeight - used - topPx
+            // Кусок всегда последний на странице, поэтому учитываем и нижний отступ.
+            val available = pageHeight - used - topPx - bottomPx
             var lastLine = -1
             for (line in 0 until layout.lineCount) {
                 if (layout.getLineBottom(line) <= available) lastLine = line else break
@@ -650,7 +766,7 @@ private fun paginate(
             val end = layout.getLineEnd(lastLine, visibleEnd = true)
             if (end <= 0) {
                 blocks += ReaderPageBlock(
-                    remaining, isHeader, chapterIndex, segment, startsItem, topDp, bottom.dp,
+                    remaining, isHeader, chapterIndex, segment, startsItem, topDp, bottom.dp, offset,
                 )
                 used += topPx + layout.size.height + bottomPx
                 break
@@ -663,9 +779,14 @@ private fun paginate(
                 startsItem = startsItem,
                 topDp = topDp,
                 bottomDp = bottom.dp,
+                charOffset = offset,
             )
             used += topPx + layout.getLineBottom(lastLine) + bottomPx
-            remaining = remaining.substring(end).trimStart()
+            offset += end
+            remaining = remaining.substring(end)
+            val trimmed = remaining.length - remaining.trimStart().length
+            offset += trimmed
+            remaining = remaining.trimStart()
             startsItem = false
             flush()
         }
@@ -676,12 +797,17 @@ private fun paginate(
 
 /** Одна страница: заголовок и абзацы с теми же отступами, что при разбивке. */
 @Composable
-private fun ReaderPageContent(page: ReaderPage, style: ReaderStyle) {
+private fun ReaderPageContent(
+    page: ReaderPage,
+    style: ReaderStyle,
+    topPad: Dp,
+    bottomPad: Dp,
+) {
     val colors = style.theme.colors
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 4.dp, bottom = 28.dp),
+            .padding(top = 4.dp + topPad, bottom = 28.dp + bottomPad),
     ) {
         page.blocks.forEach { block ->
             Text(
