@@ -3,6 +3,7 @@ package ru.vtext.app.ui.book
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -28,15 +30,16 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
@@ -51,6 +54,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -65,15 +69,20 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -86,6 +95,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.Locale
@@ -102,6 +112,9 @@ import ru.vtext.app.tts.SileroText
 import ru.vtext.app.tts.SileroVoice
 import ru.vtext.app.tts.VoiceGender
 import ru.vtext.app.ui.components.SpeedSheet
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,8 +138,12 @@ fun BookScreen(
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val engineType by container.ttsManager.engineType.collectAsStateWithLifecycle()
+    val sileroActive = engineType == ru.vtext.app.tts.TtsEngineType.SILERO
     val snackbarHostState = remember { SnackbarHostState() }
     var activeSheet by remember { mutableStateOf<PlayerSheet?>(null) }
+    var chapterSheet by remember { mutableStateOf(false) }
+    var bookmarksOpen by remember { mutableStateOf(false) }
 
     val error = state.error ?: state.player.error
     LaunchedEffect(error) {
@@ -139,7 +156,14 @@ fun BookScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = {},
+                title = {
+                    Text(
+                        text = state.book?.title.orEmpty(),
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -149,39 +173,13 @@ fun BookScreen(
                     }
                 },
                 actions = {
-                    SpeedAction(speed = state.player.speed) {
-                        activeSheet = PlayerSheet.SPEED
-                    }
-                    VoiceAction {
-                        activeSheet = PlayerSheet.VOICE
-                    }
-                    SleepAction(
-                        active = state.player.sleepTimerMinutes != null ||
-                            state.player.sleepUntilChapterEnd,
-                    ) {
-                        activeSheet = PlayerSheet.SLEEP
-                    }
-                    var bookmarksOpen by remember { mutableStateOf(false) }
-                    IconButton(onClick = { bookmarksOpen = true }) {
-                        Icon(
-                            Icons.Filled.BookmarkBorder,
-                            contentDescription = stringResource(R.string.bookmarks),
-                        )
-                    }
-                    if (bookmarksOpen) {
-                        BookmarksDialog(
-                            bookmarks = state.player.bookmarks,
-                            onDismiss = { bookmarksOpen = false },
-                            onAdd = {
-                                viewModel.addBookmark()
-                                bookmarksOpen = false
-                            },
-                            onOpen = { bookmark ->
-                                viewModel.openBookmark(bookmark)
-                                bookmarksOpen = false
-                            },
-                            onDelete = viewModel::removeBookmark,
-                        )
+                    if (state.book != null) {
+                        IconButton(onClick = { chapterSheet = true }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.List,
+                                contentDescription = stringResource(R.string.reader_toc),
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -199,7 +197,17 @@ fun BookScreen(
                     text = stringResource(R.string.book_not_found),
                     modifier = Modifier.align(Alignment.Center),
                 )
-                else -> PlayerContent(state = state, book = book, viewModel = viewModel)
+                else -> PlayerContent(
+                    state = state,
+                    book = book,
+                    viewModel = viewModel,
+                    onOpenChapters = { chapterSheet = true },
+                    onSpeed = { activeSheet = PlayerSheet.SPEED },
+                    onVoice = { activeSheet = PlayerSheet.VOICE },
+                    onSleep = { activeSheet = PlayerSheet.SLEEP },
+                    onBookmarks = { bookmarksOpen = true },
+                    showVoice = sileroActive,
+                )
             }
         }
     }
@@ -214,25 +222,58 @@ fun BookScreen(
                 viewModel.setVoice(id)
                 activeSheet = null
             },
-            onSleep = { minutes ->
-                viewModel.setSleepTimer(minutes)
-                activeSheet = null
+            onSleep = { minutes -> viewModel.setSleepTimer(minutes) },
+            onSleepChapter = { viewModel.setSleepUntilChapterEnd() },
+        )
+    }
+
+    state.book?.let { book ->
+        if (chapterSheet) {
+            ChapterSheet(
+                book = book,
+                current = state.player.chapterIndex,
+                onDismiss = { chapterSheet = false },
+                onSelect = { index ->
+                    viewModel.selectChapter(index)
+                    chapterSheet = false
+                },
+            )
+        }
+    }
+
+    if (bookmarksOpen) {
+        BookmarksDialog(
+            bookmarks = state.player.bookmarks,
+            onDismiss = { bookmarksOpen = false },
+            onAdd = {
+                viewModel.addBookmark()
+                bookmarksOpen = false
             },
-            onSleepChapter = {
-                viewModel.setSleepUntilChapterEnd()
-                activeSheet = null
+            onOpen = { bookmark ->
+                viewModel.openBookmark(bookmark)
+                bookmarksOpen = false
             },
+            onDelete = viewModel::removeBookmark,
         )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewModel) {
+private fun PlayerContent(
+    state: BookUiState,
+    book: Book,
+    viewModel: BookViewModel,
+    onOpenChapters: () -> Unit,
+    onSpeed: () -> Unit,
+    onVoice: () -> Unit,
+    onSleep: () -> Unit,
+    onBookmarks: () -> Unit,
+    showVoice: Boolean,
+) {
     val player = state.player
     val chapter = book.chapters.getOrNull(player.chapterIndex) ?: return
     val listState = rememberLazyListState()
-    var chapterSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(player.chapterIndex, player.segmentIndex) {
         if (chapter.segments.isEmpty()) return@LaunchedEffect
@@ -268,25 +309,30 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
                         .width(sidebarWidth)
                         .fillMaxHeight(),
                 ) {
-                    Spacer(Modifier.height(6.dp))
-                    BookHeader(
+                    PlayerHeader(
                         book = book,
-                        player = player,
-                        chapter = chapter,
-                        onClickChapter = { chapterSheet = true },
+                        onVoice = onVoice,
+                        onBookmarks = onBookmarks,
+                        showVoice = showVoice,
                     )
                     Spacer(Modifier.weight(1f))
-                    PlayerControls(state = state, chapter = chapter, viewModel = viewModel)
+                    PlayerControls(
+                        state = state,
+                        chapter = chapter,
+                        viewModel = viewModel,
+                        onSpeed = onSpeed,
+                        onSleep = onSleep,
+                    )
                 }
             }
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 Column(Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
-                    BookHeader(
+                    PlayerHeader(
                         book = book,
-                        player = player,
-                        chapter = chapter,
-                        onClickChapter = { chapterSheet = true },
+                        onVoice = onVoice,
+                        onBookmarks = onBookmarks,
+                        showVoice = showVoice,
                     )
                     SegmentList(
                         segments = chapter.segments,
@@ -295,23 +341,18 @@ private fun PlayerContent(state: BookUiState, book: Book, viewModel: BookViewMod
                         listState = listState,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
-                    PlayerControls(state = state, chapter = chapter, viewModel = viewModel)
+                    PlayerControls(
+                        state = state,
+                        chapter = chapter,
+                        viewModel = viewModel,
+                        onSpeed = onSpeed,
+                        onSleep = onSleep,
+                    )
                 }
             }
         }
     }
 
-    if (chapterSheet) {
-        ChapterSheet(
-            book = book,
-            current = player.chapterIndex,
-            onDismiss = { chapterSheet = false },
-            onSelect = { index ->
-                viewModel.selectChapter(index)
-                chapterSheet = false
-            },
-        )
-    }
 }
 
 @Composable
@@ -346,72 +387,65 @@ private fun SegmentList(
 }
 
 @Composable
-private fun BookHeader(
+private fun PlayerHeader(
     book: Book,
-    player: PlayerState,
-    chapter: Chapter,
-    onClickChapter: () -> Unit,
+    onVoice: () -> Unit,
+    onBookmarks: () -> Unit,
+    showVoice: Boolean,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
-    ) {
-        Text(
-            text = book.title,
-            style = MaterialTheme.typography.headlineSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showVoice) {
+                PlayerIconButton(
+                    icon = Icons.Filled.RecordVoiceOver,
+                    description = stringResource(R.string.sheet_voice_title),
+                    onClick = onVoice,
+                )
+            }
+            PlayerIconButton(
+                icon = Icons.Filled.BookmarkBorder,
+                description = stringResource(R.string.bookmarks),
+                onClick = onBookmarks,
+            )
+        }
         book.author?.let { author ->
-            Spacer(Modifier.height(2.dp))
             Text(
                 text = author,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
-        Spacer(Modifier.height(10.dp))
-        ChapterButton(
-            chapter = chapter,
-            index = player.chapterIndex,
-            total = book.chapters.size,
-            onClick = onClickChapter,
-        )
     }
 }
 
+/** Компактная кнопка, как в строке действий читалки. */
 @Composable
-private fun ChapterButton(
-    chapter: Chapter,
-    index: Int,
-    total: Int,
+private fun PlayerIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
     onClick: () -> Unit,
+    active: Boolean = false,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(7.dp))
-            Text(
-                text = chapter.title.ifBlank {
-                    stringResource(R.string.chapter_of, index + 1, total)
-                },
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(2.dp))
-            Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(18.dp))
-        }
+    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            modifier = Modifier.size(20.dp),
+            tint = if (active) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                LocalContentColor.current
+            },
+        )
     }
 }
 
@@ -479,7 +513,13 @@ private fun wordRangeAt(text: String, index: Int?): IntRange? {
 }
 
 @Composable
-private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: BookViewModel) {
+private fun PlayerControls(
+    state: BookUiState,
+    chapter: Chapter,
+    viewModel: BookViewModel,
+    onSpeed: () -> Unit,
+    onSleep: () -> Unit,
+) {
     val player = state.player
     Column(
         modifier = Modifier
@@ -493,6 +533,20 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Скорость — текстом слева от перемотки назад.
+                Text(
+                    text = "${formatSpeed(player.speed)}\u00d7",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (player.speed == 1f) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onSpeed)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                )
                 IconButton(
                     onClick = viewModel::previous,
                     modifier = Modifier.size(52.dp),
@@ -535,6 +589,13 @@ private fun PlayerControls(state: BookUiState, chapter: Chapter, viewModel: Book
                         modifier = Modifier.size(30.dp),
                     )
                 }
+                PlayerIconButton(
+                    icon = Icons.Filled.Alarm,
+                    description = stringResource(R.string.sheet_sleep_title),
+                    onClick = onSleep,
+                    active = player.sleepTimerMinutes != null ||
+                        player.sleepUntilChapterEnd,
+                )
             }
             Spacer(Modifier.height(22.dp))
             val progress = if (chapter.segments.isEmpty()) {
@@ -760,59 +821,11 @@ private fun BookmarksDialog(
 
 private enum class PlayerSheet { SPEED, VOICE, SLEEP }
 
-@Composable
-private fun SpeedAction(speed: Float, onClick: () -> Unit) {
-    val description = stringResource(R.string.speed_action, formatSpeed(speed))
-    Row(
-        modifier = Modifier
-            .clip(CircleShape)
-            .clickable(onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = description }
-            .heightIn(min = 48.dp)
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Filled.Speed,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(19.dp),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            text = "${formatSpeed(speed)}\u00d7",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-        )
-    }
-}
 
-@Composable
-private fun VoiceAction(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(
-            Icons.Filled.RecordVoiceOver,
-            contentDescription = stringResource(R.string.sheet_voice_title),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
 
-@Composable
-private fun SleepAction(active: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(
-            Icons.Filled.Schedule,
-            contentDescription = stringResource(R.string.sheet_sleep_title),
-            tint = if (active) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-    }
-}
+
+
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -843,7 +856,7 @@ private fun PlayerOptionsSheet(
             PlayerSheet.SLEEP -> SleepSheet(
                 current = player.sleepTimerMinutes,
                 untilChapterEnd = player.sleepUntilChapterEnd,
-                onSelect = onSleep,
+                onTimer = onSleep,
                 onChapterEnd = onSleepChapter,
             )
         }
@@ -852,61 +865,99 @@ private fun PlayerOptionsSheet(
 
 @Composable
 private fun VoiceSheet(current: String?, onSelect: (String) -> Unit) {
-    val selected = SileroVoice.fromId(current)
-    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+    val scope = rememberCoroutineScope()
+    val options = remember { SileroVoice.entries.toList() }
+    val initialIndex = options.indexOfFirst {
+        it.id == SileroVoice.fromId(current).id
+    }.coerceAtLeast(0)
+    var appliedIndex by remember { mutableIntStateOf(initialIndex) }
+    var pendingIndex by remember { mutableIntStateOf(initialIndex) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(198.dp)
+            .padding(bottom = 10.dp),
+    ) {
         Text(
             text = stringResource(R.string.sheet_voice_title),
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(10.dp))
-        VoiceGroup(
-            title = stringResource(R.string.voices_female_title),
-            voices = SileroVoice.entries.filter { it.gender == VoiceGender.FEMALE },
-            selectedId = selected.id,
-            onSelect = onSelect,
-        )
-        VoiceGroup(
-            title = stringResource(R.string.voices_male_title),
-            voices = SileroVoice.entries.filter { it.gender == VoiceGender.MALE },
-            selectedId = selected.id,
-            onSelect = onSelect,
-        )
-    }
-}
-
-@Composable
-private fun VoiceGroup(
-    title: String,
-    voices: List<SileroVoice>,
-    selectedId: String,
-    onSelect: (String) -> Unit,
-) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 4.dp),
-    )
-    voices.forEach { voice ->
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onSelect(voice.id) }
-                .padding(horizontal = 24.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .weight(1f),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = voice.title,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f),
-            )
-            if (voice.id == selectedId) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val side = (maxWidth - VOICE_ITEM_WIDTH) / 2
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(Unit) {
+                        listState.scrollToItem(initialIndex)
+                    }
+                    LaunchedEffect(listState) {
+                        snapshotFlow { centeredCarouselIndex(listState) }
+                            .filterNotNull()
+                            .distinctUntilChanged()
+                            .collect { index ->
+                                pendingIndex = index
+                                if (index != appliedIndex) {
+                                    onSelect(options[index].id)
+                                    appliedIndex = index
+                                }
+                            }
+                    }
+                    LazyRow(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = side),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        flingBehavior = rememberSnapFlingBehavior(listState),
+                    ) {
+                        itemsIndexed(options) { index, voice ->
+                            val selected = index == pendingIndex
+                            val scale by animateFloatAsState(
+                                targetValue = if (selected) 1f else 0.9f,
+                                label = "voiceItem",
+                            )
+                            Text(
+                                text = voice.title,
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontSize = 24.sp,
+                                    lineHeight = 30.sp,
+                                ),
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier
+                                    .width(VOICE_ITEM_WIDTH)
+                                    .graphicsLayer {
+                                        scaleX = scale
+                                        scaleY = scale
+                                    }
+                                    .clickable {
+                                        scope.launch { listState.animateScrollToItem(index) }
+                                    }
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+                Box(
+                    Modifier
+                        .offset(y = (-10).dp)
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
                 )
             }
         }
@@ -917,59 +968,174 @@ private fun VoiceGroup(
 private fun SleepSheet(
     current: Int?,
     untilChapterEnd: Boolean,
-    onSelect: (Int?) -> Unit,
+    onTimer: (Int?) -> Unit,
     onChapterEnd: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+    val scope = rememberCoroutineScope()
+    val options = remember {
+        listOf(SleepOption("—", null, true), SleepOption("конец главы", null, false)) +
+            SLEEP_MINUTES.map {
+                SleepOption(String.format(java.util.Locale.getDefault(), "%02d:00", it), it, false)
+            }
+    }
+    val initialIndex = when {
+        untilChapterEnd -> 1
+        current != null -> 2 + SLEEP_MINUTES.indexOf(current).coerceAtLeast(0)
+        else -> 0
+    }
+    var appliedIndex by remember { mutableIntStateOf(initialIndex) }
+    var pendingIndex by remember { mutableIntStateOf(initialIndex) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(198.dp)
+            .padding(bottom = 10.dp),
+    ) {
         Text(
             text = stringResource(R.string.sheet_sleep_title),
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(10.dp))
-        SleepRow(
-            title = stringResource(R.string.sleep_off),
-            selected = !untilChapterEnd && current == null,
-            onClick = { onSelect(null) },
-        )
-        SleepRow(
-            title = stringResource(R.string.sleep_chapter_end_title),
-            selected = untilChapterEnd,
-            onClick = onChapterEnd,
-        )
-        listOf(15, 30, 60).forEach { minutes ->
-            SleepRow(
-                title = stringResource(R.string.sleep_minutes, minutes),
-                selected = current == minutes,
-                onClick = { onSelect(minutes) },
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val side = (maxWidth - ITEM_WIDTH) / 2
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(Unit) {
+                        listState.scrollToItem(initialIndex)
+                    }
+                    LaunchedEffect(listState) {
+                        snapshotFlow { centeredCarouselIndex(listState) }
+                            .filterNotNull()
+                            .distinctUntilChanged()
+                            .collect { index ->
+                                pendingIndex = index
+                                if (index != appliedIndex) {
+                                    val option = options[index]
+                                    if (option.minutes == null && !option.off) {
+                                        onChapterEnd()
+                                    } else {
+                                        onTimer(option.minutes)
+                                    }
+                                    appliedIndex = index
+                                }
+                            }
+                    }
+                    LazyRow(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = side),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        flingBehavior = rememberSnapFlingBehavior(listState),
+                    ) {
+                        itemsIndexed(options) { index, option ->
+                            val selected = index == pendingIndex
+                            val scale by animateFloatAsState(
+                                targetValue = if (selected) 1f else 0.92f,
+                                label = "sleepItem",
+                            )
+                            if (option.off) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(ITEM_WIDTH)
+                                        .height(52.dp)
+                                        .graphicsLayer {
+                                            scaleX = scale
+                                            scaleY = scale
+                                        }
+                                        .clickable {
+                                            scope.launch { listState.animateScrollToItem(index) }
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .width(36.dp)
+                                            .height(5.dp)
+                                            .clip(RoundedCornerShape(2.5.dp))
+                                            .background(
+                                                if (selected) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                            ),
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = option.label,
+                                    style = if (option.minutes != null) {
+                                        MaterialTheme.typography.headlineMedium.copy(
+                                            fontSize = 28.sp,
+                                            lineHeight = 34.sp,
+                                        )
+                                    } else {
+                                        MaterialTheme.typography.labelLarge
+                                    },
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    textAlign = TextAlign.Center,
+                                    maxLines = if (option.minutes != null) 1 else 2,
+                                    softWrap = option.minutes == null,
+                                    modifier = Modifier
+                                        .width(ITEM_WIDTH)
+                                        .graphicsLayer {
+                                            scaleX = scale
+                                            scaleY = scale
+                                        }
+                                        .clickable {
+                                            scope.launch { listState.animateScrollToItem(index) }
+                                        }
+                                        .padding(vertical = 8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                Box(
+                    Modifier
+                        .offset(y = (-10).dp)
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
         }
     }
 }
 
-@Composable
-private fun SleepRow(title: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
-        )
-        if (selected) {
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
+private data class SleepOption(
+    val label: String,
+    val minutes: Int?,
+    val off: Boolean,
+)
+
+private val SLEEP_MINUTES = listOf(5, 10, 15, 20, 30, 40, 50, 60)
+
+private val ITEM_WIDTH = 88.dp
+private val VOICE_ITEM_WIDTH = 120.dp
+
+/** Индекс варианта напротив точки в центре карусели. */
+private fun centeredCarouselIndex(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+): Int? {
+    val info = listState.layoutInfo
+    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+    return info.visibleItemsInfo.minByOrNull { item ->
+        kotlin.math.abs(item.offset + item.size / 2f - center)
+    }?.index
 }
 
 private fun formatSpeedScale(value: Float): String {
