@@ -88,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import ru.vtext.app.R
@@ -234,7 +235,7 @@ fun ReaderScreen(
                 val lastIndex = state.items.lastIndex
                 if (lastIndex >= 0) {
                     val index = (lastIndex * fraction.coerceIn(0f, 1f))
-                        .toInt()
+                        .roundToInt()
                         .coerceIn(0, lastIndex)
                     scope.launch { listState.scrollToItem(index) }
                     state.items.getOrNull(index)?.let { item ->
@@ -485,9 +486,25 @@ private fun ReaderFooter(
         }
         Spacer(Modifier.height(10.dp))
         // Таймлайн: толстая дорожка с точкой-ползунком, её можно тянуть.
-        val fraction = percent.coerceIn(0, 100) / 100f
+        var scrubFraction by remember { mutableStateOf<Float?>(null) }
+        var scrubbing by remember { mutableStateOf(false) }
+        // Пока тянем — показываем долю пальца; когда позиция обновится, снимаем.
+        LaunchedEffect(percent) {
+            if (!scrubbing) scrubFraction = null
+        }
+        val fraction = scrubFraction ?: (percent.coerceIn(0, 100) / 100f)
+        val shownPercent = if (scrubFraction != null) {
+            (fraction * 100f).roundToInt().coerceIn(0, 100)
+        } else {
+            percent
+        }
         val trackColor = colors.outlineVariant
         val fillColor = MaterialTheme.colorScheme.primary
+        val seek: (Float) -> Unit = { raw ->
+            val value = raw.coerceIn(0f, 1f)
+            scrubFraction = value
+            onSeek(value)
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -495,17 +512,20 @@ private fun ReaderFooter(
                 .height(24.dp)
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
-                        onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                        seek(offset.x / size.width)
                     }
                 }
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                            scrubbing = true
+                            seek(offset.x / size.width)
                         },
+                        onDragEnd = { scrubbing = false },
+                        onDragCancel = { scrubbing = false },
                     ) { change, _ ->
                         change.consume()
-                        onSeek((change.position.x / size.width).coerceIn(0f, 1f))
+                        seek(change.position.x / size.width)
                     }
                 },
         ) {
@@ -543,7 +563,7 @@ private fun ReaderFooter(
         }
         }
         Text(
-            text = stringResource(R.string.reading_progress, percent),
+            text = stringResource(R.string.reading_progress, shownPercent),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
