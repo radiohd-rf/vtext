@@ -7,6 +7,9 @@ import android.content.ContextWrapper
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -227,9 +230,23 @@ fun ReaderScreen(
                     state.segmentIndex,
                 )
             } ?: 0
+            val onSeek: (Float) -> Unit = { fraction ->
+                val lastIndex = state.items.lastIndex
+                if (lastIndex >= 0) {
+                    val index = (lastIndex * fraction.coerceIn(0f, 1f))
+                        .toInt()
+                        .coerceIn(0, lastIndex)
+                    scope.launch { listState.scrollToItem(index) }
+                    state.items.getOrNull(index)?.let { item ->
+                        currentItem = item
+                        viewModel.onPosition(item, index)
+                    }
+                }
+            }
             ReaderFooter(
                 chapterTitle = state.chapterTitle,
                 percent = percent,
+                onSeek = onSeek,
                 onToc = { showToc = true },
                 onAppearance = { showSettings = true },
                 onBookmarks = { showBookmarks = true },
@@ -429,6 +446,7 @@ private fun ReaderActions(
 private fun ReaderFooter(
     chapterTitle: String?,
     percent: Int,
+    onSeek: (Float) -> Unit,
     onToc: () -> Unit,
     onAppearance: () -> Unit,
     onBookmarks: () -> Unit,
@@ -466,15 +484,33 @@ private fun ReaderFooter(
             )
         }
         Spacer(Modifier.height(10.dp))
-        // Таймлайн: толстая дорожка с точкой-ползунком.
+        // Таймлайн: толстая дорожка с точкой-ползунком, её можно тянуть.
         val fraction = percent.coerceIn(0, 100) / 100f
         val trackColor = colors.outlineVariant
         val fillColor = MaterialTheme.colorScheme.primary
-        Canvas(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .height(16.dp),
+                .height(24.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                        },
+                    ) { change, _ ->
+                        change.consume()
+                        onSeek((change.position.x / size.width).coerceIn(0f, 1f))
+                    }
+                },
+        ) {
+        Canvas(
+            modifier = Modifier.fillMaxSize(),
         ) {
             val trackWidth = 6.dp.toPx()
             val radius = trackWidth / 2f
@@ -504,6 +540,7 @@ private fun ReaderFooter(
                 radius = dotRadius,
                 center = androidx.compose.ui.geometry.Offset(dotX, centerY),
             )
+        }
         }
         Text(
             text = stringResource(R.string.reading_progress, percent),
