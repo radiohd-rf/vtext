@@ -1,11 +1,13 @@
 package ru.vtext.app.ui.reader
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -26,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -35,6 +38,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import ru.vtext.app.R
 import ru.vtext.app.data.Annotation
 import kotlin.math.roundToInt
@@ -253,36 +257,44 @@ fun ReaderSelectionOverlay(
     onExtendEnd: (Offset) -> Unit,
     onQuote: () -> Unit,
     onNote: () -> Unit,
+    onShare: () -> Unit,
+    onCopy: () -> Unit,
 ) {
     val density = LocalDensity.current
     val startRect = remember(selection) { registry.caret(selection.chapter, selection.start) }
     val endRect = remember(selection) { registry.caret(selection.chapter, selection.end) }
-    val handleHalf = with(density) { 11.dp.toPx() }
 
     Box(Modifier.fillMaxSize()) {
+        // Обе ручки — под строкой, каплей вниз.
         startRect?.let { rect ->
             SelectionHandle(
-                rootPoint = Offset(rect.left, rect.top),
+                rootTip = Offset(rect.left, rect.bottom),
                 screenOrigin = screenOrigin,
                 onChange = onExtendStart,
             )
         }
         endRect?.let { rect ->
             SelectionHandle(
-                rootPoint = Offset(rect.right, rect.bottom),
+                rootTip = Offset(rect.right, rect.bottom),
                 screenOrigin = screenOrigin,
                 onChange = onExtendEnd,
             )
         }
 
-        val anchor = endRect ?: startRect
-        if (anchor != null) {
+        val topAnchor = startRect ?: endRect
+        val bottomAnchor = endRect ?: startRect
+        if (topAnchor != null) {
             var toolbarSize by remember { mutableStateOf(IntSize.Zero) }
             val gap = with(density) { 10.dp.toPx() }
+            val handleHeight = with(density) { 24.dp.toPx() }
             val limit = (screenWidth - toolbarSize.width - gap).coerceAtLeast(gap)
-            val x = (anchor.left - toolbarSize.width / 2f).coerceIn(gap, limit)
-            val above = anchor.top - toolbarSize.height - gap * 2
-            val y = if (above > gap) above else anchor.bottom + gap * 2
+            val x = (topAnchor.left - toolbarSize.width / 2f).coerceIn(gap, limit)
+            val above = topAnchor.top - toolbarSize.height - gap * 2
+            val y = if (above > gap) {
+                above
+            } else {
+                (bottomAnchor?.bottom ?: topAnchor.bottom) + handleHeight + gap
+            }
             SelectionToolbar(
                 modifier = Modifier
                     .offset {
@@ -294,51 +306,72 @@ fun ReaderSelectionOverlay(
                     .onSizeChanged { toolbarSize = it },
                 onQuote = onQuote,
                 onNote = onNote,
+                onShare = onShare,
+                onCopy = onCopy,
             )
         }
     }
 }
 
+/** Ручка выделения: капля под строкой, острие прижато к тексту. */
 @Composable
 private fun SelectionHandle(
-    rootPoint: Offset,
+    rootTip: Offset,
     screenOrigin: Offset,
     onChange: (Offset) -> Unit,
 ) {
-    val currentPoint by rememberUpdatedState(rootPoint)
+    val currentTip by rememberUpdatedState(rootTip)
     var dragged by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
-    val half = with(density) { 11.dp.toPx() }
+    val width = with(density) { HANDLE_WIDTH.toPx() }
+    val half = width / 2f
     Box(
         Modifier
             .offset {
                 IntOffset(
-                    (rootPoint.x - half - screenOrigin.x).roundToInt(),
-                    (rootPoint.y - half - screenOrigin.y).roundToInt(),
+                    (rootTip.x - half - screenOrigin.x).roundToInt(),
+                    (rootTip.y - screenOrigin.y).roundToInt(),
                 )
             }
-            .size(22.dp)
+            .size(width = HANDLE_WIDTH, height = HANDLE_HEIGHT)
             .pointerInput(Unit) {
                 detectDragGestures(
-                    onDragStart = { local ->
-                        dragged = currentPoint - Offset(half, half) + local
-                    },
+                    onDragStart = { local -> dragged = currentTip + local - Offset(half, 0f) },
                     onDrag = { change, delta ->
                         change.consume()
                         dragged += delta
                         onChange(dragged)
                     },
                 )
+            },
+    ) {
+        val color = MaterialTheme.colorScheme.primary
+        Canvas(Modifier.fillMaxSize()) {
+            val radius = size.width / 2f
+            val centerY = size.height - radius
+            // Острие капли смотрит вверх, к строке.
+            val tip = Path().apply {
+                moveTo(size.width / 2f, 0f)
+                lineTo(size.width / 2f - radius * 0.62f, centerY)
+                lineTo(size.width / 2f + radius * 0.62f, centerY)
+                close()
             }
-            .background(MaterialTheme.colorScheme.primary, CircleShape),
-    )
+            drawPath(tip, color)
+            drawCircle(color, radius = radius, center = Offset(size.width / 2f, centerY))
+        }
+    }
 }
+
+private val HANDLE_WIDTH = 18.dp
+private val HANDLE_HEIGHT = 24.dp
 
 @Composable
 private fun SelectionToolbar(
     modifier: Modifier = Modifier,
     onQuote: () -> Unit,
     onNote: () -> Unit,
+    onShare: () -> Unit,
+    onCopy: () -> Unit,
 ) {
     Surface(
         modifier = modifier,
@@ -346,19 +379,26 @@ private fun SelectionToolbar(
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 6.dp,
     ) {
-        Row {
-            TextButton(onClick = onQuote) {
-                Text(
-                    text = stringResource(R.string.quote_action),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
-            TextButton(onClick = onNote) {
-                Text(
-                    text = stringResource(R.string.note_action),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SelectionAction(stringResource(R.string.quote_action), onQuote)
+            SelectionAction(stringResource(R.string.note_action), onNote)
+            SelectionAction(stringResource(R.string.annotations_share), onShare)
+            SelectionAction(stringResource(R.string.annotations_copy), onCopy)
         }
+    }
+}
+
+@Composable
+private fun SelectionAction(label: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 10.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }

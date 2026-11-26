@@ -23,9 +23,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,7 +56,6 @@ import ru.vtext.app.data.AnnotationKind
 /** Лист «Цитаты и заметки»: две вкладки, переход к месту, шаринг и удаление. */
 @Composable
 fun AnnotationsScreen(
-    chapterTitles: List<String>,
     annotations: List<Annotation>,
     initialTab: AnnotationKind,
     onBack: () -> Unit,
@@ -134,14 +134,9 @@ fun AnnotationsScreen(
                     items(visible, key = { it.id }) { annotation ->
                         AnnotationRow(
                             annotation = annotation,
-                            chapterTitle = chapterTitles.getOrNull(annotation.chapterIndex),
                             onClick = { onOpen(annotation) },
-                            onShare = {
-                                shareText(context, annotation.text)
-                            },
-                            onCopy = {
-                                copyText(context, annotation.text)
-                            },
+                            onShare = { sharePlainText(context, annotation.text) },
+                            onCopy = { copyPlainText(context, annotation.text) },
                             onDelete = { onDelete(annotation) },
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -155,73 +150,72 @@ fun AnnotationsScreen(
 @Composable
 private fun AnnotationRow(
     annotation: Annotation,
-    chapterTitle: String?,
     onClick: () -> Unit,
     onShare: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Column(
+    var menu by remember { mutableStateOf(false) }
+    Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 6.dp),
+            .padding(start = 20.dp, end = 4.dp, top = 12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        if (annotation.kind == AnnotationKind.NOTE && annotation.note.isNotBlank()) {
-            Text(
-                text = annotation.note,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = annotation.text,
-                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        } else {
+        Column(
+            Modifier
+                .weight(1f)
+                .clickable(onClick = onClick)
+                .padding(bottom = 12.dp),
+        ) {
+            // Сверху — выделенный текст, под ним — заметка пользователя.
             Text(
                 text = annotation.text,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 5,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (annotation.kind == AnnotationKind.NOTE && annotation.note.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = annotation.note,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = chapterTitle?.takeIf { it.isNotBlank() }
-                    ?: stringResource(R.string.reader_chapter_short, annotation.chapterIndex + 1),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onCopy) {
+        Box {
+            IconButton(onClick = { menu = true }) {
                 Icon(
-                    Icons.Filled.ContentCopy,
-                    contentDescription = stringResource(R.string.annotations_copy),
+                    Icons.Filled.MoreVert,
+                    contentDescription = stringResource(R.string.annotation_actions),
                     modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onShare) {
-                Icon(
-                    Icons.Filled.Share,
-                    contentDescription = stringResource(R.string.annotations_share),
-                    modifier = Modifier.size(20.dp),
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.annotations_copy)) },
+                    onClick = {
+                        menu = false
+                        onCopy()
+                    },
                 )
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = stringResource(R.string.delete),
-                    modifier = Modifier.size(20.dp),
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.annotations_share)) },
+                    onClick = {
+                        menu = false
+                        onShare()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.delete)) },
+                    onClick = {
+                        menu = false
+                        onDelete()
+                    },
                 )
             }
         }
@@ -301,7 +295,7 @@ fun NoteEditorScreen(
     }
 }
 
-private fun shareText(context: Context, text: String) {
+fun sharePlainText(context: Context, text: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, text)
@@ -309,7 +303,7 @@ private fun shareText(context: Context, text: String) {
     context.startActivity(Intent.createChooser(intent, null))
 }
 
-private fun copyText(context: Context, text: String) {
+fun copyPlainText(context: Context, text: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     manager.setPrimaryClip(ClipData.newPlainText(null, text))
 }

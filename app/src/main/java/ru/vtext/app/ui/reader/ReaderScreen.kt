@@ -203,6 +203,7 @@ fun ReaderScreen(
     var screenOrigin by remember { mutableStateOf(Offset.Zero) }
     val quoteSavedMessage = stringResource(R.string.quote_saved)
     val noteSavedMessage = stringResource(R.string.note_saved)
+    val copiedMessage = stringResource(R.string.copied)
     var currentItem by remember { mutableStateOf<ReaderItem?>(null) }
     // Интерфейс читалки лежит поверх текста: тап по центру скрывает его.
     var uiVisible by rememberSaveable { mutableStateOf(true) }
@@ -222,6 +223,11 @@ fun ReaderScreen(
     // Ручная пересборка страниц (перемотка таймлайном).
     var pagingGeneration by remember { mutableStateOf(0) }
     var paginatedGeneration by remember { mutableStateOf(0) }
+    // Переход к цитате/закладке: страницы строим от начала главы, а показываем
+    // ту, на которой стоит цель.
+    var jumpChapter by remember { mutableStateOf(-1) }
+    var jumpSegment by remember { mutableStateOf(-1) }
+    var jumpOffset by remember { mutableStateOf(0) }
     // Сдвиг страницы при пролистывании (пиксели) и текущая анимация доводки.
     var pageOffsetX by remember { mutableStateOf(0f) }
     var pageTurnJob by remember { mutableStateOf<Job?>(null) }
@@ -280,6 +286,25 @@ fun ReaderScreen(
             listState.scrollToItem(
                 viewModel.itemIndexFor(state.chapterIndex, state.segmentIndex),
             )
+        }
+    }
+
+    // Переход к месту в книге: лента прокручивается, страницы собираются от
+    // начала главы и открываются на нужной странице.
+    fun goToPlace(chapterIndex: Int, segmentIndex: Int, offset: Int) {
+        viewModel.selectPosition(chapterIndex, segmentIndex)
+        if (style.scrollMode) {
+            scope.launch {
+                listState.scrollToItem(viewModel.itemIndexFor(chapterIndex, segmentIndex))
+            }
+        } else {
+            jumpChapter = chapterIndex
+            jumpSegment = segmentIndex
+            jumpOffset = offset
+            anchorChapter = chapterIndex
+            anchorSegment = 0
+            anchorOffset = 0
+            pagingGeneration += 1
         }
     }
 
@@ -357,11 +382,19 @@ fun ReaderScreen(
                 pagesChapter = state.chapterIndex
                 // Недокрученная анимация не должна сдвигать новую страницу.
                 pageOffsetX = 0f
-                pageIndex = if (wantLastPage) {
-                    wantLastPage = false
-                    built.lastIndex.coerceAtLeast(0)
-                } else {
-                    0
+                val jumpToTarget = jumpChapter == state.chapterIndex && jumpSegment >= 0
+                pageIndex = when {
+                    wantLastPage -> {
+                        wantLastPage = false
+                        built.lastIndex.coerceAtLeast(0)
+                    }
+                    // Цитата или закладка: страница строится от начала главы,
+                    // показываем ту, где стоит цель (иначе она оказывалась
+                    // первой строкой, а после листания назад — в середине).
+                    jumpToTarget -> {
+                        pageIndexFor(built, jumpSegment, jumpOffset).also { jumpSegment = -1 }
+                    }
+                    else -> 0
                 }
                 built.getOrNull(pageIndex)?.blocks?.firstOrNull()?.let { block ->
                     anchorChapter = block.chapterIndex
@@ -769,6 +802,17 @@ fun ReaderScreen(
                         noteDraft = NoteDraft(current, viewModel.selectionText(current))
                         selection = null
                     },
+                    onShare = {
+                        val text = viewModel.selectionText(current)
+                        if (text.isNotBlank()) sharePlainText(context, text)
+                    },
+                    onCopy = {
+                        val text = viewModel.selectionText(current)
+                        if (text.isNotBlank()) {
+                            copyPlainText(context, text)
+                            scope.launch { snackbar.showSnackbar(copiedMessage) }
+                        }
+                    },
                 )
             }
 
@@ -891,12 +935,7 @@ fun ReaderScreen(
                 onAdd = { viewModel.addBookmark(currentItem) },
                 onOpen = { bookmark ->
                     showBookmarks = false
-                    viewModel.selectPosition(bookmark.chapterIndex, bookmark.segmentIndex)
-                    scope.launch {
-                        listState.animateScrollToItem(
-                            viewModel.itemIndexFor(bookmark.chapterIndex, bookmark.segmentIndex),
-                        )
-                    }
+                    goToPlace(bookmark.chapterIndex, bookmark.segmentIndex, 0)
                 },
                 onDelete = viewModel::removeBookmark,
                 onDismiss = { showBookmarks = false },
@@ -913,28 +952,16 @@ fun ReaderScreen(
 
         if (showAnnotations) {
             AnnotationsScreen(
-                chapterTitles = state.book?.chapters?.map { it.title }.orEmpty(),
                 annotations = state.annotations,
                 initialTab = annotationsTab,
                 onBack = { showAnnotations = false },
                 onOpen = { annotation ->
                     showAnnotations = false
-                    viewModel.selectPosition(annotation.chapterIndex, annotation.startSegment)
-                    if (style.scrollMode) {
-                        scope.launch {
-                            listState.scrollToItem(
-                                viewModel.itemIndexFor(
-                                    annotation.chapterIndex,
-                                    annotation.startSegment,
-                                ),
-                            )
-                        }
-                    } else {
-                        anchorChapter = annotation.chapterIndex
-                        anchorSegment = annotation.startSegment
-                        anchorOffset = annotation.startOffset
-                        pagingGeneration += 1
-                    }
+                    goToPlace(
+                        annotation.chapterIndex,
+                        annotation.startSegment,
+                        annotation.startOffset,
+                    )
                 },
                 onDelete = { viewModel.removeAnnotation(it.id) },
             )
@@ -1348,19 +1375,17 @@ private fun styledText(
     }
     return buildAnnotatedString {
         append(text)
-        // Текущее выделение — самое заметное, под ним цитаты и заметки.
+        // Текущее выделение — фон, под ним сохранённые цитаты (тоже фон).
         selected?.let { range ->
             addStyle(SpanStyle(background = selectionColor), range.first, range.last + 1)
         }
         quotes.forEach { range ->
             addStyle(SpanStyle(background = markColor), range.first, range.last + 1)
         }
+        // Заметка — только подчёркивание, без фона.
         noteMarks.forEach { range ->
             addStyle(
-                SpanStyle(
-                    background = markColor,
-                    textDecoration = TextDecoration.Underline,
-                ),
+                SpanStyle(textDecoration = TextDecoration.Underline),
                 range.first,
                 range.last + 1,
             )

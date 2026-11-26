@@ -254,6 +254,8 @@
     <string name="annotations_notes_empty">Здесь появятся заметки к тексту</string>
     <string name="annotations_copy">Копировать</string>
     <string name="annotations_share">Поделиться</string>
+    <string name="annotation_actions">Действия</string>
+    <string name="copied">Скопировано</string>
     <string name="quote_action">Цитата</string>
     <string name="note_action">Заметка</string>
     <string name="quote_saved">Цитата сохранена</string>
