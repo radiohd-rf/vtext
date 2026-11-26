@@ -242,7 +242,9 @@
     <string name="voice_settings_hint">Голос системной озвучки выбирается в настройках приложения.</string>
     <string name="open_settings">Открыть настройки</string>
     <string name="voices_empty">Системные голоса ещё загружаются…</string>
-    <string name="reading_progress">%1$d%% от книги</string>
+    <string name="reading_progress">%1$d%% от всей книги</string>
+    <string name="reader_percent_short">%1$d%%</string>
+    <string name="reader_justify">Выравнивание по ширине</string>
     <string name="reader_scroll_mode">Прокрутка текста</string>
     <string name="reader_scroll_mode_hint">Выключите, чтобы листать страницы тапом по краям</string>
     <string name="note_title">Примечание %1$s</string>

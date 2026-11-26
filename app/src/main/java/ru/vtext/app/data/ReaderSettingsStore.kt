@@ -75,6 +75,13 @@ class ReaderSettingsStore(context: Context) {
             prefs.edit().putBoolean(KEY_SCROLL_MODE, value).apply()
         }
 
+    /** true — текст выравнивается по ширине страницы. */
+    var justify: Boolean
+        get() = prefs.getBoolean(KEY_JUSTIFY, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_JUSTIFY, value).apply()
+        }
+
     private fun migrateTheme(value: String?): String = when (value) {
         null, "" -> THEME_WHITE
         "paper" -> THEME_WHITE
@@ -116,5 +123,6 @@ class ReaderSettingsStore(context: Context) {
         private const val KEY_BRIGHTNESS = "brightness"
         private const val KEY_FOLLOW_SYSTEM_BRIGHTNESS = "brightness_system"
         private const val KEY_SCROLL_MODE = "scroll_mode"
+        private const val KEY_JUSTIFY = "justify"
     }
 }

@@ -339,6 +339,7 @@ fun ReaderScreen(
                 style.lineSpacing.multiplier,
                 style.margins.dp,
                 style.scrollMode,
+                style.justify,
                 state.verse,
                 widthPx,
                 contentHeightPx,
@@ -768,6 +769,19 @@ fun ReaderScreen(
                 }
             }
 
+            // Процент книги под текстом: виден, когда панели скрыты.
+            if (!uiVisible && !state.loading && state.book != null) {
+                Text(
+                    text = stringResource(R.string.reader_percent_short, percent),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.muted,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 6.dp),
+                )
+            }
+
             // Ручки выделения и кнопки «Цитата» / «Заметка».
             selection?.let { current ->
                 ReaderSelectionOverlay(
@@ -864,6 +878,8 @@ fun ReaderScreen(
                             navigationIconContentColor = colors.text,
                         ),
                     )
+                    // Каёмка снизу — как у подвала.
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
 
@@ -1001,6 +1017,7 @@ private fun bodyTextStyle(style: ReaderStyle): TextStyle = TextStyle(
     fontFamily = style.font.family,
     fontSize = style.fontSizeSp.sp,
     lineHeight = (style.fontSizeSp * style.lineSpacing.multiplier).sp,
+    textAlign = if (style.justify) TextAlign.Justify else TextAlign.Start,
 )
 
 /** Кусок текста на странице: заголовок или абзац (возможно, обрезанный). */
@@ -1971,7 +1988,14 @@ private fun ReaderSettingsSheet(
     onChange: (ReaderStyle) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
+    // Открываем сразу развёрнутой: иначе шторка останавливается на половине
+    // экрана и часть настроек оказывается под краем.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -2126,7 +2150,26 @@ private fun ReaderSettingsSheet(
                     onCheckedChange = { onChange(style.copy(scrollMode = it)) },
                 )
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(4.dp))
+
+            // Выравнивание по ширине страницы — под тумблером прокрутки.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.reader_justify),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(Modifier.width(14.dp))
+                Switch(
+                    checked = style.justify,
+                    onCheckedChange = { onChange(style.copy(justify = it)) },
+                )
+            }
+            // Отступ снизу: последняя строка не должна липнуть к краю экрана.
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

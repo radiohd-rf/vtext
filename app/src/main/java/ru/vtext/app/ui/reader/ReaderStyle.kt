@@ -94,6 +94,8 @@ data class ReaderStyle(
     val brightness: Float = 0.6f,
     /** true — текст прокручивается, false — листается страницами. */
     val scrollMode: Boolean = false,
+    /** true — текст выровнен по ширине страницы, false — по левому краю. */
+    val justify: Boolean = false,
 )
 
 data class ReaderColors(
@@ -220,6 +222,7 @@ fun ReaderSettingsStore.toStyle(): ReaderStyle = ReaderStyle(
     followSystemBrightness = followSystemBrightness,
     brightness = brightness,
     scrollMode = scrollMode,
+    justify = justify,
 )
 
 fun ReaderSettingsStore.save(style: ReaderStyle) {
@@ -231,6 +234,7 @@ fun ReaderSettingsStore.save(style: ReaderStyle) {
     followSystemBrightness = style.followSystemBrightness
     brightness = style.brightness
     scrollMode = style.scrollMode
+    justify = style.justify
 }
 
 @Composable
