@@ -20,7 +20,7 @@ class ReaderSettingsStore(context: Context) {
         }
 
     var fontSizeSp: Int
-        get() = prefs.getInt(KEY_FONT_SIZE, DEFAULT_SIZE).coerceIn(MIN_SIZE, MAX_SIZE)
+        get() = normalizeSize(prefs.getInt(KEY_FONT_SIZE, DEFAULT_SIZE))
         set(value) {
             prefs.edit().putInt(KEY_FONT_SIZE, value.coerceIn(MIN_SIZE, MAX_SIZE)).apply()
         }
@@ -83,13 +83,24 @@ class ReaderSettingsStore(context: Context) {
     }
 
     companion object {
-        const val MIN_SIZE = 14
-        const val MAX_SIZE = 30
-        const val DEFAULT_SIZE = 18
+        const val MIN_SIZE = 8
+        const val MAX_SIZE = 24
+        const val SIZE_STEP = 2
+        const val DEFAULT_SIZE = 16
         const val DEFAULT_LINE_HEIGHT = 1.55f
         const val DEFAULT_MARGIN = 20
         const val MIN_BRIGHTNESS = 0.05f
         const val DEFAULT_BRIGHTNESS = 0.6f
+
+        /**
+         * Девять размеров с шагом 2 (8, 10, … 24). Старые значения приводим
+         * к ближайшей ступени; 16 sp — системный стандарт, он же по умолчанию.
+         */
+        fun normalizeSize(value: Int): Int {
+            val clamped = value.coerceIn(MIN_SIZE, MAX_SIZE)
+            val steps = (clamped - MIN_SIZE + SIZE_STEP / 2) / SIZE_STEP
+            return (MIN_SIZE + steps * SIZE_STEP).coerceIn(MIN_SIZE, MAX_SIZE)
+        }
 
         private const val THEME_WHITE = "white"
         private const val THEME_BLACK = "black"

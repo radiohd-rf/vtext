@@ -1757,7 +1757,7 @@ private fun ReaderSettingsSheet(
                     onMinus = {
                         onChange(
                             style.copy(
-                                fontSizeSp = (style.fontSizeSp - 1)
+                                fontSizeSp = (style.fontSizeSp - ReaderSettingsStore.SIZE_STEP)
                                     .coerceAtLeast(ReaderSettingsStore.MIN_SIZE),
                             ),
                         )
@@ -1765,7 +1765,7 @@ private fun ReaderSettingsSheet(
                     onPlus = {
                         onChange(
                             style.copy(
-                                fontSizeSp = (style.fontSizeSp + 1)
+                                fontSizeSp = (style.fontSizeSp + ReaderSettingsStore.SIZE_STEP)
                                     .coerceAtMost(ReaderSettingsStore.MAX_SIZE),
                             ),
                         )
