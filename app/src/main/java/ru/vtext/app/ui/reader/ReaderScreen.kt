@@ -320,7 +320,7 @@ fun ReaderScreen(
             val layoutDirection = LocalLayoutDirection.current
             val insets = WindowInsets.safeDrawing.asPaddingValues()
             val contentTop = insets.calculateTopPadding() + 4.dp
-            val contentBottom = insets.calculateBottomPadding() + 28.dp
+            val contentBottom = insets.calculateBottomPadding() + PAGE_FOOTER_HEIGHT
             val widthPx = constraints.maxWidth -
                 with(density) { insets.calculateLeftPadding(layoutDirection).roundToPx() } -
                 with(density) { insets.calculateRightPadding(layoutDirection).roundToPx() }
@@ -699,7 +699,7 @@ fun ReaderScreen(
                     style.scrollMode -> LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = PAGE_FOOTER_HEIGHT),
                     ) {
                         itemsIndexed(
                             items = state.items,
@@ -770,16 +770,22 @@ fun ReaderScreen(
             }
 
             // Процент книги под текстом: виден, когда панели скрыты.
+            // Стоит по центру нижнего поля — одинаково от текста и от края.
             if (!uiVisible && !state.loading && state.book != null) {
-                Text(
-                    text = stringResource(R.string.reader_percent_short, percent),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.muted,
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(bottom = 6.dp),
-                )
+                        .height(PAGE_FOOTER_HEIGHT),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = stringResource(R.string.reader_percent_short, percent),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.muted,
+                    )
+                }
             }
 
             // Ручки выделения и кнопки «Цитата» / «Заметка».
@@ -1238,7 +1244,7 @@ private fun ReaderPageContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 4.dp, bottom = 28.dp),
+            .padding(top = 4.dp, bottom = PAGE_FOOTER_HEIGHT),
     ) {
         page.blocks.forEach { block ->
             val imagePath = block.imagePath
@@ -1832,6 +1838,9 @@ private fun ReaderFooter(
 
 /** Высота кнопок строки действий: компактнее стандартных 48 dp. */
 private val COMPACT_ACTION_SIZE = 36.dp
+
+/** Нижнее поле страницы: место под счётчик «N%» и воздух под текстом. */
+private val PAGE_FOOTER_HEIGHT = 64.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
