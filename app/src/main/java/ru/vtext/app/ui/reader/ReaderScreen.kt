@@ -309,8 +309,13 @@ fun ReaderScreen(
         }
     }
 
-    // Высоту шторки оглавления больше не считаем вручную: M3 сам ограничивает
-    // её сверху системными инсетами, а список забирает оставшееся место.
+    // Шторка оглавления — 3/4 высоты окна (минус ручка шторки, иначе она
+    // получается выше): так её якоря «скрыто/раскрыто» далеко друг от друга и
+    // анимация с протяжкой ведут себя стабильно.
+    val readerView = LocalView.current
+    val tocSheetHeight = with(LocalDensity.current) {
+        (readerView.height * 0.75f).toDp() - 56.dp
+    }.coerceAtLeast(240.dp)
 
     ReaderThemeStyle(style) {
         BoxWithConstraints(
@@ -949,6 +954,7 @@ fun ReaderScreen(
             ReaderTocSheet(
                 chapters = state.book!!.chapters.map { it.title to it.depth },
                 current = state.chapterIndex,
+                sheetHeight = tocSheetHeight,
                 onSelect = { index ->
                     showToc = false
                     viewModel.selectPosition(index, 0)
@@ -1868,6 +1874,7 @@ private val PAGE_FOOTER_HEIGHT = 64.dp
 private fun ReaderTocSheet(
     chapters: List<Pair<String, Int>>,
     current: Int,
+    sheetHeight: Dp,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1880,6 +1887,7 @@ private fun ReaderTocSheet(
         Column(
             Modifier
                 .fillMaxWidth()
+                .height(sheetHeight)
                 .navigationBarsPadding()
                 .padding(bottom = 24.dp),
         ) {
