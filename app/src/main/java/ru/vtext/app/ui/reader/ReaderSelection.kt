@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -313,55 +314,72 @@ fun ReaderSelectionOverlay(
     }
 }
 
-/** Ручка выделения: капля под строкой, острие прижато к тексту. */
+/**
+ * Ручка выделения: капля под строкой, острие прижато к тексту.
+ * Область касания — как у системных ручек: [HANDLE_TOUCH] при меньшем рисунке,
+ * иначе за каплю невозможно ухватиться.
+ */
 @Composable
 private fun SelectionHandle(
     rootTip: Offset,
     screenOrigin: Offset,
     onChange: (Offset) -> Unit,
 ) {
-    val currentTip by rememberUpdatedState(rootTip)
-    var dragged by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
-    val width = with(density) { HANDLE_WIDTH.toPx() }
-    val half = width / 2f
+    val touch = with(density) { HANDLE_TOUCH.toPx() }
+    val dropletWidth = with(density) { HANDLE_WIDTH.toPx() }
+    val dropletHeight = with(density) { HANDLE_HEIGHT.toPx() }
+    // Острие капли внутри области касания: по центру, у нижней кромки рисунка.
+    val tipInBox = Offset(touch / 2f, touch - dropletHeight)
+    val currentTip by rememberUpdatedState(rootTip)
+    val currentTipInBox by rememberUpdatedState(tipInBox)
     Box(
         Modifier
             .offset {
                 IntOffset(
-                    (rootTip.x - half - screenOrigin.x).roundToInt(),
-                    (rootTip.y - screenOrigin.y).roundToInt(),
+                    (rootTip.x - tipInBox.x - screenOrigin.x).roundToInt(),
+                    (rootTip.y - tipInBox.y - screenOrigin.y).roundToInt(),
                 )
             }
-            .size(width = HANDLE_WIDTH, height = HANDLE_HEIGHT)
+            .size(HANDLE_TOUCH)
             .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { local -> dragged = currentTip + local - Offset(half, 0f) },
-                    onDrag = { change, delta ->
+                // Тянем сразу, без slop: палец и так стоит на ручке.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    // Точка «острия» движется ровно на смещение пальца,
+                    // поэтому выделение не прыгает при захвате.
+                    var point = currentTip
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         change.consume()
-                        dragged += delta
-                        onChange(dragged)
-                    },
-                )
+                        if (!change.pressed) break
+                        point += change.positionChange()
+                        onChange(point)
+                    }
+                }
             },
     ) {
         val color = MaterialTheme.colorScheme.primary
         Canvas(Modifier.fillMaxSize()) {
-            val radius = size.width / 2f
-            val centerY = size.height - radius
+            val radius = dropletWidth / 2f
+            val centerY = tipInBox.y + dropletHeight - radius
             // Острие капли смотрит вверх, к строке.
-            val tip = Path().apply {
-                moveTo(size.width / 2f, 0f)
-                lineTo(size.width / 2f - radius * 0.62f, centerY)
-                lineTo(size.width / 2f + radius * 0.62f, centerY)
+            val tipPoint = Path().apply {
+                moveTo(tipInBox.x, tipInBox.y)
+                lineTo(tipInBox.x - radius * 0.62f, centerY)
+                lineTo(tipInBox.x + radius * 0.62f, centerY)
                 close()
             }
-            drawPath(tip, color)
-            drawCircle(color, radius = radius, center = Offset(size.width / 2f, centerY))
+            drawPath(tipPoint, color)
+            drawCircle(color, radius = radius, center = Offset(tipInBox.x, centerY))
         }
     }
 }
 
+/** Область касания ручки: как minimum touch target у системных ручек. */
+private val HANDLE_TOUCH = 48.dp
 private val HANDLE_WIDTH = 18.dp
 private val HANDLE_HEIGHT = 24.dp
 
