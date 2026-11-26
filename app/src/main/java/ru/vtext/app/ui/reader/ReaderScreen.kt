@@ -893,6 +893,11 @@ fun ReaderScreen(
                 ReaderFooter(
                     chapterTitle = state.chapterTitle,
                     percent = percent,
+                    pagesLeft = if (!style.scrollMode && pages.isNotEmpty()) {
+                        pages.lastIndex - pageIndex
+                    } else {
+                        null
+                    },
                     onSeek = onSeek,
                     onToc = { showToc = true },
                     onAppearance = { showSettings = true },
@@ -1660,6 +1665,7 @@ private fun ReaderParagraph(
 private fun ReaderFooter(
     chapterTitle: String?,
     percent: Int,
+    pagesLeft: Int?,
     onSeek: (Float) -> Unit,
     onToc: () -> Unit,
     onAppearance: () -> Unit,
@@ -1701,6 +1707,17 @@ private fun ReaderFooter(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            // Сколько страниц осталось до конца главы — тем же кеглем.
+            if (pagesLeft != null && pagesLeft > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.reader_pages_left, pagesLeft),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
         Spacer(Modifier.height(10.dp))
         // Таймлайн: толстая дорожка с точкой-ползунком, её можно тянуть.
