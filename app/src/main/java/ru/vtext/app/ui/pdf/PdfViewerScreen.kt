@@ -29,10 +29,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,7 +40,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -158,7 +155,6 @@ fun PdfViewerScreen(
     bookId: String,
     startPage: Int = -1,
     onBack: () -> Unit,
-    onText: () -> Unit,
 ) {
     val context = LocalContext.current
     val container = (context.applicationContext as VtextApp).container
@@ -184,9 +180,6 @@ fun PdfViewerScreen(
     // Масштаб общий для всех страниц и не сбрасывается при прокрутке.
     var scale by rememberSaveable(bookId) {
         mutableStateOf(prefs.getFloat("scale_$bookId", 1f))
-    }
-    var fitWidth by rememberSaveable(bookId) {
-        mutableStateOf(prefs.getFloat("scale_$bookId", 1f) <= MIN_SCALE)
     }
     // Фиксация: текущий масштаб и горизонтальный сдвиг остаются прежними,
     // пока не снять замок.
@@ -255,7 +248,7 @@ fun PdfViewerScreen(
                             style = MaterialTheme.typography.titleMedium,
                         )
                         if (renderer != null) {
-                            val zoom = if (fitWidth) "" else {
+                            val zoom = if (scale <= MIN_SCALE) "" else {
                                 " · " + stringResource(
                                     R.string.pdf_zoom_percent,
                                     (scale * 100).roundToInt(),
@@ -311,33 +304,6 @@ fun PdfViewerScreen(
                             },
                         )
                     }
-                    IconButton(
-                        onClick = {
-                            zoomLocked = false
-                            scale = 1f
-                            fitWidth = true
-                            horizontalJob?.cancel()
-                            horizontalJob = scope.launch { horizontalScroll.scrollTo(0) }
-                        },
-                    ) {
-                        Icon(
-                            Icons.Filled.FitScreen,
-                            contentDescription = stringResource(R.string.pdf_fit_width),
-                            tint = if (fitWidth) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                LocalContentColor.current
-                            },
-                        )
-                    }
-                    TextButton(onClick = onText) {
-                        Icon(
-                            Icons.Filled.TextFields,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 6.dp),
-                        )
-                        Text(stringResource(R.string.pdf_text_mode))
-                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -376,7 +342,6 @@ fun PdfViewerScreen(
                                 val next = if (old > MIN_SCALE) MIN_SCALE else 2f
                                 val factor = next / old
                                 scale = next
-                                fitWidth = next <= MIN_SCALE
                                 listState.pinnedScroll(offset.y, factor)?.let { (index, offsetY) ->
                                     listState.requestScrollToItem(index, offsetY)
                                 }
@@ -413,7 +378,6 @@ fun PdfViewerScreen(
                                             val focus = event.calculateCentroid()
                                             val factor = next / old
                                             scale = next
-                                            fitWidth = next <= MIN_SCALE
                                             listState.pinnedScroll(focus.y, factor)
                                                 ?.let { (index, offsetY) ->
                                                     listState.requestScrollToItem(index, offsetY)

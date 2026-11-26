@@ -197,8 +197,6 @@
     <string name="reader_rotation_unlock">Разрешить поворот экрана</string>
     <string name="pdf_original">Оригинал PDF</string>
     <string name="pdf_page_of">Страница %1$d из %2$d</string>
-    <string name="pdf_text_mode">Текст</string>
-    <string name="pdf_fit_width">По ширине</string>
     <string name="pdf_zoom_percent">%1$d%%</string>
     <string name="pdf_zoom_lock">Зафиксировать масштаб и сдвиг по горизонтали</string>
     <string name="pdf_zoom_unlock">Разрешить масштаб и сдвиг по горизонтали</string>

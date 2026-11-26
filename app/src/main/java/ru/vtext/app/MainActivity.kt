@@ -142,7 +142,6 @@ private fun VtextNavHost(pendingBookId: String?, onBookConsumed: () -> Unit) {
                 bookId = bookId,
                 startPage = page,
                 onBack = { navController.popBackStack() },
-                onText = { navController.popBackStack() },
             )
         }
         composable(
