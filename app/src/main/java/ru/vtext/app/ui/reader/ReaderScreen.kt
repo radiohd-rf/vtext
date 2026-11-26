@@ -34,6 +34,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -188,6 +190,7 @@ fun ReaderScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val haptics = LocalHapticFeedback.current
 
     var noteSheet by remember { mutableStateOf<NoteSheetState?>(null) }
     var showToc by remember { mutableStateOf(false) }
@@ -667,6 +670,9 @@ fun ReaderScreen(
                             origin = { contentOrigin },
                             selection = { selection },
                             onSelect = { selection = it },
+                            onHold = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
                         ),
                 ) {
                 when {

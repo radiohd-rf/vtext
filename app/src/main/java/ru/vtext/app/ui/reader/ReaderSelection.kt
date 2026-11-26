@@ -4,8 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import ru.vtext.app.R
 import ru.vtext.app.data.Annotation
 import kotlin.math.roundToInt
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Позиция в тексте главы: номер фрагмента и смещение в нём. */
 data class TextPos(val segment: Int, val offset: Int)
@@ -187,7 +188,98 @@ fun Annotation.rangeIn(segment: Int, charOffset: Int, length: Int): IntRange? {
 }
 
 /**
- * Долгое нажатие по тексту начинает выделение слова, протяжка его расширяет.
+ * Границы предложения вокруг смещения [offset]: [first, last] включительно.
+ * Работает по знакам конца предложения, учитывает сокращения и инициалы
+ * («1892 г.», «А. П. Чехов»), иначе одно удержание выделяло бы пол-абзаца.
+ */
+fun sentenceRange(text: String, offset: Int): IntRange {
+    if (text.isEmpty()) return 0..0
+    val position = offset.coerceIn(0, text.lastIndex)
+
+    var start = 0
+    var index = position - 1
+    while (index >= 0) {
+        if (isSentenceEnd(text, index)) {
+            start = index + 1
+            break
+        }
+        index--
+    }
+    // Пропускаем пробелы после конца предыдущего предложения.
+    while (start < text.length && text[start].isWhitespace()) {
+        start++
+    }
+
+    var end = text.length
+    index = position
+    while (index < text.length) {
+        if (isSentenceEnd(text, index)) {
+            end = index + 1
+            // Захватываем хвостовые кавычки/скобки и повторные знаки («?!», «…»).
+            while (end < text.length &&
+                (text[end] in "»“”\"')]" || text[end] == '.' || text[end] == '!'
+                    || text[end] == '?' || text[end] == '…')
+            ) {
+                end++
+            }
+            break
+        }
+        index++
+    }
+
+    if (end <= start) {
+        val first = start.coerceIn(0, text.lastIndex)
+        return first..first
+    }
+    return start until end
+}
+
+/** Конец предложения в позиции [index]: знак препинания, а не сокращение. */
+private fun isSentenceEnd(text: String, index: Int): Boolean {
+    when (text[index]) {
+        '!', '?', '…' -> return true
+        '.' -> Unit
+        else -> return false
+    }
+    // Многоточие: «..» — конец, но точку внутри «...» обработает последняя.
+    if (index > 0 && text[index - 1] == '.') return true
+    if (index + 1 < text.length && text[index + 1] == '.') return false
+
+    var next = index + 1
+    while (next < text.length && text[next].isWhitespace()) next++
+    if (next >= text.length) return true
+    val nextChar = text[next]
+    // После конца предложения идёт заглавная, цифра, кавычка или тире.
+    if (nextChar.isLowerCase()) return false
+
+    var from = index - 1
+    while (from >= 0 && (text[from].isLetter() || text[from] == '.')) from--
+    val word = text.substring(from + 1, index)
+    if (word.isEmpty()) return true
+    // Инициалы: «А. П. Чехов», «М.А. Булгаков» — в том числе склеенные,
+    // где слово перед точкой выглядит как «М.А» (одни заглавные по одной).
+    val parts = word.split('.')
+    if (parts.all { it.length == 1 && it[0].isUpperCase() }) return false
+    // Склеенные сокращения: «т.д.», «т.п.», «г.г.».
+    if (parts.size > 1 &&
+        parts.all { it.length == 1 && it.lowercase() in SENTENCE_ABBREVIATIONS }
+    ) {
+        return false
+    }
+    if (word.lowercase() in SENTENCE_ABBREVIATIONS) return false
+    return true
+}
+
+/** Сокращения, после которых точка не закрывает предложение. */
+private val SENTENCE_ABBREVIATIONS = setOf(
+    "г", "гг", "т", "д", "п", "е", "др", "проч", "проф", "акад", "доц",
+    "рис", "стр", "см", "напр", "тыс", "млн", "млрд", "вв", "им", "ул",
+    "кв", "руб", "коп", "англ", "лат", "нем", "фр", "ср", "св", "т.е",
+)
+
+/**
+ * Долгое нажатие по тексту: 1 секунда — выделяется слово, ещё секунда
+ * (итого 2) — всё предложение. Дальше протяжка расширяет выделение.
  * События при активном выделении поглощаются в Initial-проходе, поэтому
  * страница не листается, а лента не прокручивается.
  */
@@ -196,6 +288,7 @@ fun Modifier.textSelectionGestures(
     origin: () -> Offset,
     selection: () -> ReaderSelection?,
     onSelect: (ReaderSelection?) -> Unit,
+    onHold: () -> Unit = {},
 ): Modifier = pointerInput(registry) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -215,11 +308,14 @@ fun Modifier.textSelectionGestures(
             return@awaitEachGesture
         }
 
-        val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
-        val root = origin() + longPress.position
+        // 1. Держим палец WORD_HOLD_MS — выделяем слово под ним.
+        val released = withTimeoutOrNull(WORD_HOLD_MS) { waitForUpOrCancellation() }
+        if (released != null) return@awaitEachGesture
+
+        val root = origin() + down.position
         val block = registry.at(root) ?: return@awaitEachGesture
         val word = block.wordAt(root)
-        val anchor = TextPos(block.segment, block.charOffset + word.first)
+        var anchor = TextPos(block.segment, block.charOffset + word.first)
         onSelect(
             orderedSelection(
                 block.chapter,
@@ -227,9 +323,36 @@ fun Modifier.textSelectionGestures(
                 TextPos(block.segment, block.charOffset + word.last),
             ),
         )
-        longPress.consume()
+        onHold()
 
-        // Протяжка: тянем второй конец выделения, можно через абзацы.
+        // 2. Ещё секунда без движения — расширяем до предложения.
+        var reason = HOLD_TIMEOUT
+        withTimeoutOrNull(SENTENCE_HOLD_MS - WORD_HOLD_MS) {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id }
+                if (change == null || !change.pressed) {
+                    reason = HOLD_RELEASED
+                    return@withTimeoutOrNull
+                }
+                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                    reason = HOLD_MOVED
+                    return@withTimeoutOrNull
+                }
+            }
+        }
+        if (reason == HOLD_RELEASED) return@awaitEachGesture
+        if (reason == HOLD_TIMEOUT) {
+            val sentence = sentenceRange(block.text, word.first)
+            val from = TextPos(block.segment, block.charOffset + sentence.first)
+            val to = TextPos(block.segment, block.charOffset + sentence.last + 1)
+            onSelect(orderedSelection(block.chapter, from, to))
+            // Дальше тянем уже от начала предложения.
+            anchor = from
+            onHold()
+        }
+
+        // 3. Протяжка: тянем второй конец выделения, можно через абзацы.
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -242,6 +365,16 @@ fun Modifier.textSelectionGestures(
         }
     }
 }
+
+/** Держим палец столько — выделяется слово. */
+private const val WORD_HOLD_MS = 1_000L
+
+/** Держим палец столько — выделяется предложение. */
+private const val SENTENCE_HOLD_MS = 2_000L
+
+private const val HOLD_TIMEOUT = 0
+private const val HOLD_RELEASED = 1
+private const val HOLD_MOVED = 2
 
 /**
  * Ручки выделения и всплывающие кнопки «Цитата» / «Заметка».
