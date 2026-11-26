@@ -1,9 +1,6 @@
 package ru.vtext.app.ui.reader
 
-import android.app.Activity
-import android.content.pm.ActivityInfo
 import android.content.Context
-import android.content.ContextWrapper
 import androidx.compose.foundation.Canvas
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -66,8 +63,6 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.ScreenLockRotation
-import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -136,6 +131,22 @@ import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 import ru.vtext.app.data.Bookmark
 import ru.vtext.app.data.ReaderSettingsStore
+import android.view.WindowManager
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import android.app.Activity
+import android.content.ContextWrapper
 
 /**
  * Обычная читалка: прокрутка, темы, типографика, оглавление и закладки.
@@ -163,27 +174,10 @@ fun ReaderScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val style = state.style
-    val colors = style.theme.colors
+    val colors = style.colors()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-
-    val activity = context.findActivity()
-    var rotationLocked by rememberSaveable { mutableStateOf(false) }
-    // Состояние применяется и после пересоздания Activity (смена темы, шрифта).
-    LaunchedEffect(rotationLocked) {
-        activity?.requestedOrientation = if (rotationLocked) {
-            ActivityInfo.SCREEN_ORIENTATION_LOCKED
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
-    // Покидая читалку, возвращаем системе обычное поведение поворота.
-    DisposableEffect(Unit) {
-        onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
 
     var noteSheet by remember { mutableStateOf<NoteSheetState?>(null) }
     var showToc by remember { mutableStateOf(false) }
@@ -212,12 +206,16 @@ fun ReaderScreen(
     var pageOffsetX by remember { mutableStateOf(0f) }
     var pageTurnJob by remember { mutableStateOf<Job?>(null) }
 
-    DisposableEffect(style.brightness) {
+    DisposableEffect(style.followSystemBrightness, style.brightness) {
         val window = context.findActivity()?.window
         val previous = window?.attributes?.screenBrightness
-        if (window != null && style.brightness >= 0f) {
+        if (window != null) {
             val attrs = window.attributes
-            attrs.screenBrightness = style.brightness
+            attrs.screenBrightness = if (style.followSystemBrightness) {
+                WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            } else {
+                style.brightness
+            }
             window.attributes = attrs
         }
         onDispose {
@@ -278,8 +276,8 @@ fun ReaderScreen(
                 state.items.size,
                 style.font,
                 style.fontSizeSp,
-                style.lineHeight,
-                style.marginDp,
+                style.lineSpacing.multiplier,
+                style.margins.dp,
                 style.scrollMode,
                 state.verse,
                 widthPx,
@@ -685,23 +683,26 @@ fun ReaderScreen(
                                 )
                             }
                         },
+                        actions = {
+                            if (state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF) {
+                                IconButton(onClick = {
+                                    val page = state.book?.chapters
+                                        ?.getOrNull(state.chapterIndex)?.page ?: -1
+                                    onOpenPdf(page)
+                                }) {
+                                    Icon(
+                                        Icons.Filled.PictureAsPdf,
+                                        contentDescription = stringResource(R.string.pdf_original),
+                                    )
+                                }
+                            }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = colors.background,
                             titleContentColor = colors.text,
                             actionIconContentColor = colors.text,
                             navigationIconContentColor = colors.text,
                         ),
-                    )
-                    ReaderActions(
-                        isPdf = state.book?.format == ru.vtext.app.domain.model.BookFormat.PDF,
-                        rotationLocked = rotationLocked,
-                        onToggleRotation = { rotationLocked = !rotationLocked },
-                        onListen = { onListen(state.chapterIndex, state.segmentIndex) },
-                        onOpenPdf = {
-                            val page = state.book?.chapters
-                                ?.getOrNull(state.chapterIndex)?.page ?: -1
-                            onOpenPdf(page)
-                        },
                     )
                 }
             }
@@ -714,6 +715,7 @@ fun ReaderScreen(
                     onToc = { showToc = true },
                     onAppearance = { showSettings = true },
                     onBookmarks = { showBookmarks = true },
+                    onListen = { onListen(state.chapterIndex, state.segmentIndex) },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .onSizeChanged { footerHeightPx = it.height },
@@ -802,7 +804,7 @@ private fun headerTextStyle(style: ReaderStyle): TextStyle = TextStyle(
 private fun bodyTextStyle(style: ReaderStyle): TextStyle = TextStyle(
     fontFamily = style.font.family,
     fontSize = style.fontSizeSp.sp,
-    lineHeight = (style.fontSizeSp * style.lineHeight).sp,
+    lineHeight = (style.fontSizeSp * style.lineSpacing.multiplier).sp,
 )
 
 /** Кусок текста на странице: заголовок или абзац (возможно, обрезанный). */
@@ -854,7 +856,7 @@ private fun paginate(
     startSegment: Int = -1,
     startOffset: Int = 0,
 ): List<ReaderPage> {
-    val marginPx = with(density) { style.marginDp.dp.roundToPx() }
+    val marginPx = with(density) { style.margins.dp.dp.roundToPx() }
     val textWidth = (widthPx - marginPx * 2).coerceAtLeast(1)
     val pageHeight = heightPx.toFloat()
     val pages = mutableListOf<ReaderPage>()
@@ -1001,7 +1003,7 @@ private fun PageLayer(
         Modifier
             .fillMaxSize()
             .offset { IntOffset(offsetX.roundToInt(), 0) }
-            .background(style.theme.colors.background),
+            .background(style.colors().background),
     ) {
         ReaderPageContent(page, style, onNote)
     }
@@ -1013,7 +1015,7 @@ private fun ReaderPageContent(
     style: ReaderStyle,
     onNote: (String) -> Unit,
 ) {
-    val colors = style.theme.colors
+    val colors = style.colors()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1028,7 +1030,7 @@ private fun ReaderPageContent(
                     alt = block.text.takeIf { it.isNotBlank() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = style.marginDp.dp)
+                        .padding(horizontal = style.margins.dp.dp)
                         .padding(top = block.topDp, bottom = block.bottomDp)
                         .height(with(density) { block.imageHeight.toDp() }),
                 )
@@ -1039,7 +1041,7 @@ private fun ReaderPageContent(
                     onTextLayout = { layout.value = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = style.marginDp.dp)
+                        .padding(horizontal = style.margins.dp.dp)
                         .padding(top = block.topDp, bottom = block.bottomDp)
                         .noteTap(block.notes, layout, onNote),
                     color = colors.text,
@@ -1060,7 +1062,7 @@ private fun ReaderImageItem(item: ReaderItem.Image, style: ReaderStyle) {
             alt = item.alt.takeIf { it.isNotBlank() },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = style.marginDp.dp, vertical = 10.dp)
+                .padding(horizontal = style.margins.dp.dp, vertical = 10.dp)
                 .aspectRatio(ratio),
         )
     }
@@ -1275,14 +1277,14 @@ private fun NotePanel(
 
 @Composable
 private fun ReaderHeader(title: String, style: ReaderStyle) {
-    val colors = style.theme.colors
+    val colors = style.colors()
     Text(
         text = title,
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = style.marginDp.dp,
-                end = style.marginDp.dp,
+                start = style.margins.dp.dp,
+                end = style.margins.dp.dp,
                 top = 26.dp,
                 bottom = 10.dp,
             ),
@@ -1299,82 +1301,18 @@ private fun ReaderParagraph(
     verse: Boolean,
     onNote: (String) -> Unit,
 ) {
-    val colors = style.theme.colors
+    val colors = style.colors()
     val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
     Text(
         text = styledText(text, notes, colors.accent),
         onTextLayout = { layout.value = it },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = style.marginDp.dp, vertical = if (verse) 6.dp else 7.dp)
+            .padding(horizontal = style.margins.dp.dp, vertical = if (verse) 6.dp else 7.dp)
             .noteTap(notes, layout, onNote),
         color = colors.text,
         style = bodyTextStyle(style),
     )
-}
-
-/**
- * Строка действий под верхней панелью: фиксация ориентации, PDF, «Слушать»,
- * оформление, закладки. Кнопки прижаты вправо.
- */
-@Composable
-private fun ReaderActions(
-    isPdf: Boolean,
-    rotationLocked: Boolean,
-    onToggleRotation: () -> Unit,
-    onListen: () -> Unit,
-    onOpenPdf: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth()) {
-        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides COMPACT_ACTION_SIZE) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onToggleRotation, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
-                    Icon(
-                        if (rotationLocked) {
-                            Icons.Filled.ScreenLockRotation
-                        } else {
-                            Icons.Filled.ScreenRotation
-                        },
-                        contentDescription = stringResource(
-                            if (rotationLocked) R.string.reader_rotation_unlock
-                            else R.string.reader_rotation_lock,
-                        ),
-                        modifier = Modifier.size(20.dp),
-                        tint = if (rotationLocked) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            LocalContentColor.current
-                        },
-                    )
-                }
-                if (isPdf) {
-                    IconButton(onClick = onOpenPdf, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
-                        Icon(
-                            Icons.Filled.PictureAsPdf,
-                            contentDescription = stringResource(R.string.pdf_original),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-                IconButton(onClick = onListen, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
-                    Icon(
-                        Icons.Filled.Headphones,
-                        contentDescription = stringResource(R.string.reader_listen),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-
-            }
-        }
-        HorizontalDivider(color = colors.outlineVariant)
-    }
 }
 
 /**
@@ -1389,6 +1327,7 @@ private fun ReaderFooter(
     onToc: () -> Unit,
     onAppearance: () -> Unit,
     onBookmarks: () -> Unit,
+    onListen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -1534,6 +1473,14 @@ private fun ReaderFooter(
                     Icon(
                         Icons.Filled.BookmarkBorder,
                         contentDescription = stringResource(R.string.bookmarks),
+                        modifier = Modifier.size(24.dp),
+                        tint = colors.onSurface,
+                    )
+                }
+                IconButton(onClick = onListen, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                    Icon(
+                        Icons.Filled.Headphones,
+                        contentDescription = stringResource(R.string.reader_listen),
                         modifier = Modifier.size(24.dp),
                         tint = colors.onSurface,
                     )
@@ -1702,158 +1649,381 @@ private fun ReaderSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 28.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+        ) {
             Text(
                 text = stringResource(R.string.reader_appearance),
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
 
+            // Яркость: как в системе; если выключено — ползунок с точкой.
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onChange(style.copy(followSystemBrightness = !style.followSystemBrightness))
+                    },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.reader_scroll_mode),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Text(
-                        text = stringResource(R.string.reader_scroll_mode_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Checkbox(
+                    checked = style.followSystemBrightness,
+                    onCheckedChange = { onChange(style.copy(followSystemBrightness = it)) },
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.reader_brightness_system),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            if (!style.followSystemBrightness) {
+                ReaderBrightnessSlider(
+                    value = style.brightness,
+                    onChange = { onChange(style.copy(brightness = it)) },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+
+            // Тема фона: карусель.
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp),
+            ) {
+                items(ReaderTheme.entries) { theme ->
+                    ReaderThemeChip(
+                        theme = theme,
+                        selected = style.theme == theme,
+                        onClick = { onChange(style.copy(theme = theme)) },
                     )
                 }
+            }
+            Spacer(Modifier.height(16.dp))
+
+            // Шрифт: образец, шесть точек и размер.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clickable {
+                            val fonts = ReaderFont.entries
+                            onChange(style.copy(font = fonts[(style.font.ordinal + 1) % fonts.size]))
+                        },
+                ) {
+                    Text(
+                        text = style.font.title,
+                        style = TextStyle(fontFamily = style.font.family, fontSize = 24.sp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    ReaderFontDots(style.font)
+                }
+                Spacer(Modifier.width(16.dp))
+                ReaderSizeStepper(
+                    onMinus = {
+                        onChange(
+                            style.copy(
+                                fontSizeSp = (style.fontSizeSp - 1)
+                                    .coerceAtLeast(ReaderSettingsStore.MIN_SIZE),
+                            ),
+                        )
+                    },
+                    onPlus = {
+                        onChange(
+                            style.copy(
+                                fontSizeSp = (style.fontSizeSp + 1)
+                                    .coerceAtMost(ReaderSettingsStore.MAX_SIZE),
+                            ),
+                        )
+                    },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+
+            // Межстрочный интервал и поля — по три режима.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                ReaderLineSpacingGroup(
+                    mode = style.lineSpacing,
+                    modifier = Modifier.weight(1f),
+                    onChange = { onChange(style.copy(lineSpacing = it)) },
+                )
+                ReaderMarginsGroup(
+                    mode = style.margins,
+                    onChange = { onChange(style.copy(margins = it)) },
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+
+            // Прокрутка текста: выключено — листание тапом по краю.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.reader_scroll_mode),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(Modifier.width(14.dp))
                 Switch(
                     checked = style.scrollMode,
                     onCheckedChange = { onChange(style.copy(scrollMode = it)) },
                 )
             }
-            Spacer(Modifier.height(6.dp))
-
-            Text(
-                text = stringResource(R.string.reader_theme),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReaderTheme.entries.forEach { theme ->
-                    FilterChip(
-                        selected = style.theme == theme,
-                        onClick = { onChange(style.copy(theme = theme)) },
-                        label = { Text(themeLabel(theme)) },
-                    )
-                }
-            }
             Spacer(Modifier.height(10.dp))
-
-            Text(
-                text = stringResource(R.string.reader_font),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReaderFont.entries.forEach { font ->
-                    FilterChip(
-                        selected = style.font == font,
-                        onClick = { onChange(style.copy(font = font)) },
-                        label = { Text(fontLabel(font)) },
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-
-            ReaderSlider(
-                title = stringResource(R.string.reader_font_size),
-                valueText = "${style.fontSizeSp}",
-                value = style.fontSizeSp.toFloat(),
-                range = ReaderSettingsStore.MIN_SIZE.toFloat()..ReaderSettingsStore.MAX_SIZE.toFloat(),
-                steps = ReaderSettingsStore.MAX_SIZE - ReaderSettingsStore.MIN_SIZE - 1,
-                onValue = { onChange(style.copy(fontSizeSp = it.toInt())) },
-            )
-            ReaderSlider(
-                title = stringResource(R.string.reader_line_height),
-                valueText = String.format("%.2f", style.lineHeight),
-                value = style.lineHeight,
-                range = ReaderSettingsStore.MIN_LINE_HEIGHT..ReaderSettingsStore.MAX_LINE_HEIGHT,
-                steps = 9,
-                onValue = { onChange(style.copy(lineHeight = it)) },
-            )
-            ReaderSlider(
-                title = stringResource(R.string.reader_margins),
-                valueText = "${style.marginDp} dp",
-                value = style.marginDp.toFloat(),
-                range = ReaderSettingsStore.MIN_MARGIN.toFloat()..ReaderSettingsStore.MAX_MARGIN.toFloat(),
-                steps = ReaderSettingsStore.MAX_MARGIN - ReaderSettingsStore.MIN_MARGIN - 1,
-                onValue = { onChange(style.copy(marginDp = it.toInt())) },
-            )
-            ReaderSlider(
-                title = stringResource(R.string.reader_brightness),
-                valueText = if (style.brightness < 0f) {
-                    stringResource(R.string.reader_brightness_system)
-                } else {
-                    "${(style.brightness * 100).toInt()}%"
-                },
-                value = if (style.brightness < 0f) 0.5f else style.brightness.coerceIn(0.05f, 1f),
-                range = 0.05f..1f,
-                steps = 18,
-                onValue = { onChange(style.copy(brightness = it)) },
-            )
-            TextButton(onClick = { onChange(style.copy(brightness = -1f)) }) {
-                Text(stringResource(R.string.reader_brightness_system))
-            }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReaderSlider(
-    title: String,
-    valueText: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    onValue: (Float) -> Unit,
-) {
-    Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            Text(
-                text = valueText,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+private fun ReaderBrightnessSlider(value: Float, onChange: (Float) -> Unit) {
+    Slider(
+        value = value.coerceIn(ReaderSettingsStore.MIN_BRIGHTNESS, 1f),
+        onValueChange = onChange,
+        valueRange = ReaderSettingsStore.MIN_BRIGHTNESS..1f,
+        colors = SliderDefaults.colors(
+            thumbColor = Color.Transparent,
+            activeTrackColor = Color.Transparent,
+            inactiveTrackColor = Color.Transparent,
+        ),
+        thumb = {
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
             )
-        }
-        Slider(
-            value = value,
-            onValueChange = onValue,
-            valueRange = range,
-            steps = steps,
+        },
+        track = { state ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant, CircleShape),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(state.value.coerceIn(0f, 1f))
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                )
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, start = 6.dp, end = 6.dp),
+    )
+}
+
+@Composable
+private fun ReaderThemeChip(theme: ReaderTheme, selected: Boolean, onClick: () -> Unit) {
+    val colors = theme.colors(isSystemInDarkTheme())
+    val label = stringResource(
+        when (theme) {
+            ReaderTheme.WHITE -> R.string.reader_theme_white
+            ReaderTheme.SEPIA -> R.string.reader_theme_sepia
+            ReaderTheme.GRAY -> R.string.reader_theme_gray
+            ReaderTheme.BLACK -> R.string.reader_theme_black
+            ReaderTheme.SYSTEM -> R.string.reader_theme_system
+        },
+    )
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .height(44.dp)
+            .clip(shape)
+            .background(colors.background)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary else colors.line,
+                shape = shape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = colors.text,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
         )
     }
 }
 
 @Composable
-private fun themeLabel(theme: ReaderTheme): String = stringResource(
-    when (theme) {
-        ReaderTheme.PAPER -> R.string.reader_theme_paper
-        ReaderTheme.SEPIA -> R.string.reader_theme_sepia
-        ReaderTheme.NIGHT -> R.string.reader_theme_night
-    },
-)
+private fun ReaderFontDots(font: ReaderFont) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        ReaderFont.entries.forEachIndexed { index, item ->
+            if (index == 3) Spacer(Modifier.width(10.dp))
+            val active = item == font
+            Box(
+                Modifier
+                    .size(if (active) 9.dp else 7.dp)
+                    .background(
+                        if (active) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        },
+                        CircleShape,
+                    ),
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+    }
+}
 
 @Composable
-private fun fontLabel(font: ReaderFont): String = stringResource(
-    when (font) {
-        ReaderFont.SERIF -> R.string.reader_font_serif
-        ReaderFont.SANS -> R.string.reader_font_sans
-    },
-)
+private fun ReaderSizeStepper(onMinus: () -> Unit, onPlus: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .height(44.dp)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .clickable(onClick = onMinus),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "\u2212", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(24.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .clickable(onClick = onPlus),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "+", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+    }
+}
 
-private val ReaderFont.family: FontFamily
-    get() = if (this == ReaderFont.SERIF) FontFamily.Serif else FontFamily.SansSerif
+@Composable
+private fun ReaderLineSpacingGroup(
+    mode: ReaderLineSpacing,
+    onChange: (ReaderLineSpacing) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val modes = ReaderLineSpacing.entries
+    Row(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onChange(modes[(mode.ordinal + 1) % modes.size]) }
+            .padding(vertical = 4.dp, horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        modes.forEach { item ->
+            ReaderLineSpacingIcon(item, active = item == mode)
+        }
+    }
+}
+
+@Composable
+private fun ReaderLineSpacingIcon(mode: ReaderLineSpacing, active: Boolean) {
+    val color = if (active) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+    val gap = when (mode) {
+        ReaderLineSpacing.COMPACT -> 4.dp
+        ReaderLineSpacing.NORMAL -> 7.dp
+        ReaderLineSpacing.WIDE -> 10.dp
+    }
+    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.width(30.dp).height(40.dp)) {
+            val lineHeight = 2.dp.toPx()
+            val step = lineHeight + gap.toPx()
+            repeat(4) { index ->
+                val top = lineHeight / 2 + step * index
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(0f, top),
+                    size = Size(size.width, lineHeight),
+                    cornerRadius = CornerRadius(lineHeight / 2),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderMarginsGroup(
+    mode: ReaderMargins,
+    onChange: (ReaderMargins) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val modes = ReaderMargins.entries
+    Row(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onChange(modes[(mode.ordinal + 1) % modes.size]) }
+            .padding(vertical = 4.dp, horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        modes.forEach { item ->
+            ReaderMarginsIcon(item, active = item == mode)
+        }
+    }
+}
+
+@Composable
+private fun ReaderMarginsIcon(mode: ReaderMargins, active: Boolean) {
+    val color = if (active) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+    val inset = when (mode) {
+        ReaderMargins.NARROW -> 3.dp
+        ReaderMargins.MEDIUM -> 7.dp
+        ReaderMargins.WIDE -> 11.dp
+    }
+    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.width(30.dp).height(38.dp)) {
+            val stroke = 1.5.dp.toPx()
+            drawRoundRect(
+                color = color,
+                size = Size(size.width, size.height),
+                cornerRadius = CornerRadius(3.dp.toPx()),
+                style = Stroke(width = stroke),
+            )
+            val pad = inset.toPx()
+            val lineHeight = 2.dp.toPx()
+            val gap = 3.dp.toPx()
+            val step = lineHeight + gap
+            val startY = (size.height - (step * 4 - gap)) / 2
+            repeat(4) { index ->
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(pad, startY + step * index),
+                    size = Size(size.width - pad * 2, lineHeight),
+                    cornerRadius = CornerRadius(lineHeight / 2),
+                )
+            }
+        }
+    }
+}
 
 private fun itemKey(item: ReaderItem): String = when (item) {
     is ReaderItem.Header -> "h-${item.chapterIndex}"

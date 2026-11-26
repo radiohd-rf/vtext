@@ -154,9 +154,11 @@
     <string name="reader_chapter_short">Глава %1$d</string>
     <string name="reader_chapter_of">Глава %1$d из %2$d</string>
     <string name="reader_theme">Тема</string>
-    <string name="reader_theme_paper">Бумага</string>
+    <string name="reader_theme_white">Белый</string>
     <string name="reader_theme_sepia">Сепия</string>
-    <string name="reader_theme_night">Ночь</string>
+    <string name="reader_theme_gray">Серый</string>
+    <string name="reader_theme_black">Чёрный</string>
+    <string name="reader_theme_system">Как в системе</string>
     <string name="reader_font">Шрифт</string>
     <string name="reader_font_serif">С засечками</string>
     <string name="reader_font_sans">Без засечек</string>
@@ -164,7 +166,7 @@
     <string name="reader_line_height">Межстрочный интервал</string>
     <string name="reader_margins">Поля</string>
     <string name="reader_brightness">Яркость</string>
-    <string name="reader_brightness_system">Как в системе</string>
+    <string name="reader_brightness_system">Использовать яркость как в системе</string>
     <string name="reader_rotation_lock">Зафиксировать ориентацию экрана</string>
     <string name="reader_rotation_unlock">Разрешить поворот экрана</string>
     <string name="pdf_original">Оригинал PDF</string>
