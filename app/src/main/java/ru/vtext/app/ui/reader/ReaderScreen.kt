@@ -1861,8 +1861,7 @@ private fun ReaderThemeChip(theme: ReaderTheme, selected: Boolean, onClick: () -
 @Composable
 private fun ReaderFontDots(font: ReaderFont) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        ReaderFont.entries.forEachIndexed { index, item ->
-            if (index == 3) Spacer(Modifier.width(10.dp))
+        ReaderFont.entries.forEach { item ->
             val active = item == font
             Box(
                 Modifier
@@ -1926,39 +1925,52 @@ private fun ReaderLineSpacingGroup(
 ) {
     val modes = ReaderLineSpacing.entries
     Row(
-        modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onChange(modes[(mode.ordinal + 1) % modes.size]) }
-            .padding(vertical = 4.dp, horizontal = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         modes.forEach { item ->
-            ReaderLineSpacingIcon(item, active = item == mode)
+            ReaderLineSpacingIcon(
+                mode = item,
+                active = item == mode,
+                onClick = { onChange(item) },
+            )
         }
     }
 }
 
 @Composable
-private fun ReaderLineSpacingIcon(mode: ReaderLineSpacing, active: Boolean) {
+private fun ReaderLineSpacingIcon(
+    mode: ReaderLineSpacing,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
     val color = if (active) {
         MaterialTheme.colorScheme.primary
     } else {
         MaterialTheme.colorScheme.outlineVariant
     }
-    val gap = when (mode) {
-        ReaderLineSpacing.COMPACT -> 4.dp
-        ReaderLineSpacing.NORMAL -> 7.dp
-        ReaderLineSpacing.WIDE -> 10.dp
+    // Густота передаётся числом строк, а не их разбегом: так все три
+    // иконки занимают одну и ту же высоту.
+    val lines = when (mode) {
+        ReaderLineSpacing.COMPACT -> 5
+        ReaderLineSpacing.NORMAL -> 4
+        ReaderLineSpacing.WIDE -> 3
     }
-    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.width(30.dp).height(40.dp)) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(30.dp)) {
             val lineHeight = 2.dp.toPx()
-            val step = lineHeight + gap.toPx()
-            repeat(4) { index ->
-                val top = lineHeight / 2 + step * index
+            val step = (size.height - lineHeight) / (lines - 1)
+            repeat(lines) { index ->
                 drawRoundRect(
                     color = color,
-                    topLeft = Offset(0f, top),
+                    topLeft = Offset(0f, step * index),
                     size = Size(size.width, lineHeight),
                     cornerRadius = CornerRadius(lineHeight / 2),
                 )
@@ -1975,20 +1987,26 @@ private fun ReaderMarginsGroup(
 ) {
     val modes = ReaderMargins.entries
     Row(
-        modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onChange(modes[(mode.ordinal + 1) % modes.size]) }
-            .padding(vertical = 4.dp, horizontal = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         modes.forEach { item ->
-            ReaderMarginsIcon(item, active = item == mode)
+            ReaderMarginsIcon(
+                mode = item,
+                active = item == mode,
+                onClick = { onChange(item) },
+            )
         }
     }
 }
 
 @Composable
-private fun ReaderMarginsIcon(mode: ReaderMargins, active: Boolean) {
+private fun ReaderMarginsIcon(
+    mode: ReaderMargins,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
     val color = if (active) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -1996,11 +2014,17 @@ private fun ReaderMarginsIcon(mode: ReaderMargins, active: Boolean) {
     }
     val inset = when (mode) {
         ReaderMargins.NARROW -> 3.dp
-        ReaderMargins.MEDIUM -> 7.dp
-        ReaderMargins.WIDE -> 11.dp
+        ReaderMargins.MEDIUM -> 6.dp
+        ReaderMargins.WIDE -> 9.dp
     }
-    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.width(30.dp).height(38.dp)) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(30.dp)) {
             val stroke = 1.5.dp.toPx()
             drawRoundRect(
                 color = color,
@@ -2012,8 +2036,9 @@ private fun ReaderMarginsIcon(mode: ReaderMargins, active: Boolean) {
             val lineHeight = 2.dp.toPx()
             val gap = 3.dp.toPx()
             val step = lineHeight + gap
-            val startY = (size.height - (step * 4 - gap)) / 2
-            repeat(4) { index ->
+            val lines = 4
+            val startY = (size.height - (step * lines - gap)) / 2
+            repeat(lines) { index ->
                 drawRoundRect(
                     color = color,
                     topLeft = Offset(pad, startY + step * index),
