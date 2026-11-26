@@ -148,6 +148,7 @@ fun LibraryScreen(
             audioRepository = container.audioRepository,
             audioProgress = container.audioProgress,
             bookFlags = container.bookFlags,
+            annotations = container.annotations,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()

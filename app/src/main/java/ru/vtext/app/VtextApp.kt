@@ -65,6 +65,7 @@ class AppContainer(application: Application) {
     val playbackSettings = PlaybackSettingsStore(application)
     val bookSettings = ru.vtext.app.data.BookSettingsStore(application)
     val bookmarks = ru.vtext.app.data.BookmarkStore(application)
+    val annotations = ru.vtext.app.data.AnnotationStore(application)
     val bookFlags = ru.vtext.app.data.BookFlagsStore(application)
     val ttsManager = TtsManager(application, ttsSettings, playbackSettings)
     val speechEngine: SpeechEngine = ttsManager

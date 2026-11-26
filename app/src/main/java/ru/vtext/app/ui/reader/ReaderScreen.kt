@@ -1,6 +1,7 @@
 package ru.vtext.app.ui.reader
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -61,6 +62,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.TextFields
@@ -143,11 +145,17 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.drawscope.Stroke
 import android.app.Activity
 import android.content.ContextWrapper
 import androidx.compose.foundation.layout.widthIn
+import ru.vtext.app.data.Annotation
+import ru.vtext.app.data.AnnotationKind
 
 /**
  * Обычная читалка: прокрутка, темы, типографика, оглавление и закладки.
@@ -171,6 +179,7 @@ fun ReaderScreen(
             progressStore = container.progressStore,
             bookmarks = container.bookmarks,
             settings = container.readerSettings,
+            annotationStore = container.annotations,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -184,6 +193,16 @@ fun ReaderScreen(
     var showToc by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    // Выделение текста, лист «Цитаты и заметки» и редактор новой заметки.
+    var selection by remember { mutableStateOf<ReaderSelection?>(null) }
+    var showAnnotations by remember { mutableStateOf(false) }
+    var annotationsTab by remember { mutableStateOf(AnnotationKind.QUOTE) }
+    var noteDraft by remember { mutableStateOf<NoteDraft?>(null) }
+    val blockRegistry = remember { BlockRegistry() }
+    var contentOrigin by remember { mutableStateOf(Offset.Zero) }
+    var screenOrigin by remember { mutableStateOf(Offset.Zero) }
+    val quoteSavedMessage = stringResource(R.string.quote_saved)
+    val noteSavedMessage = stringResource(R.string.note_saved)
     var currentItem by remember { mutableStateOf<ReaderItem?>(null) }
     // Интерфейс читалки лежит поверх текста: тап по центру скрывает его.
     var uiVisible by rememberSaveable { mutableStateOf(true) }
@@ -206,6 +225,15 @@ fun ReaderScreen(
     // Сдвиг страницы при пролистывании (пиксели) и текущая анимация доводки.
     var pageOffsetX by remember { mutableStateOf(0f) }
     var pageTurnJob by remember { mutableStateOf<Job?>(null) }
+
+    // Системная «назад» сначала закрывает редактор заметки, список и выделение.
+    BackHandler(enabled = noteDraft != null || showAnnotations || selection != null) {
+        when {
+            noteDraft != null -> noteDraft = null
+            showAnnotations -> showAnnotations = false
+            else -> selection = null
+        }
+    }
 
     DisposableEffect(style.followSystemBrightness, style.brightness) {
         val window = context.findActivity()?.window
@@ -256,7 +284,12 @@ fun ReaderScreen(
     }
 
     ReaderThemeStyle(style) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(colors.background)) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .onGloballyPositioned { screenOrigin = it.positionInRoot() },
+        ) {
             val density = LocalDensity.current
             val layoutDirection = LocalLayoutDirection.current
             val insets = WindowInsets.safeDrawing.asPaddingValues()
@@ -545,6 +578,11 @@ fun ReaderScreen(
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                // Жест уже поглощён: выделение текста или ссылка.
+                                if (change.isConsumed) {
+                                    if (dragging) pageOffsetX = 0f
+                                    return@awaitEachGesture
+                                }
                                 tracker.addPosition(change.uptimeMillis, change.position)
                                 if (!change.pressed) {
                                     // Ссылку примечания уже обработали ниже: не
@@ -588,6 +626,18 @@ fun ReaderScreen(
                         }
                     },
             ) {
+                // Выделение текста живёт на этом слое: долгое нажатие и протяжка.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { contentOrigin = it.positionInRoot() }
+                        .textSelectionGestures(
+                            registry = blockRegistry,
+                            origin = { contentOrigin },
+                            selection = { selection },
+                            onSelect = { selection = it },
+                        ),
+                ) {
                 when {
                     state.loading -> Box(
                         Modifier.fillMaxSize(),
@@ -625,6 +675,11 @@ fun ReaderScreen(
                                     style = style,
                                     verse = state.verse,
                                     onNote = onNote,
+                                    chapterIndex = item.chapterIndex,
+                                    segmentIndex = item.segmentIndex,
+                                    annotations = state.annotations,
+                                    selection = selection,
+                                    registry = blockRegistry,
                                 )
                                 is ReaderItem.Image -> ReaderImageItem(item, style)
                             }
@@ -642,6 +697,9 @@ fun ReaderScreen(
                                             style = style,
                                             offsetX = -pageWidth + pageOffsetX,
                                             onNote = onNote,
+                                            annotations = state.annotations,
+                                            selection = selection,
+                                            registry = blockRegistry,
                                         )
                                     }
                                 } else if (pageOffsetX < 0f) {
@@ -651,14 +709,67 @@ fun ReaderScreen(
                                             style = style,
                                             offsetX = pageWidth + pageOffsetX,
                                             onNote = onNote,
+                                            annotations = state.annotations,
+                                            selection = selection,
+                                            registry = blockRegistry,
                                         )
                                     }
                                 }
-                                PageLayer(current, style, pageOffsetX, onNote)
+                                PageLayer(
+                                    page = current,
+                                    style = style,
+                                    offsetX = pageOffsetX,
+                                    onNote = onNote,
+                                    annotations = state.annotations,
+                                    selection = selection,
+                                    registry = blockRegistry,
+                                )
                             }
                         }
                     }
                 }
+                }
+            }
+
+            // Ручки выделения и кнопки «Цитата» / «Заметка».
+            selection?.let { current ->
+                ReaderSelectionOverlay(
+                    selection = current,
+                    registry = blockRegistry,
+                    screenOrigin = screenOrigin,
+                    screenWidth = constraints.maxWidth,
+                    onExtendStart = { point ->
+                        val block = blockRegistry.at(point, current.chapter)
+                        if (block != null) {
+                            val pos = TextPos(
+                                block.segment,
+                                block.charOffset + block.offsetAt(point),
+                            )
+                            selection = orderedSelection(current.chapter, pos, current.end)
+                        }
+                    },
+                    onExtendEnd = { point ->
+                        val block = blockRegistry.at(point, current.chapter)
+                        if (block != null) {
+                            val pos = TextPos(
+                                block.segment,
+                                block.charOffset + block.offsetAt(point),
+                            )
+                            selection = orderedSelection(current.chapter, current.start, pos)
+                        }
+                    },
+                    onQuote = {
+                        viewModel.saveQuote(current)
+                        selection = null
+                        scope.launch {
+                            snackbar.showSnackbar(quoteSavedMessage)
+                        }
+                    },
+                    onNote = {
+                        noteDraft = NoteDraft(current, viewModel.selectionText(current))
+                        selection = null
+                    },
+                )
             }
 
             if (uiVisible) {
@@ -719,6 +830,10 @@ fun ReaderScreen(
                     onToc = { showToc = true },
                     onAppearance = { showSettings = true },
                     onBookmarks = { showBookmarks = true },
+                    onAnnotations = {
+                        annotationsTab = AnnotationKind.QUOTE
+                        showAnnotations = true
+                    },
                     onListen = { onListen(state.chapterIndex, state.segmentIndex) },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -795,8 +910,58 @@ fun ReaderScreen(
                 onDismiss = { showSettings = false },
             )
         }
+
+        if (showAnnotations) {
+            AnnotationsScreen(
+                chapterTitles = state.book?.chapters?.map { it.title }.orEmpty(),
+                annotations = state.annotations,
+                initialTab = annotationsTab,
+                onBack = { showAnnotations = false },
+                onOpen = { annotation ->
+                    showAnnotations = false
+                    viewModel.selectPosition(annotation.chapterIndex, annotation.startSegment)
+                    if (style.scrollMode) {
+                        scope.launch {
+                            listState.scrollToItem(
+                                viewModel.itemIndexFor(
+                                    annotation.chapterIndex,
+                                    annotation.startSegment,
+                                ),
+                            )
+                        }
+                    } else {
+                        anchorChapter = annotation.chapterIndex
+                        anchorSegment = annotation.startSegment
+                        anchorOffset = annotation.startOffset
+                        pagingGeneration += 1
+                    }
+                },
+                onDelete = { viewModel.removeAnnotation(it.id) },
+            )
+        }
+
+        noteDraft?.let { draft ->
+            NoteEditorScreen(
+                quoted = draft.quoted,
+                text = draft.text,
+                onTextChange = { value -> noteDraft = draft.copy(text = value) },
+                onCancel = { noteDraft = null },
+                onSave = {
+                    noteDraft = null
+                    viewModel.saveNote(draft.selection, draft.text)
+                    scope.launch { snackbar.showSnackbar(noteSavedMessage) }
+                },
+            )
+        }
     }
 }
+
+/** Новая заметка: выделенный текст и поле ввода. */
+private data class NoteDraft(
+    val selection: ReaderSelection,
+    val quoted: String,
+    val text: String = "",
+)
 
 private fun headerTextStyle(style: ReaderStyle): TextStyle = TextStyle(
     fontFamily = style.font.family,
@@ -1002,6 +1167,9 @@ private fun PageLayer(
     style: ReaderStyle,
     offsetX: Float,
     onNote: (String) -> Unit,
+    annotations: List<Annotation>,
+    selection: ReaderSelection?,
+    registry: BlockRegistry,
 ) {
     Box(
         Modifier
@@ -1009,7 +1177,7 @@ private fun PageLayer(
             .offset { IntOffset(offsetX.roundToInt(), 0) }
             .background(style.colors().background),
     ) {
-        ReaderPageContent(page, style, onNote)
+        ReaderPageContent(page, style, onNote, annotations, selection, registry)
     }
 }
 
@@ -1018,6 +1186,9 @@ private fun ReaderPageContent(
     page: ReaderPage,
     style: ReaderStyle,
     onNote: (String) -> Unit,
+    annotations: List<Annotation>,
+    selection: ReaderSelection?,
+    registry: BlockRegistry,
 ) {
     val colors = style.colors()
     Column(
@@ -1040,13 +1211,59 @@ private fun ReaderPageContent(
                 )
             } else {
                 val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
+                val holder = remember { BlockHolder() }
+                val segment = block.segmentIndex ?: -1
+                val key = "${block.chapterIndex}:$segment:${block.charOffset}"
+                val quotes = remember(annotations, block.text) {
+                    annotations.filter { it.kind == AnnotationKind.QUOTE }
+                        .mapNotNull { it.rangeIn(segment, block.charOffset, block.text.length) }
+                }
+                val notesMark = remember(annotations, block.text) {
+                    annotations.filter { it.kind == AnnotationKind.NOTE }
+                        .mapNotNull { it.rangeIn(segment, block.charOffset, block.text.length) }
+                }
+                fun register() {
+                    val result = holder.layout ?: return
+                    if (holder.bounds == Rect.Zero || segment < 0) return
+                    registry.put(
+                        key,
+                        TextBlock(
+                            chapter = block.chapterIndex,
+                            segment = segment,
+                            charOffset = block.charOffset,
+                            text = block.text,
+                            layout = result,
+                            bounds = holder.bounds,
+                        ),
+                    )
+                }
+                DisposableEffect(key) {
+                    onDispose { registry.remove(key) }
+                }
                 Text(
-                    text = styledText(block.text, block.notes, colors.accent),
-                    onTextLayout = { layout.value = it },
+                    text = styledText(
+                        text = block.text,
+                        notes = block.notes,
+                        color = colors.accent,
+                        quotes = quotes,
+                        noteMarks = notesMark,
+                        selected = selection?.rangeIn(segment, block.charOffset, block.text.length),
+                        markColor = colors.mark,
+                        selectionColor = colors.selection,
+                    ),
+                    onTextLayout = {
+                        holder.layout = it
+                        layout.value = it
+                        register()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = style.margins.dp.dp)
                         .padding(top = block.topDp, bottom = block.bottomDp)
+                        .onGloballyPositioned {
+                            holder.bounds = it.boundsInRoot()
+                            register()
+                        }
                         .noteTap(block.notes, layout, onNote),
                     color = colors.text,
                     style = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style),
@@ -1116,10 +1333,38 @@ private fun decodeScaledBitmap(path: String, maxSide: Int): Bitmap? {
 private data class NoteSheetState(val label: String, val note: NoteRef?)
 
 /** Текст со ссылками: диапазоны [NoteSpan] окрашиваем цветом акцента. */
-private fun styledText(text: String, notes: List<NoteSpan>, color: Color): AnnotatedString {
-    if (notes.isEmpty()) return AnnotatedString(text)
+private fun styledText(
+    text: String,
+    notes: List<NoteSpan>,
+    color: Color,
+    quotes: List<IntRange> = emptyList(),
+    noteMarks: List<IntRange> = emptyList(),
+    selected: IntRange? = null,
+    markColor: Color = Color.Unspecified,
+    selectionColor: Color = Color.Unspecified,
+): AnnotatedString {
+    if (notes.isEmpty() && quotes.isEmpty() && noteMarks.isEmpty() && selected == null) {
+        return AnnotatedString(text)
+    }
     return buildAnnotatedString {
         append(text)
+        // Текущее выделение — самое заметное, под ним цитаты и заметки.
+        selected?.let { range ->
+            addStyle(SpanStyle(background = selectionColor), range.first, range.last + 1)
+        }
+        quotes.forEach { range ->
+            addStyle(SpanStyle(background = markColor), range.first, range.last + 1)
+        }
+        noteMarks.forEach { range ->
+            addStyle(
+                SpanStyle(
+                    background = markColor,
+                    textDecoration = TextDecoration.Underline,
+                ),
+                range.first,
+                range.last + 1,
+            )
+        }
         notes.forEach { span ->
             val start = span.start.coerceIn(0, text.length)
             val end = span.end.coerceIn(start, text.length)
@@ -1304,15 +1549,55 @@ private fun ReaderParagraph(
     style: ReaderStyle,
     verse: Boolean,
     onNote: (String) -> Unit,
+    chapterIndex: Int,
+    segmentIndex: Int,
+    annotations: List<Annotation>,
+    selection: ReaderSelection?,
+    registry: BlockRegistry,
 ) {
     val colors = style.colors()
     val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
+    val holder = remember { BlockHolder() }
+    val key = "$chapterIndex:$segmentIndex:0"
+    val quotes = remember(annotations, text) {
+        annotations.filter { it.kind == AnnotationKind.QUOTE }
+            .mapNotNull { it.rangeIn(segmentIndex, 0, text.length) }
+    }
+    val notesMark = remember(annotations, text) {
+        annotations.filter { it.kind == AnnotationKind.NOTE }
+            .mapNotNull { it.rangeIn(segmentIndex, 0, text.length) }
+    }
+    fun register() {
+        val result = holder.layout ?: return
+        if (holder.bounds == Rect.Zero) return
+        registry.put(key, TextBlock(chapterIndex, segmentIndex, 0, text, result, holder.bounds))
+    }
+    DisposableEffect(key) {
+        onDispose { registry.remove(key) }
+    }
     Text(
-        text = styledText(text, notes, colors.accent),
-        onTextLayout = { layout.value = it },
+        text = styledText(
+            text = text,
+            notes = notes,
+            color = colors.accent,
+            quotes = quotes,
+            noteMarks = notesMark,
+            selected = selection?.rangeIn(segmentIndex, 0, text.length),
+            markColor = colors.mark,
+            selectionColor = colors.selection,
+        ),
+        onTextLayout = {
+            holder.layout = it
+            layout.value = it
+            register()
+        },
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = style.margins.dp.dp, vertical = if (verse) 6.dp else 7.dp)
+            .onGloballyPositioned {
+                holder.bounds = it.boundsInRoot()
+                register()
+            }
             .noteTap(notes, layout, onNote),
         color = colors.text,
         style = bodyTextStyle(style),
@@ -1331,6 +1616,7 @@ private fun ReaderFooter(
     onToc: () -> Unit,
     onAppearance: () -> Unit,
     onBookmarks: () -> Unit,
+    onAnnotations: () -> Unit,
     onListen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1477,6 +1763,14 @@ private fun ReaderFooter(
                     Icon(
                         Icons.Filled.BookmarkBorder,
                         contentDescription = stringResource(R.string.bookmarks),
+                        modifier = Modifier.size(24.dp),
+                        tint = colors.onSurface,
+                    )
+                }
+                IconButton(onClick = onAnnotations, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                    Icon(
+                        Icons.Filled.FormatQuote,
+                        contentDescription = stringResource(R.string.reader_annotations),
                         modifier = Modifier.size(24.dp),
                         tint = colors.onSurface,
                     )

@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import ru.vtext.app.data.Annotation
+import ru.vtext.app.data.AnnotationKind
+import ru.vtext.app.data.AnnotationStore
 import ru.vtext.app.data.BookRepository
 import ru.vtext.app.data.Bookmark
 import ru.vtext.app.data.BookmarkStore
@@ -101,6 +104,8 @@ data class ReaderUiState(
     val segmentIndex: Int = 0,
     val style: ReaderStyle = ReaderStyle(),
     val bookmarks: List<Bookmark> = emptyList(),
+    /** Сохранённые цитаты и заметки книги. */
+    val annotations: List<Annotation> = emptyList(),
     /** Индекс видимого элемента — по нему считаем прогресс. */
     val positionIndex: Int = 0,
     /** Стихи: строки идут отдельными абзацами, между ними нужен меньший отступ. */
@@ -121,6 +126,7 @@ class ReaderViewModel(
     private val progressStore: ProgressStore,
     private val bookmarks: BookmarkStore,
     private val settings: ReaderSettingsStore,
+    private val annotationStore: AnnotationStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ReaderUiState())
@@ -165,6 +171,7 @@ class ReaderViewModel(
                 segmentIndex = segment,
                 style = settings.toStyle(),
                 bookmarks = bookmarks.list(bookId),
+                annotations = annotationStore.list(bookId),
                 positionIndex = startIndex,
                 verse = verse,
                 notes = BookNotes.parse(book),
@@ -263,6 +270,79 @@ class ReaderViewModel(
         _state.update { it.copy(bookmarks = updated) }
     }
 
+    /** Текст выделения: абзацы выделения через перевод строки, без лишних пробелов. */
+    fun selectionText(selection: ReaderSelection): String {
+        val parts = ArrayList<String>()
+        _state.value.items.forEach { item ->
+            if (item !is ReaderItem.Paragraph) return@forEach
+            if (item.chapterIndex != selection.chapter) return@forEach
+            if (item.segmentIndex < selection.start.segment ||
+                item.segmentIndex > selection.end.segment
+            ) {
+                return@forEach
+            }
+            val from = if (item.segmentIndex == selection.start.segment) {
+                selection.start.offset.coerceIn(0, item.text.length)
+            } else {
+                0
+            }
+            val to = if (item.segmentIndex == selection.end.segment) {
+                selection.end.offset.coerceIn(0, item.text.length)
+            } else {
+                item.text.length
+            }
+            if (from < to) parts += item.text.substring(from, to)
+        }
+        return parts.joinToString("\n").trim()
+    }
+
+    /** «Цитата»: сохранённый фрагмент подсвечивается в тексте. */
+    fun saveQuote(selection: ReaderSelection) {
+        val text = selectionText(selection)
+        if (text.isBlank()) return
+        val annotation = Annotation(
+            id = UUID.randomUUID().toString(),
+            kind = AnnotationKind.QUOTE,
+            chapterIndex = selection.chapter,
+            startSegment = selection.start.segment,
+            startOffset = selection.start.offset,
+            endSegment = selection.end.segment,
+            endOffset = selection.end.offset,
+            text = text,
+            createdAt = System.currentTimeMillis(),
+        )
+        _state.update { it.copy(annotations = annotationStore.add(bookId, annotation)) }
+    }
+
+    /** «Заметка»: подчёркнутый фрагмент плюс текст пользователя. */
+    fun saveNote(selection: ReaderSelection, note: String) {
+        val text = selectionText(selection)
+        if (text.isBlank()) return
+        val annotation = Annotation(
+            id = UUID.randomUUID().toString(),
+            kind = AnnotationKind.NOTE,
+            chapterIndex = selection.chapter,
+            startSegment = selection.start.segment,
+            startOffset = selection.start.offset,
+            endSegment = selection.end.segment,
+            endOffset = selection.end.offset,
+            text = text,
+            note = note.trim(),
+            createdAt = System.currentTimeMillis(),
+        )
+        _state.update { it.copy(annotations = annotationStore.add(bookId, annotation)) }
+    }
+
+    fun updateNote(id: String, note: String) {
+        _state.update {
+            it.copy(annotations = annotationStore.updateNote(bookId, id, note.trim()))
+        }
+    }
+
+    fun removeAnnotation(id: String) {
+        _state.update { it.copy(annotations = annotationStore.remove(bookId, id)) }
+    }
+
     private fun buildItems(book: Book): List<ReaderItem> {
         val items = ArrayList<ReaderItem>()
         val assets = java.io.File(repository.bookDir(bookId), "epub-assets")
@@ -306,8 +386,18 @@ class ReaderViewModel(
             progressStore: ProgressStore,
             bookmarks: BookmarkStore,
             settings: ReaderSettingsStore,
+            annotationStore: AnnotationStore,
         ) = viewModelFactory {
-            initializer { ReaderViewModel(bookId, repository, progressStore, bookmarks, settings) }
+            initializer {
+                ReaderViewModel(
+                    bookId,
+                    repository,
+                    progressStore,
+                    bookmarks,
+                    settings,
+                    annotationStore,
+                )
+            }
         }
     }
 }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import ru.vtext.app.data.AnnotationStore
 import ru.vtext.app.data.AudioProgressStore
 import ru.vtext.app.data.AudioRepository
 import ru.vtext.app.data.BookFlags
@@ -106,6 +107,7 @@ class LibraryViewModel(
     private val audioRepository: AudioRepository,
     private val audioProgress: AudioProgressStore,
     private val bookFlagsStore: BookFlagsStore,
+    private val annotationStore: AnnotationStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryUiState())
@@ -249,6 +251,7 @@ class LibraryViewModel(
         audioProgress.clear(bookId)
         playback.clearIfBook(bookId)
         bookFlagsStore.clear(bookId)
+        annotationStore.clear(bookId)
     }
 
     /** Открытие книги: запоминаем время — по нему строится сортировка «недавние». */
@@ -362,6 +365,7 @@ class LibraryViewModel(
             audioRepository: AudioRepository,
             audioProgress: AudioProgressStore,
             bookFlags: BookFlagsStore,
+            annotations: AnnotationStore,
         ) = viewModelFactory {
             initializer {
                 LibraryViewModel(
@@ -371,6 +375,7 @@ class LibraryViewModel(
                     audioRepository,
                     audioProgress,
                     bookFlags,
+                    annotations,
                 )
             }
         }

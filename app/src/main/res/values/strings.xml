@@ -247,4 +247,18 @@
     <string name="reader_scroll_mode_hint">Выключите, чтобы листать страницы тапом по краям</string>
     <string name="note_title">Примечание %1$s</string>
     <string name="note_not_found">Примечание не найдено</string>
+    <string name="reader_annotations">Цитаты и заметки</string>
+    <string name="annotations_quotes">Цитаты</string>
+    <string name="annotations_notes">Заметки</string>
+    <string name="annotations_quotes_empty">Здесь появятся сохранённые цитаты</string>
+    <string name="annotations_notes_empty">Здесь появятся заметки к тексту</string>
+    <string name="annotations_copy">Копировать</string>
+    <string name="annotations_share">Поделиться</string>
+    <string name="quote_action">Цитата</string>
+    <string name="note_action">Заметка</string>
+    <string name="quote_saved">Цитата сохранена</string>
+    <string name="note_saved">Заметка сохранена</string>
+    <string name="note_new_title">Новая заметка</string>
+    <string name="note_hint">Добавьте несколько строк</string>
+    <string name="save">Сохранить</string>
 </resources>

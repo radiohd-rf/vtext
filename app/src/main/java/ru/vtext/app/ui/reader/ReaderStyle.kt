@@ -103,6 +103,10 @@ data class ReaderColors(
     val muted: Color,
     val accent: Color,
     val line: Color,
+    /** Подсветка текущего выделения текста. */
+    val selection: Color,
+    /** Фон сохранённой цитаты. */
+    val mark: Color,
 )
 
 private val WHITE_COLORS = ReaderColors(
@@ -112,6 +116,8 @@ private val WHITE_COLORS = ReaderColors(
     muted = Color(0xFF6B6B70),
     accent = Color(0xFF1F5A54),
     line = Color(0xFFECECEC),
+    selection = Color(0x3D1F5A54),
+    mark = Color(0x241F5A54),
 )
 
 private val SEPIA_COLORS = ReaderColors(
@@ -121,6 +127,8 @@ private val SEPIA_COLORS = ReaderColors(
     muted = Color(0xFF7A6A54),
     accent = Color(0xFF8A5F24),
     line = Color(0xFFDDCDAF),
+    selection = Color(0x3D8A5F24),
+    mark = Color(0x248A5F24),
 )
 
 private val GRAY_COLORS = ReaderColors(
@@ -130,6 +138,8 @@ private val GRAY_COLORS = ReaderColors(
     muted = Color(0xFFA9A6A0),
     accent = Color(0xFF8FCFC4),
     line = Color(0xFF52565C),
+    selection = Color(0x4A8FCFC4),
+    mark = Color(0x2E8FCFC4),
 )
 
 private val BLACK_COLORS = ReaderColors(
@@ -139,6 +149,8 @@ private val BLACK_COLORS = ReaderColors(
     muted = Color(0xFF9A9A9A),
     accent = Color(0xFF8FCFC4),
     line = Color(0xFF262626),
+    selection = Color(0x4A8FCFC4),
+    mark = Color(0x308FCFC4),
 )
 
 fun ReaderTheme.colors(systemDark: Boolean): ReaderColors = when (this) {
