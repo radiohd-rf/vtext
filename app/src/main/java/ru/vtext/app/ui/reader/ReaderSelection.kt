@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -75,7 +76,11 @@ class TextBlock(
     val text: String,
     val layout: TextLayoutResult,
     val bounds: Rect,
+    /** Строки растянуты по ширине: позиции из раскладки надо сдвигать. */
+    val justified: Boolean = false,
 ) {
+    /** Порядковый номер регистрации: свежий блок важнее устаревшего. */
+    var seq: Long = 0L
     val length: Int get() = text.length
 
     /** Смещение символа под точкой экрана (в координатах фрагмента). */
@@ -84,16 +89,34 @@ class TextBlock(
             (point.x - bounds.left).coerceIn(0f, layout.size.width.toFloat()),
             (point.y - bounds.top).coerceIn(0f, layout.size.height.toFloat()),
         )
-        return layout.getOffsetForPosition(local).coerceIn(0, length)
+        val raw = layout.getOffsetForPosition(local).coerceIn(0, length)
+        if (!justified || length == 0) return raw
+        val line = layout.getLineForVerticalPosition(local.y)
+        val from = layout.getLineStart(line)
+        val to = layout.getLineEnd(line, visibleEnd = true)
+        if (to <= from) return raw
+        return (from..to).minByOrNull { index ->
+            kotlin.math.abs(layout.getCursorRect(index).left + justifyShift(line, index) - local.x)
+        } ?: raw
     }
 
     /** Слово под точкой: диапазон [from, to) в координатах фрагмента. */
-    fun wordAt(point: Offset): IntRange {
-        val offset = offsetAt(point)
-        if (text.isEmpty()) return 0..0
-        val index = offset.coerceIn(0, text.lastIndex)
+    fun wordAt(point: Offset): IntRange? {
+        if (text.isEmpty()) return null
+        var index = offsetAt(point).coerceIn(0, text.lastIndex)
+        // Пробел или знак — само по себе не выделяем: берём ближайшее слово,
+        // сначала слева (как на платформе), иначе первое справа.
         if (!text[index].isLetterOrDigit()) {
-            return index..(index + 1)
+            var left = index
+            while (left >= 0 && !text[left].isLetterOrDigit()) left--
+            if (left >= 0) {
+                index = left
+            } else {
+                var right = index
+                while (right < text.length && !text[right].isLetterOrDigit()) right++
+                if (right >= text.length) return null
+                index = right
+            }
         }
         var from = index
         var to = index
@@ -106,18 +129,76 @@ class TextBlock(
     fun caret(offset: Int): Rect =
         layout.getCursorRect(offset.coerceIn(0, length))
             .translate(bounds.left, bounds.top)
+
+    /** Точка под краем выделения: острие ручки в координатах экрана. */
+    fun edgePoint(offset: Int, isEnd: Boolean): Offset {
+        val rect = edge(offset, isEnd)
+        return Offset(rect.left, rect.bottom)
+    }
+
+    /**
+     * Край выделения в координатах экрана: x берём из каретки (она знает про
+     * выравнивание по ширине), y — из строки самого символа, чтобы на границе
+     * строки ручка не уезжала на соседнюю.
+     */
+    fun edge(offset: Int, isEnd: Boolean): Rect {
+        if (length <= 0) {
+            return Rect(bounds.left, bounds.top, bounds.left, bounds.top)
+        }
+        val local = offset.coerceIn(0, length)
+        val char = if (isEnd) (local - 1).coerceIn(0, length - 1) else local.coerceIn(0, length - 1)
+        val line = layout.getLineForOffset(char)
+        val x = layout.getCursorRect(local).left + if (justified) justifyShift(line, char) else 0f
+        val top = layout.getLineTop(line)
+        val bottom = layout.getLineBottom(line)
+        return Rect(x, top, x, bottom).translate(bounds.left, bounds.top)
+    }
+
+    /**
+     * Поправка на выравнивание по ширине: раскладка отдаёт позиции до
+     * растягивания, а рисуется строка уже растянутой. Лишняя ширина делится
+     * поровну между пробелами, поэтому символ сдвигается на долю пробелов до него.
+     */
+    private fun justifyShift(line: Int, char: Int): Float {
+        if (line >= layout.lineCount - 1) return 0f
+        val from = layout.getLineStart(line)
+        val to = layout.getLineEnd(line, visibleEnd = true)
+        if (to <= from) return 0f
+        val extra = layout.size.width - layout.getLineRight(line)
+        if (extra <= 0.5f) return 0f
+        var total = 0
+        var before = 0
+        for (index in from until to) {
+            if (text.getOrNull(index) == ' ') {
+                total++
+                if (index < char) before++
+            }
+        }
+        if (total == 0) return 0f
+        return extra * before / total
+    }
 }
 
 /** Кэш видимых кусков текста: обновляется из [onTextLayout] и [onGloballyPositioned]. */
 class BlockRegistry {
     private val blocks = HashMap<String, TextBlock>()
+    private var sequence = 0L
+
+    /**
+     * Счётчик изменений: подписка на него в композиции заставляет ручки
+     * пересчитываться, когда текст переразложился или страница сдвинулась.
+     */
+    var version by mutableIntStateOf(0)
+        private set
 
     fun put(key: String, block: TextBlock) {
+        block.seq = ++sequence
         blocks[key] = block
+        version++
     }
 
     fun remove(key: String) {
-        blocks.remove(key)
+        if (blocks.remove(key) != null) version++
     }
 
     /** Блок под точкой экрана; при промахе — ближайший в главе. */
@@ -132,8 +213,10 @@ class BlockRegistry {
         return visible.minByOrNull { distance(it.bounds, point) }
     }
 
-    /** Каретка позиции в координатах экрана (если блок виден). */
-    fun caret(chapter: Int, pos: TextPos): Rect? {
+    /** Край выделения в координатах экрана (если блок виден). */
+    fun caret(chapter: Int, pos: TextPos, isEnd: Boolean): Rect? {
+        // Берём самый свежий зарегистрированный кусок: устаревшие записи от
+        // предыдущей страницы иначе дают смещённые ручки.
         val block = blocks.values
             .filter {
                 it.chapter == chapter &&
@@ -141,8 +224,19 @@ class BlockRegistry {
                     pos.offset >= it.charOffset &&
                     pos.offset <= it.charOffset + it.length
             }
-            .maxByOrNull { it.charOffset } ?: return null
-        return block.caret(pos.offset - block.charOffset)
+            .maxByOrNull { it.seq } ?: return null
+        return block.edge(pos.offset - block.charOffset, isEnd)
+    }
+}
+
+/** Точки краёв выделения в координатах экрана: их пишут сами куски текста. */
+class SelectionAnchors {
+    var start by mutableStateOf<Offset?>(null)
+    var end by mutableStateOf<Offset?>(null)
+
+    fun clear() {
+        start = null
+        end = null
     }
 }
 
@@ -329,7 +423,8 @@ fun Modifier.textSelectionGestures(
 
         val root = origin() + down.position
         val block = registry.at(root) ?: return@awaitEachGesture
-        val word = block.wordAt(root)
+        // Пробел и знаки сами по себе не выделяем; если слова рядом нет — выходим.
+        val word = block.wordAt(root) ?: return@awaitEachGesture
         var anchor = TextPos(block.segment, block.charOffset + word.first)
         onSelect(
             orderedSelection(
@@ -346,7 +441,14 @@ fun Modifier.textSelectionGestures(
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
                 val change = event.changes.firstOrNull { it.id == down.id }
-                if (change == null || !change.pressed) {
+                if (change == null) {
+                    reason = HOLD_RELEASED
+                    return@withTimeoutOrNull
+                }
+                if (!change.pressed) {
+                    // Палец отпущен уже после начала выделения: поглощаем событие,
+                    // иначе листание сочтёт жест тапом и перевернёт страницу.
+                    change.consume()
                     reason = HOLD_RELEASED
                     return@withTimeoutOrNull
                 }
@@ -409,12 +511,16 @@ fun ReaderSelectionOverlay(
     onCopy: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val startRect = remember(selection) { registry.caret(selection.chapter, selection.start) }
-    val endRect = remember(selection) { registry.caret(selection.chapter, selection.end) }
+    // Точки краёв берём из того же реестра текста, что и подсветку.
+    @Suppress("UNUSED_VARIABLE") val registryVersion = registry.version
+    val startPoint = registry.caret(selection.chapter, selection.start, isEnd = false)
+        ?.let { Offset(it.left, it.bottom) }
+    val endPoint = registry.caret(selection.chapter, selection.end, isEnd = true)
+        ?.let { Offset(it.left, it.bottom) }
 
     Box(Modifier.fillMaxSize()) {
-        val topAnchor = startRect ?: endRect
-        val bottomAnchor = endRect ?: startRect
+        val topAnchor = startPoint ?: endPoint
+        val bottomAnchor = endPoint ?: startPoint
 
         // Панель рисуем первой: ручки должны быть поверх неё, иначе их
         // область касания перекрывается кнопками и за ручку не ухватиться.
@@ -425,12 +531,12 @@ fun ReaderSelectionOverlay(
             val handleLift = with(density) { HANDLE_TOUCH_HEIGHT.toPx() } / 2f
             val liftBelow = with(density) { HANDLE_HEIGHT.toPx() } + gap
             val limit = (screenWidth - toolbarSize.width - gap).coerceAtLeast(gap)
-            val x = (topAnchor.left - toolbarSize.width / 2f).coerceIn(gap, limit)
-            val above = topAnchor.top - handleLift - toolbarSize.height - gap
+            val x = (topAnchor.x - toolbarSize.width / 2f).coerceIn(gap, limit)
+            val above = topAnchor.y - handleLift - toolbarSize.height - gap
             val y = if (above > gap) {
                 above
             } else {
-                (bottomAnchor?.bottom ?: topAnchor.bottom) + liftBelow
+                (bottomAnchor?.y ?: topAnchor.y) + liftBelow
             }
             SelectionToolbar(
                 modifier = Modifier
@@ -449,16 +555,16 @@ fun ReaderSelectionOverlay(
         }
 
         // Обе ручки — под строкой, каплей вниз; рисуются поверх панели.
-        startRect?.let { rect ->
+        startPoint?.let { point ->
             SelectionHandle(
-                rootTip = Offset(rect.left, rect.bottom),
+                rootTip = point,
                 screenOrigin = screenOrigin,
                 onChange = onExtendStart,
             )
         }
-        endRect?.let { rect ->
+        endPoint?.let { point ->
             SelectionHandle(
-                rootTip = Offset(rect.right, rect.bottom),
+                rootTip = point,
                 screenOrigin = screenOrigin,
                 onChange = onExtendEnd,
             )

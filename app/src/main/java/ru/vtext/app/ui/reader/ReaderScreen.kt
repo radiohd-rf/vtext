@@ -202,6 +202,7 @@ fun ReaderScreen(
     var annotationsTab by remember { mutableStateOf(AnnotationKind.QUOTE) }
     var noteDraft by remember { mutableStateOf<NoteDraft?>(null) }
     val blockRegistry = remember { BlockRegistry() }
+    val selectionAnchors = remember { SelectionAnchors() }
     var contentOrigin by remember { mutableStateOf(Offset.Zero) }
     var screenOrigin by remember { mutableStateOf(Offset.Zero) }
     val copiedMessage = stringResource(R.string.copied)
@@ -726,6 +727,7 @@ fun ReaderScreen(
                                     annotations = state.annotations,
                                     selection = selection,
                                     registry = blockRegistry,
+                                    anchors = selectionAnchors,
                                 )
                                 is ReaderItem.Image -> ReaderImageItem(item, style)
                             }
@@ -746,6 +748,7 @@ fun ReaderScreen(
                                             annotations = state.annotations,
                                             selection = selection,
                                             registry = blockRegistry,
+                                            anchors = selectionAnchors,
                                         )
                                     }
                                 } else if (pageOffsetX < 0f) {
@@ -758,6 +761,7 @@ fun ReaderScreen(
                                             annotations = state.annotations,
                                             selection = selection,
                                             registry = blockRegistry,
+                                            anchors = selectionAnchors,
                                         )
                                     }
                                 }
@@ -769,6 +773,7 @@ fun ReaderScreen(
                                     annotations = state.annotations,
                                     selection = selection,
                                     registry = blockRegistry,
+                                    anchors = selectionAnchors,
                                 )
                             }
                         }
@@ -1234,6 +1239,7 @@ private fun PageLayer(
     annotations: List<Annotation>,
     selection: ReaderSelection?,
     registry: BlockRegistry,
+    anchors: SelectionAnchors,
 ) {
     Box(
         Modifier
@@ -1241,7 +1247,7 @@ private fun PageLayer(
             .offset { IntOffset(offsetX.roundToInt(), 0) }
             .background(style.colors().background),
     ) {
-        ReaderPageContent(page, style, onNote, annotations, selection, registry)
+        ReaderPageContent(page, style, onNote, annotations, selection, registry, anchors)
     }
 }
 
@@ -1253,6 +1259,7 @@ private fun ReaderPageContent(
     annotations: List<Annotation>,
     selection: ReaderSelection?,
     registry: BlockRegistry,
+    anchors: SelectionAnchors,
 ) {
     val colors = style.colors()
     Column(
@@ -1286,20 +1293,38 @@ private fun ReaderPageContent(
                     annotations.filter { it.kind == AnnotationKind.NOTE }
                         .mapNotNull { it.rangeIn(segment, block.charOffset, block.text.length) }
                 }
-                fun register() {
-                    val result = holder.layout ?: return
-                    if (holder.bounds == Rect.Zero || segment < 0) return
-                    registry.put(
-                        key,
-                        TextBlock(
-                            chapter = block.chapterIndex,
-                            segment = segment,
-                            charOffset = block.charOffset,
-                            text = block.text,
-                            layout = result,
-                            bounds = holder.bounds,
-                        ),
+                fun currentBlock(): TextBlock? {
+                    val result = holder.layout ?: return null
+                    if (holder.bounds == Rect.Zero || segment < 0) return null
+                    return TextBlock(
+                        chapter = block.chapterIndex,
+                        segment = segment,
+                        charOffset = block.charOffset,
+                        text = block.text,
+                        layout = result,
+                        bounds = holder.bounds,
+                        justified = style.justify,
                     )
+                }
+                fun publish(target: TextBlock) {
+                    val current = selection ?: return
+                    if (current.chapter != block.chapterIndex || segment < 0) return
+                    val from = block.charOffset
+                    val to = block.charOffset + block.text.length
+                    if (current.start.segment == segment && current.start.offset in from..to) {
+                        anchors.start = target.edgePoint(current.start.offset - from, isEnd = false)
+                    }
+                    if (current.end.segment == segment && current.end.offset in from..to) {
+                        anchors.end = target.edgePoint(current.end.offset - from, isEnd = true)
+                    }
+                }
+                fun register() {
+                    val target = currentBlock() ?: return
+                    registry.put(key, target)
+                    publish(target)
+                }
+                LaunchedEffect(selection, key) {
+                    currentBlock()?.let { publish(it) }
                 }
                 DisposableEffect(key) {
                     onDispose { registry.remove(key) }
@@ -1616,6 +1641,7 @@ private fun ReaderParagraph(
     annotations: List<Annotation>,
     selection: ReaderSelection?,
     registry: BlockRegistry,
+    anchors: SelectionAnchors,
 ) {
     val colors = style.colors()
     val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -1629,10 +1655,28 @@ private fun ReaderParagraph(
         annotations.filter { it.kind == AnnotationKind.NOTE }
             .mapNotNull { it.rangeIn(segmentIndex, 0, text.length) }
     }
+    fun currentBlock(): TextBlock? {
+        val result = holder.layout ?: return null
+        if (holder.bounds == Rect.Zero) return null
+        return TextBlock(chapterIndex, segmentIndex, 0, text, result, holder.bounds, justified = style.justify)
+    }
+    fun publish(block: TextBlock) {
+        val current = selection ?: return
+        if (current.chapter != chapterIndex) return
+        if (current.start.segment == segmentIndex && current.start.offset <= text.length) {
+            anchors.start = block.edgePoint(current.start.offset, isEnd = false)
+        }
+        if (current.end.segment == segmentIndex && current.end.offset <= text.length) {
+            anchors.end = block.edgePoint(current.end.offset, isEnd = true)
+        }
+    }
     fun register() {
-        val result = holder.layout ?: return
-        if (holder.bounds == Rect.Zero) return
-        registry.put(key, TextBlock(chapterIndex, segmentIndex, 0, text, result, holder.bounds))
+        val block = currentBlock() ?: return
+        registry.put(key, block)
+        publish(block)
+    }
+    LaunchedEffect(selection, chapterIndex, segmentIndex) {
+        currentBlock()?.let { publish(it) }
     }
     DisposableEffect(key) {
         onDispose { registry.remove(key) }
