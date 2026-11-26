@@ -309,6 +309,14 @@ fun ReaderScreen(
         }
     }
 
+    // Высоту шторки оглавления считаем в окне Activity: внутри диалога
+    // WindowInsets.statusBars отдаёт 0, и шторка заезжала на строку состояния
+    // (плюс её «раскрытое» положение уходило за максимум — отсюда рывки).
+    val readerView = LocalView.current
+    val tocSheetHeight = with(LocalDensity.current) {
+        (readerView.height - WindowInsets.statusBars.getTop(this)).toDp() - 44.dp
+    }.coerceAtLeast(240.dp)
+
     ReaderThemeStyle(style) {
         BoxWithConstraints(
             Modifier
@@ -946,6 +954,7 @@ fun ReaderScreen(
             ReaderTocSheet(
                 chapters = state.book!!.chapters.map { it.title to it.depth },
                 current = state.chapterIndex,
+                sheetHeight = tocSheetHeight,
                 onSelect = { index ->
                     showToc = false
                     viewModel.selectPosition(index, 0)
@@ -1865,19 +1874,11 @@ private val PAGE_FOOTER_HEIGHT = 64.dp
 private fun ReaderTocSheet(
     chapters: List<Pair<String, Int>>,
     current: Int,
+    sheetHeight: Dp,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // Оглавление занимает экран до строки состояния: высота = экран минус
-    // статус-бар и ручка шторки, без наезда на системные иконки.
-    val density = LocalDensity.current
-    val statusBarHeight = with(density) {
-        WindowInsets.statusBars.getTop(this).toDp()
-    }
-    val view = LocalView.current
-    val screenHeight = with(density) { view.height.toDp() }
-    val sheetHeight = (screenHeight - statusBarHeight - 44.dp).coerceAtLeast(240.dp)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
