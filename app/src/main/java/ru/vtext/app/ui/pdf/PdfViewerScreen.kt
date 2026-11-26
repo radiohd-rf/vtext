@@ -5,11 +5,13 @@ import android.graphics.Color as AndroidColor
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -56,6 +61,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -63,7 +69,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
 import java.io.Closeable
 import java.io.File
 import kotlin.math.roundToInt
@@ -77,6 +85,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
+import ru.vtext.app.ui.reader.ReaderThemeStyle
+import ru.vtext.app.ui.reader.toStyle
 
 /** Минимальный и максимальный зум просмотра оригинала PDF. */
 private const val MIN_SCALE = 1f
@@ -188,6 +198,29 @@ fun PdfViewerScreen(
     }
     val snackbar = remember { SnackbarHostState() }
 
+    // Цвета — как в читалке: тема из «Оформления текста» (бумага/сепия/ночь…).
+    val readerStyle = remember(bookId) { container.readerSettings.toStyle() }
+    DisposableEffect(readerStyle.followSystemBrightness, readerStyle.brightness) {
+        val window = (context as? android.app.Activity)?.window
+        val previous = window?.attributes?.screenBrightness
+        if (window != null) {
+            val attrs = window.attributes
+            attrs.screenBrightness = if (readerStyle.followSystemBrightness) {
+                android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            } else {
+                readerStyle.brightness
+            }
+            window.attributes = attrs
+        }
+        onDispose {
+            if (window != null && previous != null) {
+                val attrs = window.attributes
+                attrs.screenBrightness = previous
+                window.attributes = attrs
+            }
+        }
+    }
+
     // Горизонтальный сдвиг восстанавливаем один раз после раскладки: до неё
     // максимальная прокрутка ещё нулевая.
     var restoreDone by remember { mutableStateOf(false) }
@@ -236,36 +269,30 @@ fun PdfViewerScreen(
     }
 
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.pdf_original),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        if (renderer != null) {
-                            val zoom = if (scale <= MIN_SCALE) "" else {
-                                " · " + stringResource(
-                                    R.string.pdf_zoom_percent,
-                                    (scale * 100).roundToInt(),
+    ReaderThemeStyle(readerStyle) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            snackbarHost = { SnackbarHost(snackbar) },
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.pdf_original),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            if (renderer != null && scale > MIN_SCALE) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.pdf_zoom_percent,
+                                        (scale * 100).roundToInt(),
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Text(
-                                text = stringResource(
-                                    R.string.pdf_page_of,
-                                    currentPage,
-                                    renderer.pageCount,
-                                ) + zoom,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
-                    }
-                },
+                    },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -309,6 +336,21 @@ fun PdfViewerScreen(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
+        },
+        bottomBar = {
+            val count = renderer?.pageCount ?: 0
+            if (count > 1) {
+                PdfFooter(
+                    page = currentPage.coerceIn(1, count),
+                    pageCount = count,
+                    onSeek = { fraction ->
+                        val index = ((count - 1) * fraction)
+                            .roundToInt()
+                            .coerceIn(0, count - 1)
+                        scope.launch { listState.scrollToItem(index) }
+                    },
+                )
+            }
         },
     ) { padding ->
         if (renderer == null) {
@@ -416,6 +458,111 @@ fun PdfViewerScreen(
                 }
             }
         }
+        }
+    }
+}
+
+/**
+ * Подвал оригинала PDF: полоса прокрутки с точкой-ползунком и счётчик
+ * «N из M стр» под ней — как полоса и счётчик в читалке.
+ */
+@Composable
+private fun PdfFooter(
+    page: Int,
+    pageCount: Int,
+    onSeek: (Float) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    var scrubFraction by remember { mutableStateOf<Float?>(null) }
+    var scrubbing by remember { mutableStateOf(false) }
+    // Пока тянем — показываем долю пальца; когда страница обновится, снимаем.
+    LaunchedEffect(page) {
+        if (!scrubbing) scrubFraction = null
+    }
+    val fraction = scrubFraction
+        ?: if (pageCount <= 1) 0f else (page - 1).toFloat() / (pageCount - 1)
+    val shownPage = if (scrubFraction != null) {
+        (fraction * (pageCount - 1)).roundToInt() + 1
+    } else {
+        page
+    }
+    val seek: (Float) -> Unit = { raw ->
+        val value = raw.coerceIn(0f, 1f)
+        scrubFraction = value
+        onSeek(value)
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.background)
+            .navigationBarsPadding()
+            // Тап по пустому месту подвала не должен уходить в страницу.
+            .pointerInput(Unit) { detectTapGestures { } },
+    ) {
+        HorizontalDivider(color = colors.outlineVariant)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(top = 14.dp)
+                .height(24.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures { offset -> seek(offset.x / size.width) }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            scrubbing = true
+                            seek(offset.x / size.width)
+                        },
+                        onDragEnd = { scrubbing = false },
+                        onDragCancel = { scrubbing = false },
+                    ) { change, _ ->
+                        change.consume()
+                        seek(change.position.x / size.width)
+                    }
+                },
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val trackWidth = 6.dp.toPx()
+                val dotRadius = 6.dp.toPx()
+                val centerY = size.height / 2f
+                val startX = dotRadius
+                val endX = size.width - dotRadius
+                drawLine(
+                    color = colors.outlineVariant,
+                    start = Offset(startX, centerY),
+                    end = Offset(endX, centerY),
+                    strokeWidth = trackWidth,
+                    cap = StrokeCap.Round,
+                )
+                val dotX = startX + (endX - startX) * fraction
+                if (fraction > 0f) {
+                    drawLine(
+                        color = colors.primary,
+                        start = Offset(startX, centerY),
+                        end = Offset(dotX, centerY),
+                        strokeWidth = trackWidth,
+                        cap = StrokeCap.Round,
+                    )
+                }
+                drawCircle(
+                    color = colors.primary,
+                    radius = dotRadius,
+                    center = Offset(dotX, centerY),
+                )
+            }
+        }
+        Text(
+            text = stringResource(R.string.pdf_page_short, shownPage, pageCount),
+            style = MaterialTheme.typography.labelLarge,
+            color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(top = 10.dp, bottom = 14.dp),
+        )
     }
 }
 
