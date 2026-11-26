@@ -1716,12 +1716,21 @@ private fun ReaderSettingsSheet(
                             onChange(style.copy(font = fonts[(style.font.ordinal + 1) % fonts.size]))
                         },
                 ) {
-                    Text(
-                        text = style.font.title,
-                        style = TextStyle(fontFamily = style.font.family, fontSize = 24.sp),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
+                    // Высота фиксирована: у разных шрифтов разный рост букв,
+                    // иначе при переключении прыгает вся шторка.
+                    Box(Modifier.height(34.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(
+                            text = style.font.title,
+                            style = TextStyle(
+                                fontFamily = style.font.family,
+                                fontSize = 24.sp,
+                                lineHeight = 30.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
                     Spacer(Modifier.height(6.dp))
                     ReaderFontDots(style.font)
                 }
@@ -1887,7 +1896,7 @@ private fun ReaderSizeStepper(onMinus: () -> Unit, onPlus: () -> Unit) {
         Modifier
             .height(44.dp)
             .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+            .border(1.dp, MaterialTheme.colorScheme.outline, shape),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
