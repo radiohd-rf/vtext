@@ -1688,7 +1688,7 @@ private fun ReaderFooter(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onToc)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -1720,7 +1720,7 @@ private fun ReaderFooter(
                 )
             }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
         // Таймлайн: толстая дорожка с точкой-ползунком, её можно тянуть.
         var scrubFraction by remember { mutableStateOf<Float?>(null) }
         var scrubbing by remember { mutableStateOf(false) }
@@ -1800,20 +1800,20 @@ private fun ReaderFooter(
         }
         Text(
             text = stringResource(R.string.reading_progress, shownPercent),
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(top = 8.dp),
+                .padding(top = 10.dp),
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides COMPACT_ACTION_SIZE) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
