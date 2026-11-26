@@ -85,10 +85,13 @@ def circle_icon(image: Image.Image, size: int) -> Image.Image:
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit(
-            'Укажите путь к картинке: python tools/icon/make_photo_icon.py <file> [--trim]',
+            'Укажите путь к картинке: '
+            'python tools/icon/make_photo_icon.py <file> [--trim] [--fill]',
         )
     source = Path(sys.argv[1])
     trim = '--trim' in sys.argv[2:]
+    # --fill: картинка занимает весь canvas adaptive icon (края срежет маска).
+    fill = '--fill' in sys.argv[2:]
     image = Image.open(source).convert('RGB')
     side = min(image.size)
     image = image.crop(
@@ -114,9 +117,10 @@ def main() -> None:
         circle_icon(image, size).save(target / 'ic_launcher_round.png')
 
     adaptive = Image.new('RGB', (ADAPTIVE_CANVAS, ADAPTIVE_CANVAS), background)
-    inset = (ADAPTIVE_CANVAS - ADAPTIVE_IMAGE) // 2
+    image_side = ADAPTIVE_CANVAS if fill else ADAPTIVE_IMAGE
+    inset = (ADAPTIVE_CANVAS - image_side) // 2
     adaptive.paste(
-        image.resize((ADAPTIVE_IMAGE, ADAPTIVE_IMAGE), Image.LANCZOS),
+        image.resize((image_side, image_side), Image.LANCZOS),
         (inset, inset),
     )
     foreground = RES / 'drawable-nodpi' / 'ic_launcher_foreground.png'
