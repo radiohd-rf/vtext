@@ -1707,12 +1707,13 @@ private fun ReaderFooter(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            // Сколько страниц осталось до конца главы — тем же кеглем.
+            // Сколько страниц осталось до конца главы — тем же кеглем, что и
+            // счётчик «N%» под текстом.
             if (pagesLeft != null && pagesLeft > 0) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = stringResource(R.string.reader_pages_left, pagesLeft),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     color = colors.onSurfaceVariant,
                     maxLines = 1,
                     softWrap = false,
