@@ -147,6 +147,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import android.app.Activity
 import android.content.ContextWrapper
+import androidx.compose.foundation.layout.widthIn
 
 /**
  * Обычная читалка: прокрутка, темы, типографика, оглавление и закладки.
@@ -1708,13 +1709,30 @@ private fun ReaderSettingsSheet(
 
             // Шрифт: образец, шесть точек и размер.
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val fontShape = RoundedCornerShape(14.dp)
+                // Ширина кнопки — по самому длинному названию: область нажатия
+                // не зависит от выбранного шрифта и не доходит до «− / +».
+                val density = LocalDensity.current
+                val measurer = rememberTextMeasurer()
+                val fontButtonWidth = remember(density, measurer) {
+                    val base = TextStyle(fontSize = 24.sp, lineHeight = 30.sp)
+                    val widest = ReaderFont.entries.maxOf { font ->
+                        measurer.measure(
+                            text = AnnotatedString(font.title),
+                            style = base.copy(fontFamily = font.family),
+                        ).size.width
+                    }
+                    with(density) { (widest + 28.dp.roundToPx()).toDp() }
+                }
                 Column(
                     Modifier
-                        .weight(1f)
+                        .width(fontButtonWidth)
+                        .clip(fontShape)
                         .clickable {
                             val fonts = ReaderFont.entries
                             onChange(style.copy(font = fonts[(style.font.ordinal + 1) % fonts.size]))
-                        },
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                 ) {
                     // Высота фиксирована: у разных шрифтов разный рост букв,
                     // иначе при переключении прыгает вся шторка.
@@ -1734,7 +1752,7 @@ private fun ReaderSettingsSheet(
                     Spacer(Modifier.height(6.dp))
                     ReaderFontDots(style.font)
                 }
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.weight(1f))
                 ReaderSizeStepper(
                     onMinus = {
                         onChange(
