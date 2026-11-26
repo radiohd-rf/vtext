@@ -31,7 +31,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -266,35 +265,24 @@ fun ReaderSelectionOverlay(
     val endRect = remember(selection) { registry.caret(selection.chapter, selection.end) }
 
     Box(Modifier.fillMaxSize()) {
-        // Обе ручки — под строкой, каплей вниз.
-        startRect?.let { rect ->
-            SelectionHandle(
-                rootTip = Offset(rect.left, rect.bottom),
-                screenOrigin = screenOrigin,
-                onChange = onExtendStart,
-            )
-        }
-        endRect?.let { rect ->
-            SelectionHandle(
-                rootTip = Offset(rect.right, rect.bottom),
-                screenOrigin = screenOrigin,
-                onChange = onExtendEnd,
-            )
-        }
-
         val topAnchor = startRect ?: endRect
         val bottomAnchor = endRect ?: startRect
+
+        // Панель рисуем первой: ручки должны быть поверх неё, иначе их
+        // область касания перекрывается кнопками и за ручку не ухватиться.
         if (topAnchor != null) {
             var toolbarSize by remember { mutableStateOf(IntSize.Zero) }
-            val gap = with(density) { 10.dp.toPx() }
-            val handleHeight = with(density) { 24.dp.toPx() }
+            val gap = with(density) { 8.dp.toPx() }
+            // Верх области касания ручки поднимается на полвысоты над строкой.
+            val handleLift = with(density) { HANDLE_TOUCH_HEIGHT.toPx() } / 2f
+            val liftBelow = with(density) { HANDLE_HEIGHT.toPx() } + gap
             val limit = (screenWidth - toolbarSize.width - gap).coerceAtLeast(gap)
             val x = (topAnchor.left - toolbarSize.width / 2f).coerceIn(gap, limit)
-            val above = topAnchor.top - toolbarSize.height - gap * 2
+            val above = topAnchor.top - handleLift - toolbarSize.height - gap
             val y = if (above > gap) {
                 above
             } else {
-                (bottomAnchor?.bottom ?: topAnchor.bottom) + handleHeight + gap
+                (bottomAnchor?.bottom ?: topAnchor.bottom) + liftBelow
             }
             SelectionToolbar(
                 modifier = Modifier
@@ -309,6 +297,22 @@ fun ReaderSelectionOverlay(
                 onNote = onNote,
                 onShare = onShare,
                 onCopy = onCopy,
+            )
+        }
+
+        // Обе ручки — под строкой, каплей вниз; рисуются поверх панели.
+        startRect?.let { rect ->
+            SelectionHandle(
+                rootTip = Offset(rect.left, rect.bottom),
+                screenOrigin = screenOrigin,
+                onChange = onExtendStart,
+            )
+        }
+        endRect?.let { rect ->
+            SelectionHandle(
+                rootTip = Offset(rect.right, rect.bottom),
+                screenOrigin = screenOrigin,
+                onChange = onExtendEnd,
             )
         }
     }
@@ -326,13 +330,16 @@ private fun SelectionHandle(
     onChange: (Offset) -> Unit,
 ) {
     val density = LocalDensity.current
-    val touch = with(density) { HANDLE_TOUCH.toPx() }
+    val touchWidth = with(density) { HANDLE_TOUCH_WIDTH.toPx() }
+    val touchHeight = with(density) { HANDLE_TOUCH_HEIGHT.toPx() }
     val dropletWidth = with(density) { HANDLE_WIDTH.toPx() }
     val dropletHeight = with(density) { HANDLE_HEIGHT.toPx() }
     // Острие капли внутри области касания: по центру, у нижней кромки рисунка.
-    val tipInBox = Offset(touch / 2f, touch - dropletHeight)
+    val tipInBox = Offset(touchWidth / 2f, touchHeight - dropletHeight)
     val currentTip by rememberUpdatedState(rootTip)
-    val currentTipInBox by rememberUpdatedState(tipInBox)
+    // Колбэк берём свежий: выделение меняется каждый кадр протяжки, а
+    // pointerInput с ключом Unit иначе держал бы замыкание первого кадра.
+    val currentOnChange by rememberUpdatedState(onChange)
     Box(
         Modifier
             .offset {
@@ -341,22 +348,25 @@ private fun SelectionHandle(
                     (rootTip.y - tipInBox.y - screenOrigin.y).roundToInt(),
                 )
             }
-            .size(HANDLE_TOUCH)
+            .size(width = HANDLE_TOUCH_WIDTH, height = HANDLE_TOUCH_HEIGHT)
             .pointerInput(Unit) {
                 // Тянем сразу, без slop: палец и так стоит на ручке.
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
-                    // Точка «острия» движется ровно на смещение пальца,
+                    // Смещение пальца относительно острия в момент захвата:
+                    // дальше ведём острие за пальцем с этим же смещением,
                     // поэтому выделение не прыгает при захвате.
-                    var point = currentTip
+                    val grab = tipInBox - down.position
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         change.consume()
                         if (!change.pressed) break
-                        point += change.positionChange()
-                        onChange(point)
+                        // Абсолютная позиция пальца: верхний левый угол ручки
+                        // берём из текущей позиции острия (она едет за выделением).
+                        val nodeOrigin = currentTip - tipInBox
+                        currentOnChange(nodeOrigin + change.position + grab)
                     }
                 }
             },
@@ -379,7 +389,8 @@ private fun SelectionHandle(
 }
 
 /** Область касания ручки: как minimum touch target у системных ручек. */
-private val HANDLE_TOUCH = 48.dp
+private val HANDLE_TOUCH_WIDTH = 36.dp
+private val HANDLE_TOUCH_HEIGHT = 48.dp
 private val HANDLE_WIDTH = 18.dp
 private val HANDLE_HEIGHT = 24.dp
 
