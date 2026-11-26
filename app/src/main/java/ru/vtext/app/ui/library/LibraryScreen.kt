@@ -60,6 +60,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -75,6 +76,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -927,39 +929,42 @@ private fun LibraryToolbar(
         SortButton(sort = sort, onSortChange = onSortChange)
     }
     // Полки под поиском: 2×2, чтобы все четыре фильтра были видны целиком.
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = filter == LibraryFilter.ALL,
-                onClick = { onFilterChange(LibraryFilter.ALL) },
-                label = { Text(filterLabel(LibraryFilter.ALL)) },
-                modifier = Modifier.weight(1f),
-            )
-            FilterChip(
-                selected = filter == LibraryFilter.FAVORITE,
-                onClick = { onFilterChange(LibraryFilter.FAVORITE) },
-                label = { Text(filterLabel(LibraryFilter.FAVORITE)) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = filter == LibraryFilter.WANT,
-                onClick = { onFilterChange(LibraryFilter.WANT) },
-                label = { Text(filterLabel(LibraryFilter.WANT)) },
-                modifier = Modifier.weight(1f),
-            )
-            FilterChip(
-                selected = filter == LibraryFilter.READ,
-                onClick = { onFilterChange(LibraryFilter.READ) },
-                label = { Text(filterLabel(LibraryFilter.READ)) },
-                modifier = Modifier.weight(1f),
-            )
+    // Сжимаем вертикальные отступы: чипы 32 dp, а не 48 dp по умолчанию.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = filter == LibraryFilter.ALL,
+                    onClick = { onFilterChange(LibraryFilter.ALL) },
+                    label = { Text(filterLabel(LibraryFilter.ALL)) },
+                    modifier = Modifier.weight(1f),
+                )
+                FilterChip(
+                    selected = filter == LibraryFilter.FAVORITE,
+                    onClick = { onFilterChange(LibraryFilter.FAVORITE) },
+                    label = { Text(filterLabel(LibraryFilter.FAVORITE)) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = filter == LibraryFilter.WANT,
+                    onClick = { onFilterChange(LibraryFilter.WANT) },
+                    label = { Text(filterLabel(LibraryFilter.WANT)) },
+                    modifier = Modifier.weight(1f),
+                )
+                FilterChip(
+                    selected = filter == LibraryFilter.READ,
+                    onClick = { onFilterChange(LibraryFilter.READ) },
+                    label = { Text(filterLabel(LibraryFilter.READ)) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
     // Количество книг на текущей полке (с учётом поиска) — под полками.
