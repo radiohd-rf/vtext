@@ -201,8 +201,6 @@ fun ReaderScreen(
     val blockRegistry = remember { BlockRegistry() }
     var contentOrigin by remember { mutableStateOf(Offset.Zero) }
     var screenOrigin by remember { mutableStateOf(Offset.Zero) }
-    val quoteSavedMessage = stringResource(R.string.quote_saved)
-    val noteSavedMessage = stringResource(R.string.note_saved)
     val copiedMessage = stringResource(R.string.copied)
     var currentItem by remember { mutableStateOf<ReaderItem?>(null) }
     // Интерфейс читалки лежит поверх текста: тап по центру скрывает его.
@@ -794,9 +792,6 @@ fun ReaderScreen(
                     onQuote = {
                         viewModel.saveQuote(current)
                         selection = null
-                        scope.launch {
-                            snackbar.showSnackbar(quoteSavedMessage)
-                        }
                     },
                     onNote = {
                         noteDraft = NoteDraft(current, viewModel.selectionText(current))
@@ -976,7 +971,6 @@ fun ReaderScreen(
                 onSave = {
                     noteDraft = null
                     viewModel.saveNote(draft.selection, draft.text)
-                    scope.launch { snackbar.showSnackbar(noteSavedMessage) }
                 },
             )
         }

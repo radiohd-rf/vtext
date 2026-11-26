@@ -258,8 +258,6 @@
     <string name="copied">Скопировано</string>
     <string name="quote_action">Цитата</string>
     <string name="note_action">Заметка</string>
-    <string name="quote_saved">Цитата сохранена</string>
-    <string name="note_saved">Заметка сохранена</string>
     <string name="note_new_title">Новая заметка</string>
     <string name="note_hint">Добавьте несколько строк</string>
     <string name="save">Сохранить</string>
