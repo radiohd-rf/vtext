@@ -547,6 +547,9 @@ fun ReaderScreen(
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                 tracker.addPosition(change.uptimeMillis, change.position)
                                 if (!change.pressed) {
+                                    // Ссылку примечания уже обработали ниже: не
+                                    // листаем страницу и не прячем интерфейс.
+                                    if (change.isConsumed) return@awaitEachGesture
                                     upX = change.position.x
                                     break
                                 }
