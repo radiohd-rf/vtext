@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -309,8 +308,24 @@ fun Modifier.textSelectionGestures(
         }
 
         // 1. Держим палец WORD_HOLD_MS — выделяем слово под ним.
-        val released = withTimeoutOrNull(WORD_HOLD_MS) { waitForUpOrCancellation() }
-        if (released != null) return@awaitEachGesture
+        // Любое движение за пределы slop — это прокрутка/листание, а не выделение.
+        val slop = viewConfiguration.touchSlop
+        var cancelled = false
+        withTimeoutOrNull(WORD_HOLD_MS) {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id }
+                if (change == null || !change.pressed) {
+                    cancelled = true
+                    return@withTimeoutOrNull
+                }
+                if ((change.position - down.position).getDistance() > slop) {
+                    cancelled = true
+                    return@withTimeoutOrNull
+                }
+            }
+        }
+        if (cancelled) return@awaitEachGesture
 
         val root = origin() + down.position
         val block = registry.at(root) ?: return@awaitEachGesture
