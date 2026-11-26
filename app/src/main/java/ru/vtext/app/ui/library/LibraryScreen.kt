@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,10 +34,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +55,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -86,6 +99,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
+import ru.vtext.app.data.BookFlags
+import ru.vtext.app.data.BookStatus
 import ru.vtext.app.data.YandexDiskLinks
 import ru.vtext.app.domain.model.Book
 import ru.vtext.app.domain.model.BookKind
@@ -130,6 +145,7 @@ fun LibraryScreen(
             playback = container.playback,
             audioRepository = container.audioRepository,
             audioProgress = container.audioProgress,
+            bookFlags = container.bookFlags,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -154,6 +170,10 @@ fun LibraryScreen(
     var showYandexDialog by remember { mutableStateOf(false) }
     var showAddSheet by remember { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf(TextPreset.AUTO) }
+    // Книга, для которой открыта шторка действий (долгое нажатие).
+    var actionBook by remember { mutableStateOf<Book?>(null) }
+    var editingBook by remember { mutableStateOf<Book?>(null) }
+    var confirmDeleteSelected by remember { mutableStateOf(false) }
 
     val audioPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -180,39 +200,50 @@ fun LibraryScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.library_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                },
-                actions = {
-                    // На пустой библиотеке кнопка есть в центре — в шапке не дублируем.
-                    if (state.books.isNotEmpty()) {
-                        Button(
-                            onClick = { showAddSheet = true },
-                            modifier = Modifier.height(40.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.add_book),
-                                style = MaterialTheme.typography.labelLarge,
+            if (state.selecting) {
+                SelectionTopBar(
+                    count = state.selected.size,
+                    onClose = viewModel::clearSelection,
+                    onShare = {
+                        shareBooks(context, state.books.filter { it.id in state.selected })
+                    },
+                    onDelete = { confirmDeleteSelected = true },
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = stringResource(R.string.library_title),
+                            style = MaterialTheme.typography.headlineSmall,
+                        )
+                    },
+                    actions = {
+                        // На пустой библиотеке кнопка есть в центре — в шапке не дублируем.
+                        if (state.books.isNotEmpty()) {
+                            Button(
+                                onClick = { showAddSheet = true },
+                                modifier = Modifier.height(40.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.add_book),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
+                        }
+                        IconButton(onClick = onSettings) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = stringResource(R.string.settings),
                             )
                         }
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = stringResource(R.string.settings),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
-            )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ),
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
@@ -221,9 +252,11 @@ fun LibraryScreen(
                 LibraryToolbar(
                     query = state.query,
                     sort = state.sort,
+                    filter = state.filter,
                     onQueryChange = viewModel::setQuery,
                     onSortChange = viewModel::setSort,
-                    bookCount = state.books.size,
+                    onFilterChange = viewModel::setFilter,
+                    bookCount = state.visibleBooks.size,
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -250,16 +283,24 @@ fun LibraryScreen(
                     )
                     state.visibleBooks.isEmpty() -> NoResults(
                         query = state.query,
-                        onReset = { viewModel.setQuery("") },
+                        filter = state.filter,
+                        onReset = {
+                            viewModel.setQuery("")
+                            viewModel.setFilter(LibraryFilter.ALL)
+                        },
                     )
                     else -> BookList(
                         books = state.visibleBooks,
                         positions = state.positions,
+                        flags = state.flags,
+                        selected = state.selected.takeIf { state.selecting },
                         onOpen = { id ->
                             val target = state.visibleBooks.firstOrNull { it.id == id }
+                            viewModel.markOpened(id)
                             if (target?.kind == BookKind.AUDIO) onOpenAudio(id) else onOpenBook(id)
                         },
-                        onLongPress = { pendingDelete = it },
+                        onLongPress = { actionBook = it },
+                        onToggleSelection = viewModel::toggleSelection,
                     )
                 }
 
@@ -384,7 +425,8 @@ fun LibraryScreen(
         )
     }
 
-    pendingDelete?.let { book ->        AlertDialog(
+    pendingDelete?.let { book ->
+        AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.delete_book)) },
             text = { Text(stringResource(R.string.delete_book_message, book.title)) },
@@ -504,6 +546,306 @@ fun LibraryScreen(
             },
         )
     }
+
+    actionBook?.let { book ->
+        val flags = state.flagsOf(book)
+        BookActionsSheet(
+            book = book,
+            flags = flags,
+            onDismiss = { actionBook = null },
+            onSelect = {
+                actionBook = null
+                viewModel.startSelection(book)
+            },
+            onFavorite = {
+                actionBook = null
+                viewModel.toggleFavorite(book)
+            },
+            onWant = {
+                actionBook = null
+                viewModel.toggleStatus(book, BookStatus.WANT)
+            },
+            onRead = {
+                actionBook = null
+                viewModel.toggleStatus(book, BookStatus.READ)
+            },
+            onShare = {
+                actionBook = null
+                shareBooks(context, listOf(book))
+            },
+            onEdit = {
+                actionBook = null
+                editingBook = book
+            },
+            onDelete = {
+                actionBook = null
+                pendingDelete = book
+            },
+        )
+    }
+
+    editingBook?.let { book ->
+        EditBookDialog(
+            book = book,
+            onDismiss = { editingBook = null },
+            onSave = { title, author ->
+                viewModel.updateDetails(book, title, author)
+                editingBook = null
+            },
+        )
+    }
+
+    if (confirmDeleteSelected) {
+        val count = state.selected.size
+        AlertDialog(
+            onDismissRequest = { confirmDeleteSelected = false },
+            title = { Text(stringResource(R.string.delete_selected_title, count)) },
+            text = { Text(stringResource(R.string.delete_selected_message, count)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteSelected = false
+                        viewModel.deleteSelected()
+                    },
+                ) {
+                    Text(
+                        text = stringResource(R.string.delete),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteSelected = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+/** Поделиться книгой: название и автор обычным текстом. */
+private fun shareBooks(context: android.content.Context, books: List<Book>) {
+    if (books.isEmpty()) return
+    val text = books.joinToString("\n\n") { book ->
+        if (book.author.isNullOrBlank()) book.title else "${book.author} — ${book.title}"
+    }
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(
+        android.content.Intent.createChooser(intent, context.getString(R.string.share_book)),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionTopBar(
+    count: Int,
+    onClose: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    TopAppBar(
+        title = {
+            Text(
+                text = stringResource(R.string.selected_count, count),
+                style = MaterialTheme.typography.titleLarge,
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cancel))
+            }
+        },
+        actions = {
+            IconButton(onClick = onShare) {
+                Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share_book))
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.delete),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background,
+        ),
+    )
+}
+
+/** Шторка действий по долгому нажатию на книгу. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BookActionsSheet(
+    book: Book,
+    flags: BookFlags,
+    onDismiss: () -> Unit,
+    onSelect: () -> Unit,
+    onFavorite: () -> Unit,
+    onWant: () -> Unit,
+    onRead: () -> Unit,
+    onShare: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+            )
+            book.author?.let { author ->
+                Text(
+                    text = author,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            ActionRow(
+                icon = Icons.Default.Check,
+                title = stringResource(R.string.book_action_select),
+                onClick = onSelect,
+            )
+            ActionRow(
+                icon = if (flags.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                title = stringResource(
+                    if (flags.favorite) R.string.book_action_unfavorite
+                    else R.string.book_action_favorite,
+                ),
+                onClick = onFavorite,
+            )
+            ActionRow(
+                icon = if (flags.status == BookStatus.WANT) {
+                    Icons.Default.Bookmark
+                } else {
+                    Icons.Default.BookmarkBorder
+                },
+                title = stringResource(
+                    if (flags.status == BookStatus.WANT) R.string.book_action_unwant
+                    else R.string.book_action_want,
+                ),
+                onClick = onWant,
+            )
+            ActionRow(
+                icon = if (flags.status == BookStatus.READ) {
+                    Icons.Default.CheckCircle
+                } else {
+                    Icons.Default.RadioButtonUnchecked
+                },
+                title = stringResource(
+                    if (flags.status == BookStatus.READ) R.string.book_action_unread
+                    else R.string.book_action_read,
+                ),
+                onClick = onRead,
+            )
+            ActionRow(
+                icon = Icons.Default.Share,
+                title = stringResource(R.string.book_action_share),
+                onClick = onShare,
+            )
+            ActionRow(
+                icon = Icons.Default.Edit,
+                title = stringResource(R.string.book_action_edit),
+                onClick = onEdit,
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+            ActionRow(
+                icon = Icons.Default.Delete,
+                title = stringResource(R.string.delete),
+                onClick = onDelete,
+                danger = true,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    onClick: () -> Unit,
+    danger: Boolean = false,
+) {
+    val color = if (danger) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(18.dp))
+        Text(text = title, style = MaterialTheme.typography.bodyLarge, color = color)
+    }
+}
+
+/** Правка названия и автора книги. */
+@Composable
+private fun EditBookDialog(
+    book: Book,
+    onDismiss: () -> Unit,
+    onSave: (String, String?) -> Unit,
+) {
+    var title by remember(book.id) { mutableStateOf(book.title) }
+    var author by remember(book.id) { mutableStateOf(book.author.orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.book_edit_title)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(stringResource(R.string.book_edit_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = author,
+                    onValueChange = { author = it },
+                    label = { Text(stringResource(R.string.book_edit_author)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(title.trim(), author.trim().takeIf { it.isNotEmpty() }) },
+                enabled = title.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.book_edit_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
 }
 
 /** Высота поля поиска: как у кнопки сортировки, чтобы строка была тоньше. */
@@ -513,8 +855,10 @@ private val SearchHeight = 40.dp
 private fun LibraryToolbar(
     query: String,
     sort: LibrarySort,
+    filter: LibraryFilter,
     onQueryChange: (String) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
+    onFilterChange: (LibraryFilter) -> Unit,
     bookCount: Int,
 ) {
     Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
@@ -582,10 +926,46 @@ private fun LibraryToolbar(
         Spacer(Modifier.width(8.dp))
         SortButton(sort = sort, onSortChange = onSortChange)
     }
-    // Общее количество книг — под полем поиска.
+    // Полки под поиском: 2×2, чтобы все четыре фильтра были видны целиком.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = filter == LibraryFilter.ALL,
+                onClick = { onFilterChange(LibraryFilter.ALL) },
+                label = { Text(filterLabel(LibraryFilter.ALL)) },
+                modifier = Modifier.weight(1f),
+            )
+            FilterChip(
+                selected = filter == LibraryFilter.FAVORITE,
+                onClick = { onFilterChange(LibraryFilter.FAVORITE) },
+                label = { Text(filterLabel(LibraryFilter.FAVORITE)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = filter == LibraryFilter.WANT,
+                onClick = { onFilterChange(LibraryFilter.WANT) },
+                label = { Text(filterLabel(LibraryFilter.WANT)) },
+                modifier = Modifier.weight(1f),
+            )
+            FilterChip(
+                selected = filter == LibraryFilter.READ,
+                onClick = { onFilterChange(LibraryFilter.READ) },
+                label = { Text(filterLabel(LibraryFilter.READ)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+    // Количество книг на текущей полке (с учётом поиска) — под полками.
     Text(
         text = pluralStringResource(R.plurals.books_count, bookCount, bookCount),
-        modifier = Modifier.padding(start = 24.dp, top = 6.dp),
+        modifier = Modifier.padding(start = 24.dp, top = 4.dp),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -634,13 +1014,24 @@ private fun sortLabel(sort: LibrarySort): String = when (sort) {
     LibrarySort.AUTHOR -> stringResource(R.string.sort_author_az)
 }
 
+@Composable
+private fun filterLabel(filter: LibraryFilter): String = when (filter) {
+    LibraryFilter.ALL -> stringResource(R.string.library_filter_all)
+    LibraryFilter.FAVORITE -> stringResource(R.string.library_filter_favorite)
+    LibraryFilter.WANT -> stringResource(R.string.library_filter_want)
+    LibraryFilter.READ -> stringResource(R.string.library_filter_read)
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BookList(
     books: List<Book>,
     positions: Map<String, ReadingPosition>,
+    flags: Map<String, BookFlags>,
+    selected: Set<String>?,
     onOpen: (String) -> Unit,
     onLongPress: (Book) -> Unit,
+    onToggleSelection: (String) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -651,8 +1042,15 @@ private fun BookList(
             BookRow(
                 book = book,
                 position = positions[book.id],
-                onClick = { onOpen(book.id) },
-                onLongClick = { onLongPress(book) },
+                flags = flags[book.id] ?: BookFlags(),
+                selected = selected?.contains(book.id),
+                selecting = selected != null,
+                onClick = {
+                    if (selected != null) onToggleSelection(book.id) else onOpen(book.id)
+                },
+                onLongClick = {
+                    if (selected != null) onToggleSelection(book.id) else onLongPress(book)
+                },
             )
         }
     }
@@ -667,6 +1065,9 @@ private val ListPosterHeight = 108.dp
 private fun BookRow(
     book: Book,
     position: ReadingPosition?,
+    flags: BookFlags,
+    selected: Boolean?,
+    selecting: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -687,7 +1088,7 @@ private fun BookRow(
                 onClickLabel = stringResource(R.string.open_book),
                 onClick = onClick,
                 onLongClick = onLongClick,
-                onLongClickLabel = stringResource(R.string.delete_book),
+                onLongClickLabel = stringResource(R.string.book_actions),
             )
             .padding(horizontal = 4.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -718,6 +1119,33 @@ private fun BookRow(
                     )
                 }
             }
+            if (selecting) {
+                // В режиме выбора постер притемняется, отмеченная книга получает галочку.
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            MaterialTheme.colorScheme.scrim.copy(alpha = if (selected == true) 0.35f else 0.15f),
+                        ),
+                )
+                Icon(
+                    imageVector = if (selected == true) {
+                        Icons.Default.CheckCircle
+                    } else {
+                        Icons.Default.RadioButtonUnchecked
+                    },
+                    contentDescription = null,
+                    tint = if (selected == true) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(2.dp)
+                        .size(20.dp),
+                )
+            }
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -736,8 +1164,47 @@ private fun BookRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(7.dp))
-            BookKindBadge(book)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                BookKindBadge(book)
+                if (flags.favorite) {
+                    Icon(
+                        Icons.Default.Favorite,
+                        contentDescription = stringResource(R.string.book_action_favorite),
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                flags.status.label()?.let { label ->
+                    StatusBadge(label)
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun BookStatus.label(): String? = when (this) {
+    BookStatus.NONE -> null
+    BookStatus.WANT -> stringResource(R.string.library_filter_want)
+    BookStatus.READ -> stringResource(R.string.library_filter_read)
+}
+
+@Composable
+private fun StatusBadge(label: String) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
     }
 }
 
@@ -876,7 +1343,8 @@ private fun EmptyLibrary(modifier: Modifier = Modifier, onAdd: () -> Unit) {
 }
 
 @Composable
-private fun NoResults(query: String, onReset: () -> Unit) {
+private fun NoResults(query: String, filter: LibraryFilter, onReset: () -> Unit) {
+    val hasQuery = query.isNotBlank()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -886,23 +1354,40 @@ private fun NoResults(query: String, onReset: () -> Unit) {
     ) {
         Spacer(Modifier.height(56.dp))
         Text(
-            text = stringResource(R.string.no_results_title),
+            text = if (hasQuery) {
+                stringResource(R.string.no_results_title)
+            } else {
+                stringResource(filterEmptyTitle(filter))
+            },
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.no_results_hint, query),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
+        if (hasQuery) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.no_results_hint, query),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
         Spacer(Modifier.height(16.dp))
         TextButton(onClick = onReset) {
-            Text(stringResource(R.string.reset_search))
+            Text(
+                stringResource(
+                    if (hasQuery) R.string.reset_search else R.string.library_filter_show_all,
+                ),
+            )
         }
         Spacer(Modifier.height(24.dp))
     }
+}
+
+private fun filterEmptyTitle(filter: LibraryFilter): Int = when (filter) {
+    LibraryFilter.ALL -> R.string.no_results_title
+    LibraryFilter.FAVORITE -> R.string.empty_filter_favorite
+    LibraryFilter.WANT -> R.string.empty_filter_want
+    LibraryFilter.READ -> R.string.empty_filter_read
 }
 
 private fun presetTitle(preset: TextPreset): Int = when (preset) {

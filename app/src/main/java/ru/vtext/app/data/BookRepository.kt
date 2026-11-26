@@ -359,6 +359,23 @@ class BookRepository(private val context: Context) {
     /** Папка книги — нужна [AudioRepository] для файлов и tracks.json. */
     fun bookDir(id: String): File = File(root, id).apply { mkdirs() }
 
+    /**
+     * Правка названия и автора: переписывает meta.json и сбрасывает кэш книги,
+     * чтобы следующее открытие прочитало новые поля.
+     */
+    suspend fun updateDetails(id: String, title: String, author: String?) =
+        withContext(Dispatchers.IO) {
+            val file = File(root, id).let { dir -> File(dir, "meta.json") }
+            if (!file.isFile) return@withContext
+            val json = runCatching { JSONObject(file.readText()) }.getOrNull()
+                ?: return@withContext
+            json.put("title", title.ifBlank { "Без названия" })
+            val trimmedAuthor = author?.trim()?.takeIf { it.isNotEmpty() }
+            if (trimmedAuthor == null) json.remove("author") else json.put("author", trimmedAuthor)
+            file.writeText(json.toString())
+            cache.remove(id)
+        }
+
     /** Запись meta.json для аудиокниг (импорт идёт через [AudioRepository]). */
     fun saveMeta(book: Book) {
         writeMeta(bookDir(book.id), book)
