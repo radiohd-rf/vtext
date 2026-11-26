@@ -89,7 +89,7 @@ fun AnnotationsScreen(
                 }
                 Text(
                     text = stringResource(R.string.reader_annotations),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.headlineSmall,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

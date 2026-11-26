@@ -1776,10 +1776,10 @@ private fun ReaderFooter(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onAppearance, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                IconButton(onClick = onAnnotations, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
                     Icon(
-                        Icons.Filled.TextFields,
-                        contentDescription = stringResource(R.string.reader_appearance),
+                        Icons.Filled.FormatQuote,
+                        contentDescription = stringResource(R.string.reader_annotations),
                         modifier = Modifier.size(24.dp),
                         tint = colors.onSurface,
                     )
@@ -1792,10 +1792,10 @@ private fun ReaderFooter(
                         tint = colors.onSurface,
                     )
                 }
-                IconButton(onClick = onAnnotations, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
+                IconButton(onClick = onAppearance, modifier = Modifier.size(COMPACT_ACTION_SIZE)) {
                     Icon(
-                        Icons.Filled.FormatQuote,
-                        contentDescription = stringResource(R.string.reader_annotations),
+                        Icons.Filled.TextFields,
+                        contentDescription = stringResource(R.string.reader_appearance),
                         modifier = Modifier.size(24.dp),
                         tint = colors.onSurface,
                     )
