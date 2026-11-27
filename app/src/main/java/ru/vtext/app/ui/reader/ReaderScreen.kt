@@ -816,7 +816,12 @@ fun ReaderScreen(
                     style.scrollMode -> LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = PAGE_FOOTER_HEIGHT),
+                        contentPadding = PaddingValues(
+                            // При скрытом интерфейсе оставляем полосу сверху —
+                            // такую же, как подвал под счётчиком процентов.
+                            top = if (uiVisible) 4.dp else PAGE_FOOTER_HEIGHT,
+                            bottom = PAGE_FOOTER_HEIGHT,
+                        ),
                     ) {
                         itemsIndexed(
                             items = state.items,
@@ -900,7 +905,6 @@ fun ReaderScreen(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .navigationBarsPadding()
                         .height(PAGE_FOOTER_HEIGHT),
                     contentAlignment = Alignment.Center,
                 ) {
