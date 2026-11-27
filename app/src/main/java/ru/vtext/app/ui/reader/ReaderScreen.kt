@@ -813,16 +813,22 @@ fun ReaderScreen(
                         modifier = Modifier.padding(24.dp),
                         color = colors.muted,
                     )
-                    style.scrollMode -> LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            // При скрытом интерфейсе оставляем полосу сверху —
-                            // такую же, как подвал под счётчиком процентов.
-                            top = if (uiVisible) 4.dp else PAGE_FOOTER_HEIGHT,
-                            bottom = PAGE_FOOTER_HEIGHT,
-                        ),
+                    style.scrollMode -> Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(
+                                // Полосы уменьшают сам вьюпорт: contentPadding у списка
+                                // резервирует место только до/после текста, а при
+                                // прокрутке строки шли бы под счётчиком.
+                                top = if (uiVisible) 0.dp else PAGE_FOOTER_HEIGHT,
+                                bottom = PAGE_FOOTER_HEIGHT,
+                            ),
                     ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp),
+                        ) {
                         itemsIndexed(
                             items = state.items,
                             key = { _, item -> itemKey(item) },
@@ -844,6 +850,7 @@ fun ReaderScreen(
                                 )
                                 is ReaderItem.Image -> ReaderImageItem(item, style)
                             }
+                        }
                         }
                     }
                     else -> {
