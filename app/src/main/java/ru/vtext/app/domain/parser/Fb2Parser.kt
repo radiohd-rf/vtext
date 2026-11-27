@@ -197,13 +197,16 @@ class Fb2Parser : BookParser {
         val name = (node.localName ?: node.nodeName).lowercase()
         // Номер сноски в тексте не читаем: <sup>1</sup>, <a type="note">…</a>.
         if (name == "sup") return ""
-        if (name == "a" && (node as? Element)?.getAttribute("type")?.lowercase() == "note") {
-            val href = (node as? Element)?.getAttribute("href").orEmpty()
-            val id = href.substringAfterLast('#')
-            if (id.isBlank()) return ""
-            val display = rawText(node).trim()
-                .ifBlank { id.takeLastWhile { it.isDigit() }.ifBlank { id } }
-            return "⟦$id-$display⟧"
+        if (name == "a") {
+            val element = node as? Element ?: return ""
+            if (element.getAttribute("type")?.lowercase() == "note") {
+                val href = element.getAttribute("href").orEmpty()
+                val id = href.substringAfterLast('#')
+                if (id.isBlank()) return ""
+                val display = rawText(node).trim()
+                    .ifBlank { id.takeLastWhile { it.isDigit() }.ifBlank { id } }
+                return "⟦$id-$display⟧"
+            }
         }
         val builder = StringBuilder()
         val children = node.childNodes

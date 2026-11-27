@@ -31,9 +31,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -97,7 +97,7 @@ fun AnnotationsScreen(
                 )
                 Spacer(Modifier.width(48.dp))
             }
-            TabRow(selectedTabIndex = tab) {
+            PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(
                     selected = tab == 0,
                     onClick = { tab = 0 },

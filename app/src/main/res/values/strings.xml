@@ -22,14 +22,10 @@
     <string name="stop_playback">Остановить</string>
     <string name="book_finished">Книга дочитана</string>
     <string name="restart">Начать заново</string>
-    <string name="chapter_of">Глава %1$d из %2$d</string>
-    <string name="sleep_off">Выключен</string>
-    <string name="sleep_minutes">%1$d мин</string>
     <string name="choose_chapter">Выбрать главу</string>
     <string name="tts_error">Системный синтез речи недоступен. Проверьте настройки TTS на устройстве.</string>
     <string name="tts_initializing">Подготовка синтеза речи…</string>
     <string name="book_not_found">Книга не найдена</string>
-    <string name="loading">Загрузка…</string>
     <string name="playback_channel">Воспроизведение</string>
     <string name="playback_channel_description">Управление чтением книги вслух</string>
     <string name="settings">Настройки</string>
@@ -45,10 +41,6 @@
     <string name="pitch">Тон (системный TTS)</string>
     <string name="pitch_value">%1$.2f</string>
     <string name="fragment_pause">Пауза между фрагментами</string>
-    <string name="quality_fast">Быстро</string>
-    <string name="quality_fast_desc">3 шага · быстрее, меньше нагрев</string>
-    <string name="quality_high">Качественно</string>
-    <string name="quality_high_desc">6 шагов · лучше звук, но медленнее</string>
     <string name="delete_book">Удалить книгу</string>
     <string name="delete_book_message">Удалить «%1$s» из библиотеки? Прогресс чтения будет потерян.</string>
     <string name="delete">Удалить</string>
@@ -133,11 +125,8 @@
         <item quantity="many">%1$d разделов</item>
         <item quantity="other">%1$d разделов</item>
     </plurals>
-    <string name="speed_action">Скорость %1$s</string>
-    <string name="sheet_speed_title">Скорость</string>
     <string name="sheet_voice_title">Голос</string>
     <string name="sheet_sleep_title">Таймер сна</string>
-    <string name="sleep_chapter_end_title">До конца главы</string>
 
     <!-- Оформление -->
     <string name="appearance_title">Оформление</string>
@@ -166,7 +155,6 @@
     <string name="kind_audio">Аудиокнига</string>
     <string name="kind_text">Книга</string>
     <string name="kind_audio_online">Аудиокнига · онлайн</string>
-    <string name="audio_online">Онлайн · Яндекс.Диск</string>
     <string name="add_text_book">Печатная книга</string>
     <string name="add_text_book_hint">TXT, FB2, EPUB, PDF, DOCX</string>
     <string name="add_audio_book">Аудиокнига с телефона</string>
@@ -179,25 +167,13 @@
     <string name="reader_appearance">Оформление текста</string>
     <string name="reader_listen">Слушать</string>
     <string name="reader_chapter_short">Глава %1$d</string>
-    <string name="reader_chapter_of">Глава %1$d из %2$d</string>
-    <string name="reader_theme">Тема</string>
     <string name="reader_theme_white">Белый</string>
     <string name="reader_theme_sepia">Сепия</string>
     <string name="reader_theme_gray">Серый</string>
     <string name="reader_theme_black">Чёрный</string>
     <string name="reader_theme_system">Как в системе</string>
-    <string name="reader_font">Шрифт</string>
-    <string name="reader_font_serif">С засечками</string>
-    <string name="reader_font_sans">Без засечек</string>
-    <string name="reader_font_size">Размер текста</string>
-    <string name="reader_line_height">Межстрочный интервал</string>
-    <string name="reader_margins">Поля</string>
-    <string name="reader_brightness">Яркость</string>
     <string name="reader_brightness_system">Использовать яркость как в системе</string>
-    <string name="reader_rotation_lock">Зафиксировать ориентацию экрана</string>
-    <string name="reader_rotation_unlock">Разрешить поворот экрана</string>
     <string name="pdf_original">Оригинал PDF</string>
-    <string name="pdf_page_of">Страница %1$d из %2$d</string>
     <string name="pdf_page_short">%1$d из %2$d стр</string>
     <string name="pdf_zoom_percent">%1$d%%</string>
     <string name="pdf_zoom_lock">Зафиксировать масштаб и сдвиг по горизонтали</string>
@@ -239,15 +215,12 @@
     <string name="cloud_failed_count"> · не удалось: %1$d</string>
     <string name="cloud_syncing_library">Обновление библиотеки…</string>
     <string name="reader_parsing">Подготовка книги…</string>
-    <string name="voice_settings_hint">Голос системной озвучки выбирается в настройках приложения.</string>
-    <string name="open_settings">Открыть настройки</string>
     <string name="voices_empty">Системные голоса ещё загружаются…</string>
     <string name="reading_progress">%1$d%% от всей книги</string>
     <string name="reader_percent_short">%1$d%%</string>
     <string name="reader_justify">Выравнивание по ширине</string>
     <string name="reader_pages_left">ещё %1$d стр</string>
     <string name="reader_scroll_mode">Прокрутка текста</string>
-    <string name="reader_scroll_mode_hint">Выключите, чтобы листать страницы тапом по краям</string>
     <string name="note_title">Примечание %1$s</string>
     <string name="note_not_found">Примечание не найдено</string>
     <string name="reader_annotations">Цитаты и заметки</string>

@@ -1,6 +1,5 @@
 package ru.vtext.app.ui.book
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -44,11 +43,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -62,7 +58,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -89,7 +84,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -102,7 +96,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import ru.vtext.app.R
 import ru.vtext.app.VtextApp
 import ru.vtext.app.domain.TextMarkup
@@ -112,7 +105,6 @@ import ru.vtext.app.player.PlayerState
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.SileroText
 import ru.vtext.app.tts.SileroVoice
-import ru.vtext.app.tts.VoiceGender
 import ru.vtext.app.ui.components.SpeedSheet
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -1314,16 +1306,6 @@ private fun formatSleepCountdown(millis: Long): String {
         totalSeconds / 60,
         totalSeconds % 60,
     )
-}
-
-private fun formatSpeedScale(value: Float): String {
-    val tenths = value * 10f
-    val rounded = tenths.roundToInt()
-    return if (abs(tenths - rounded) < 0.001f) {
-        String.format(Locale.US, "%.1f", value)
-    } else {
-        String.format(Locale.US, "%.2f", value)
-    }
 }
 
 private fun formatSpeed(value: Float): String =

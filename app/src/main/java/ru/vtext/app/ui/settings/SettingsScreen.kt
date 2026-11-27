@@ -1,7 +1,6 @@
 package ru.vtext.app.ui.settings
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,7 +78,6 @@ import ru.vtext.app.data.ThemeMode
 import ru.vtext.app.tts.EngineState
 import ru.vtext.app.tts.ModelStatus
 import ru.vtext.app.tts.NeuralModel
-import ru.vtext.app.tts.NeuralModelState
 import ru.vtext.app.tts.SileroVoice
 import ru.vtext.app.tts.TtsEngineType
 import ru.vtext.app.tts.VoiceGender
@@ -429,7 +427,7 @@ private fun LazyListScope.cloudLibrariesSection(
                 Spacer(Modifier.height(8.dp))
                 val status = when {
                     sync.syncing -> stringResource(R.string.cloud_syncing)
-                    sync.error != null -> sync.error!!
+                    sync.error != null -> sync.error.orEmpty()
                     sync.lastSyncAt > 0 -> buildString {
                         append(
                             stringResource(

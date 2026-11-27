@@ -1,17 +1,14 @@
 package ru.vtext.app.ui.reader
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -166,22 +163,6 @@ class TextBlock(
         val bottom = run.top + run.height
         return Rect(x, top, x, bottom).translate(bounds.left, bounds.top)
     }
-}
-
-/** План из обычной раскладки: один прогон на весь текст (заголовки, простой текст). */
-fun planFromLayout(layout: TextLayoutResult, length: Int): TextPlan {
-    val tops = FloatArray(layout.lineCount) { layout.getLineTop(it) }
-    val bottoms = FloatArray(layout.lineCount) { layout.getLineBottom(it) }
-    val run = TextRun(
-        start = 0,
-        length = length,
-        x = 0f,
-        top = 0f,
-        width = layout.size.width.toFloat(),
-        height = layout.size.height.toFloat(),
-        layout = layout,
-    )
-    return TextPlan(listOf(run), layout.size.width.toFloat(), layout.size.height.toFloat(), tops, bottoms)
 }
 
 /** Кэш видимых кусков текста: обновляется из [onTextLayout] и [onGloballyPositioned]. */

@@ -47,7 +47,6 @@ private val Teal = Color(0xFF1F5A54)
 private val TealSoft = Color(0xFFDCE8E4)
 private val TealDeep = Color(0xFF12332F)
 private val Sand = Color(0xFFEFE6D6)
-private val Line = Color(0xFFDFD3BE)
 
 private val LightColors = lightColorScheme(
     primary = Teal,
@@ -138,21 +137,6 @@ private val VtextShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
-/**
- * Шаги отступов. Используем сетку 4 dp, чтобы экраны дышали одинаково.
- * 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40.
- */
-object Spacing {
-    val xs = 4.dp
-    val sm = 8.dp
-    val md = 12.dp
-    val lg = 16.dp
-    val xl = 20.dp
-    val xxl = 24.dp
-    val xxxl = 32.dp
-    val huge = 40.dp
-}
-
 /** Цвет из обоев рабочего стола; null, если система его не отдала. */
 @Composable
 private fun rememberWallpaperColor(): Color? {
@@ -180,7 +164,7 @@ private fun rememberWallpaperColor(): Color? {
         ContextCompat.registerReceiver(
             context,
             receiver,
-            IntentFilter(Intent.ACTION_WALLPAPER_CHANGED),
+            IntentFilter("android.intent.action.WALLPAPER_CHANGED"),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         onDispose { runCatching { context.unregisterReceiver(receiver) } }

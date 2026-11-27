@@ -1,7 +1,6 @@
 package ru.vtext.app.data
 
 import android.content.Context
-import ru.vtext.app.tts.NeuralModel
 import ru.vtext.app.tts.TtsEngineType
 
 /** Пользовательский выбор движка и голоса TTS. */

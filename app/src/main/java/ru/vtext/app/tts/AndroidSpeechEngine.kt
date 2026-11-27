@@ -215,7 +215,7 @@ class AndroidSpeechEngine(
     }
 
     private companion object {
-        val RUSSIAN: Locale = Locale("ru", "RU")
+        val RUSSIAN: Locale = Locale.forLanguageTag("ru-RU")
         const val MIN_PITCH = 0.5f
         const val MAX_PITCH = 2f
         const val MIN_VOLUME = 0f

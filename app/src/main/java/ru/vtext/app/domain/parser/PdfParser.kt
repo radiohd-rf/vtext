@@ -11,7 +11,6 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDResources
 import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
-import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import java.io.File
@@ -157,7 +156,7 @@ class PdfParser : BookParser {
                 .flatMap { it.lines }
                 .flatMap { it.spans }
                 .filter { it.fontSize >= body * 0.85f }
-                .minOfOrNull { it.origin?.second ?: 0.0 } ?: 0.0
+                .minOfOrNull { it.origin.second } ?: 0.0
 
             val footnotes = mutableListOf<ChapterNote>()
             val footnoteLabels = mutableSetOf<String>()
@@ -219,7 +218,7 @@ class PdfParser : BookParser {
                             continue
                         }
                         text.append(value)
-                        marks += (span.bounds?.right ?: 0.0) to text.length
+                        marks += span.bounds.right to text.length
                     }
                     if (text.isNotBlank()) {
                         lineText += text

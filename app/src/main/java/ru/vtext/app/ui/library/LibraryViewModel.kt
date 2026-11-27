@@ -98,7 +98,7 @@ private fun LibrarySort.comparator(flags: Map<String, BookFlags>): Comparator<Bo
     }
 }
 
-private val collator: Collator = Collator.getInstance(Locale("ru", "RU"))
+private val collator: Collator = Collator.getInstance(Locale.forLanguageTag("ru-RU"))
 
 class LibraryViewModel(
     private val repository: BookRepository,

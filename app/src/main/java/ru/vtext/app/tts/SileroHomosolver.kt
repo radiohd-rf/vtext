@@ -1,6 +1,5 @@
 package ru.vtext.app.tts
 
-import android.util.Log
 import java.io.File
 import org.json.JSONObject
 import org.pytorch.IValue
@@ -94,7 +93,7 @@ internal class SileroHomosolver(
             val groupIndex = index + 1
             if (groupIndex >= match.groups.size) continue
             val group = match.groups[groupIndex] ?: continue
-            if (group.value != null) return rule.variants[index]
+            if (group.value.isNotEmpty()) return rule.variants[index]
         }
         return null
     }
