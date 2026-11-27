@@ -134,7 +134,7 @@ class ReaderViewModel(
     private val annotationStore: AnnotationStore,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(ReaderUiState())
+    private val _state = MutableStateFlow(ReaderUiState(style = settings.toStyle()))
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
 
     init {
