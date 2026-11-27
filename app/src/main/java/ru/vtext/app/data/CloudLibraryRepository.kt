@@ -44,6 +44,8 @@ private data class CloudAudioBook(
     override val path: String,
     override val title: String,
     val files: List<YandexEntry>,
+    /** Картинка из папки книги — на случай, если обложка не вшита. */
+    val cover: YandexEntry? = null,
 ) : CloudBook
 
 private data class CloudTextBook(
@@ -271,7 +273,7 @@ class CloudLibraryRepository(
         if (audioFiles.isNotEmpty()) {
             val ordered = TrackNaming.naturalOrder(audioFiles.map { it.name })
                 .map { name -> audioFiles.first { it.name == name } }
-            result += CloudAudioBook(path, listing.name, ordered)
+            result += CloudAudioBook(path, listing.name, ordered, pickCover(files))
             return
         }
         files.filter { isText(it.name) }.forEach { entry ->
@@ -302,6 +304,38 @@ class CloudLibraryRepository(
     private fun isText(name: String): Boolean =
         name.substringAfterLast('.', "").lowercase() in TEXT_EXTENSIONS
 
+    /** Картинка-обложка из папки аудиокниги: «cover/folder/front/обложка» важнее прочих. */
+    private fun pickCover(files: List<YandexEntry>): YandexEntry? {
+        val images = files.filter {
+            it.name.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
+        }
+        if (images.isEmpty()) return null
+        fun rank(name: String): Int {
+            val base = name.substringBeforeLast('.').lowercase()
+            return if (base.startsWith("cover") || base.startsWith("folder") ||
+                base.startsWith("front") || base.startsWith("обложка")
+            ) {
+                0
+            } else {
+                1
+            }
+        }
+        return images.sortedWith(compareBy({ rank(it.name) }, { it.name.lowercase() }))
+            .first()
+    }
+
+    /** Скачивает картинку из папки книги в `books/<id>/cover`. */
+    private suspend fun downloadCover(bookId: String, publicKey: String, entry: YandexEntry): String? {
+        val dir = books.bookDir(bookId).apply { mkdirs() }
+        val target = File(dir, "cover")
+        val temp = File(context.cacheDir, "cover-${UUID.randomUUID()}")
+        return runCatching {
+            yandex.downloadTo(publicKey, entry.relPath, temp)
+            temp.copyTo(target, overwrite = true)
+            target.absolutePath
+        }.getOrNull().also { temp.delete() }
+    }
+
     // ----- Создание и обновление -----
 
     private suspend fun createBook(connection: CloudConnection, item: CloudBook): Book = when (item) {
@@ -309,7 +343,7 @@ class CloudLibraryRepository(
         is CloudTextBook -> createText(connection, item)
     }
 
-    private fun createAudio(connection: CloudConnection, item: CloudAudioBook): Book {
+    private suspend fun createAudio(connection: CloudConnection, item: CloudAudioBook): Book {
         val id = UUID.randomUUID().toString()
         val tracks = item.files.map { file ->
             AudioTrack(
@@ -320,12 +354,14 @@ class CloudLibraryRepository(
                 sizeBytes = file.sizeBytes,
             )
         }
+        val cover = item.cover?.let { downloadCover(id, connection.publicKey, it) }
         val book = Book(
             id = id,
             title = item.title,
             author = null,
             format = null,
             addedAt = System.currentTimeMillis(),
+            coverPath = cover,
             chapterCount = tracks.size,
             kind = BookKind.AUDIO,
             audioPublicKey = connection.publicKey,
@@ -382,10 +418,16 @@ class CloudLibraryRepository(
         if (tracksChanged) {
             audio.saveTracks(existing.id, merged)
         }
-        if (tracksChanged || renamed || existing.cloudMissing) {
+        // Обложки не было, а в папке появилась картинка — забираем её.
+        var coverPath = existing.coverPath
+        if (coverPath.isNullOrBlank() && item.cover != null) {
+            coverPath = downloadCover(existing.id, connection.publicKey, item.cover)
+        }
+        if (tracksChanged || renamed || existing.cloudMissing || coverPath != existing.coverPath) {
             books.saveMeta(
                 existing.copy(
                     title = item.title,
+                    coverPath = coverPath,
                     chapterCount = merged.size,
                     cloudMissing = false,
                     audioPublicKey = connection.publicKey,
@@ -495,5 +537,8 @@ class CloudLibraryRepository(
         const val DEFAULT_NAME = "Книги Маши"
 
         val TEXT_EXTENSIONS = setOf("txt", "fb2", "epub", "pdf", "docx", "rtf")
+
+        /** Картинки, которые можно взять обложкой аудиокниги из её папки. */
+        val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp")
     }
 }
