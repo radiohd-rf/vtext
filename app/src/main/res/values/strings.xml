@@ -237,7 +237,7 @@
     <string name="cloud_disconnect_text">«%1$s» перестанет обновляться, а её книги будут удалены из приложения.</string>
     <string name="cloud_failed_count"> · не удалось: %1$d</string>
     <string name="cloud_syncing_library">Обновление библиотеки…</string>
-    <string name="reader_parsing">Разбираем книгу…</string>
+    <string name="reader_parsing">Подготовка книги…</string>
     <string name="voice_settings_hint">Голос системной озвучки выбирается в настройках приложения.</string>
     <string name="open_settings">Открыть настройки</string>
     <string name="voices_empty">Системные голоса ещё загружаются…</string>
