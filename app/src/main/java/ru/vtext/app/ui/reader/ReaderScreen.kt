@@ -792,6 +792,10 @@ fun ReaderScreen(
                         ),
                 ) {
                 when {
+                    // Пока открыт редактор заметки, страницы не держим в дереве:
+                    // клавиатура меняет высоту окна, и любая перекладка страниц
+                    // в этот момент даёт фризы.
+                    noteDraft != null -> Box(Modifier.fillMaxSize())
                     state.loading -> Box(
                         Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
