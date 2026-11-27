@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -218,7 +219,13 @@ fun AudioPlayerScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(8.dp))
-            Cover(state, Modifier.width(210.dp))
+            // Постер крупный: доля ширины экрана, но не больше 320 dp.
+            Cover(
+                state,
+                Modifier
+                    .fillMaxWidth(0.68f)
+                    .widthIn(max = 320.dp),
+            )
 
             Spacer(Modifier.height(18.dp))
             Text(
