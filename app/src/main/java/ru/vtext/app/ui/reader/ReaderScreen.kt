@@ -531,9 +531,9 @@ fun ReaderScreen(
                 // сопротивлением, поэтому порог считаем по ходу пальца, иначе
                 // перевернуть можно только свайпом во всю ширину экрана.
                 val flip = if (hasNeighbor(direction)) {
-                    abs(offset) > width * 0.25f || abs(velocityX) > width * 2.5f
+                    abs(offset) > width * 0.16f || abs(velocityX) > width * 1.6f
                 } else {
-                    abs(rawDrag) > width * 0.1f || abs(velocityX) > width * 1.6f
+                    abs(rawDrag) > width * 0.07f || abs(velocityX) > width * 1.1f
                 }
                 pageTurnJob?.cancel()
                 pageTurnJob = scope.launch {
