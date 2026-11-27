@@ -1105,8 +1105,14 @@ fun ReaderScreen(
         }
 
         if (showBookmarks) {
+            val bookmarkSegment = (currentItem as? ReaderItem.Paragraph)?.segmentIndex
+                ?: state.segmentIndex
+            val alreadyBookmarked = state.bookmarks.any {
+                it.chapterIndex == state.chapterIndex && it.segmentIndex == bookmarkSegment
+            }
             ReaderBookmarksSheet(
                 bookmarks = state.bookmarks,
+                alreadyBookmarked = alreadyBookmarked,
                 onAdd = { viewModel.addBookmark(currentItem) },
                 onOpen = { bookmark ->
                     showBookmarks = false
@@ -2197,6 +2203,7 @@ private fun ReaderTocSheet(
 @Composable
 private fun ReaderBookmarksSheet(
     bookmarks: List<Bookmark>,
+    alreadyBookmarked: Boolean,
     onAdd: () -> Unit,
     onOpen: (Bookmark) -> Unit,
     onDelete: (String) -> Unit,
@@ -2210,8 +2217,16 @@ private fun ReaderBookmarksSheet(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
             )
-            TextButton(onClick = onAdd, modifier = Modifier.padding(horizontal = 12.dp)) {
-                Text(stringResource(R.string.bookmark_add))
+            TextButton(
+                onClick = onAdd,
+                enabled = !alreadyBookmarked,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            ) {
+                Text(
+                    stringResource(
+                        if (alreadyBookmarked) R.string.bookmark_added else R.string.bookmark_add,
+                    ),
+                )
             }
             if (bookmarks.isEmpty()) {
                 Text(

@@ -37,7 +37,16 @@ class BookmarkStore(context: Context) {
     }
 
     fun add(bookId: String, bookmark: Bookmark): List<Bookmark> {
-        val updated = (list(bookId) + bookmark).sortedWith(
+        val existing = list(bookId)
+        // Одна закладка на позицию: повторные нажатия на том же абзаце ничего не делают.
+        if (existing.any {
+                it.chapterIndex == bookmark.chapterIndex &&
+                    it.segmentIndex == bookmark.segmentIndex
+            }
+        ) {
+            return existing
+        }
+        val updated = (existing + bookmark).sortedWith(
             compareBy({ it.chapterIndex }, { it.segmentIndex }),
         )
         save(bookId, updated)

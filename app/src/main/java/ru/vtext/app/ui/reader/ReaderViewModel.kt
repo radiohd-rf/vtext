@@ -259,6 +259,14 @@ class ReaderViewModel(
                 ?.segments?.getOrNull(current.segmentIndex)
         } ?: return
         val label = text.trim().replace(Regex("\\s+"), " ").take(80)
+        if (current.bookmarks.any {
+                it.chapterIndex == current.chapterIndex &&
+                    it.segmentIndex == current.segmentIndex
+            }
+        ) {
+            // На этой позиции закладка уже есть — дубль не создаём.
+            return
+        }
         val bookmark = Bookmark(
             id = UUID.randomUUID().toString(),
             chapterIndex = current.chapterIndex,
