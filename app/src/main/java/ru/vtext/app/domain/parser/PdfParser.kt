@@ -37,6 +37,7 @@ class PdfParser : BookParser {
         preset: TextPreset,
         assetsDir: File?,
     ): ParsedBook {
+        PdfBoxSetup.ensure()
         return try {
             PDDocument.load(file).use { document ->
                 val info = document.documentInformation
