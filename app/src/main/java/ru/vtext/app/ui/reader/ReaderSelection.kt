@@ -74,7 +74,7 @@ class TextBlock(
     /** Смещение куска внутри исходного фрагмента (страница может начинаться с середины). */
     val charOffset: Int,
     val text: String,
-    val layout: TextLayoutResult,
+    val plan: TextPlan,
     val bounds: Rect,
 ) {
     /** Порядковый номер регистрации: свежий блок важнее устаревшего. */
@@ -83,11 +83,24 @@ class TextBlock(
 
     /** Смещение символа под точкой экрана (в координатах фрагмента). */
     fun offsetAt(point: Offset): Int {
-        val local = Offset(
-            (point.x - bounds.left).coerceIn(0f, layout.size.width.toFloat()),
-            (point.y - bounds.top).coerceIn(0f, layout.size.height.toFloat()),
+        if (plan.runs.isEmpty()) return 0
+        val x = point.x - bounds.left
+        val y = point.y - bounds.top
+        val run = plan.runs.firstOrNull {
+            y >= it.top - 1f && y <= it.top + it.height + 1f && x >= it.x - 1f && x <= it.x + it.width + 1f
+        } ?: plan.runs.minByOrNull { run ->
+            val dy = (y - (run.top + run.height / 2f))
+            val dx = when {
+                x < run.x -> run.x - x
+                x > run.x + run.width -> x - run.x - run.width
+                else -> 0f
+            }
+            kotlin.math.abs(dy) * 2f + dx
+        } ?: return 0
+        val local = run.layout.getOffsetForPosition(
+            Offset((x - run.x).coerceIn(0f, run.width), (y - run.top).coerceIn(0f, run.height)),
         )
-        return layout.getOffsetForPosition(local).coerceIn(0, length)
+        return (run.start + local).coerceIn(0, length)
     }
 
     /** Слово под точкой: диапазон [from, to) в координатах фрагмента. */
@@ -116,9 +129,7 @@ class TextBlock(
     }
 
     /** Прямоугольник каретки в координатах экрана. */
-    fun caret(offset: Int): Rect =
-        layout.getCursorRect(offset.coerceIn(0, length))
-            .translate(bounds.left, bounds.top)
+    fun caret(offset: Int): Rect = edge(offset, isEnd = false)
 
     /** Точка под краем выделения: острие ручки в координатах экрана. */
     fun edgePoint(offset: Int, isEnd: Boolean): Offset {
@@ -127,21 +138,41 @@ class TextBlock(
     }
 
     /**
-     * Край выделения в координатах экрана: x — из каретки, y — из строки самого
-     * символа, чтобы на границе строки ручка не уезжала на соседнюю.
+     * Край выделения в координатах экрана: символ ищется в своём слове, поэтому
+     * координаты совпадают с рисунком при любом выравнивании, шрифте и полях.
      */
     fun edge(offset: Int, isEnd: Boolean): Rect {
-        if (length <= 0) {
+        if (length <= 0 || plan.runs.isEmpty()) {
             return Rect(bounds.left, bounds.top, bounds.left, bounds.top)
         }
         val local = offset.coerceIn(0, length)
         val char = if (isEnd) (local - 1).coerceIn(0, length - 1) else local.coerceIn(0, length - 1)
-        val line = layout.getLineForOffset(char)
-        val x = layout.getCursorRect(local).left
-        val top = layout.getLineTop(line)
-        val bottom = layout.getLineBottom(line)
+        val run = plan.runs.lastOrNull { char in it.start until (it.start + it.length) }
+            ?: plan.runs.last()
+        val inRun = (if (isEnd) local else char) - run.start
+        val clamped = inRun.coerceIn(0, run.length)
+        val caret = run.layout.getCursorRect(clamped)
+        val x = run.x + caret.left
+        val top = run.top
+        val bottom = run.top + run.height
         return Rect(x, top, x, bottom).translate(bounds.left, bounds.top)
     }
+}
+
+/** План из обычной раскладки: один прогон на весь текст (заголовки, простой текст). */
+fun planFromLayout(layout: TextLayoutResult, length: Int): TextPlan {
+    val tops = FloatArray(layout.lineCount) { layout.getLineTop(it) }
+    val bottoms = FloatArray(layout.lineCount) { layout.getLineBottom(it) }
+    val run = TextRun(
+        start = 0,
+        length = length,
+        x = 0f,
+        top = 0f,
+        width = layout.size.width.toFloat(),
+        height = layout.size.height.toFloat(),
+        layout = layout,
+    )
+    return TextPlan(listOf(run), layout.size.width.toFloat(), layout.size.height.toFloat(), tops, bottoms)
 }
 
 /** Кэш видимых кусков текста: обновляется из [onTextLayout] и [onGloballyPositioned]. */
