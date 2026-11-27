@@ -90,8 +90,8 @@ class ReaderSettingsStore(context: Context) {
     }
 
     companion object {
-        const val MIN_SIZE = 8
-        const val MAX_SIZE = 24
+        const val MIN_SIZE = 12
+        const val MAX_SIZE = 40
         const val SIZE_STEP = 2
         const val DEFAULT_SIZE = 16
         const val DEFAULT_LINE_HEIGHT = 1.55f
