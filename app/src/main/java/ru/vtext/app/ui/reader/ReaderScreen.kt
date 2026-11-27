@@ -750,7 +750,10 @@ fun ReaderScreen(
                         if (current != null) {
                             val pageWidth = widthPx.toFloat()
                             Box(Modifier.fillMaxSize()) {
-                                if (pageOffsetX > 0f) {
+                                // Соседние страницы собираем заранее: раскладка и
+                                // картинки готовы до начала листания, поэтому при
+                                // протяжке страница не «промаргивает».
+                                run {
                                     pages.getOrNull(pageIndex - 1)?.let { prev ->
                                         PageLayer(
                                             page = prev,
@@ -761,9 +764,11 @@ fun ReaderScreen(
                                             selection = selection,
                                             registry = blockRegistry,
                                             anchors = selectionAnchors,
+                                            register = false,
                                         )
                                     }
-                                } else if (pageOffsetX < 0f) {
+                                }
+                                run {
                                     pages.getOrNull(pageIndex + 1)?.let { next ->
                                         PageLayer(
                                             page = next,
@@ -774,6 +779,7 @@ fun ReaderScreen(
                                             selection = selection,
                                             registry = blockRegistry,
                                             anchors = selectionAnchors,
+                                            register = false,
                                         )
                                     }
                                 }
@@ -1261,6 +1267,7 @@ private fun PageLayer(
     selection: ReaderSelection?,
     registry: BlockRegistry,
     anchors: SelectionAnchors,
+    register: Boolean = true,
 ) {
     Box(
         Modifier
@@ -1268,7 +1275,7 @@ private fun PageLayer(
             .graphicsLayer { translationX = offsetX() }
             .background(style.colors().background),
     ) {
-        ReaderPageContent(page, style, onNote, annotations, selection, registry, anchors)
+        ReaderPageContent(page, style, onNote, annotations, selection, registry, anchors, register)
     }
 }
 
@@ -1281,6 +1288,7 @@ private fun ReaderPageContent(
     selection: ReaderSelection?,
     registry: BlockRegistry,
     anchors: SelectionAnchors,
+    register: Boolean = true,
 ) {
     val colors = style.colors()
     Column(
@@ -1339,15 +1347,16 @@ private fun ReaderPageContent(
                     }
                 }
                 fun register() {
+                    if (!register) return
                     val target = currentBlock() ?: return
                     registry.put(key, target)
                     publish(target)
                 }
                 LaunchedEffect(selection, key) {
-                    currentBlock()?.let { publish(it) }
+                    if (register) currentBlock()?.let { publish(it) }
                 }
-                DisposableEffect(key) {
-                    onDispose { registry.remove(key) }
+                DisposableEffect(key, register) {
+                    onDispose { if (register) registry.remove(key) }
                 }
                 val blockStyle = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style)
                 val selected = selection?.rangeIn(segment, block.charOffset, block.text.length)
