@@ -128,6 +128,8 @@ app/src/main/java/ru/vtext/app/
 ## Документация
 
 - `docs/SPEC.md` — спецификация и план развития
+- `docs/SPEC-audiobook.md` — спецификация плеера аудиокниг
+- `docs/SPEC-cleanup.md` — рефакторинг и уборка проекта
 - `docs/UI.md` — дизайн-система «Тёплая бумага»
 - `THIRD_PARTY_NOTICES.md` — лицензии сторонних компонентов
 
