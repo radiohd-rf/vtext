@@ -30,7 +30,7 @@ data class NoteSpan(val start: Int, val end: Int, val label: String)
 
 /** Разметка ссылок: `⟦12⟧` → «[12]» + диапазон для тапа. */
 object NoteMarkup {
-    private val MARKER = Regex("⟦([^⟧]+)⟧")
+    private val MARKER = Regex("⟦([^⟧]*)⟧")
 
     /**
      * Чистим текст, не трогая метки примечаний: `displayText` вырезает цифры,
@@ -57,6 +57,11 @@ object NoteMarkup {
         MARKER.findAll(text).forEach { match ->
             builder.append(text, last, match.range.first)
             val label = match.groupValues[1]
+            if (label.isBlank()) {
+                // Пустая метка ⟦⟧ — мусор извлечения, просто выбрасываем.
+                last = match.range.last + 1
+                return@forEach
+            }
             // Сноска страницы: метка «p12-3», показываем «[3]».
             val display = if (label.contains('-')) {
                 label.substringAfterLast('-')

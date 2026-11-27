@@ -75,32 +75,44 @@ class PdfParser : BookParser {
                     preset
                 }
                 val outline = readOutline(document)
+                val perPageImages = if (assetsDir == null) emptyMap() else extractImages(document, assetsDir)
                 val fromOutline = if (outline.size >= MIN_OUTLINE_ENTRIES) {
-                    chaptersFromOutline(cleanedPages, outline, effectivePreset)
+                    chaptersFromOutline(cleanedPages, outline, effectivePreset, perPageImages)
                 } else {
                     emptyList()
                 }
                 val chapters = when {
                     fromOutline.size >= 2 -> fromOutline
                     effectivePreset == TextPreset.POETRY -> {
-                        val fromHeadings = chaptersFromHeadings(document, cleanedPages, effectivePreset)
+                        val fromHeadings = chaptersFromHeadings(
+                            document,
+                            cleanedPages,
+                            effectivePreset,
+                            perPageImages,
+                        )
                         if (fromHeadings.size >= 2) {
                             fromHeadings
                         } else {
+                            val (poetryText, poetryOffsets) =
+                                joinPagesWithOffsets(cleanedPages, effectivePreset)
+                            val poetrySegments = TextSegmenter.segmentFor(poetryText, effectivePreset)
                             listOf(
                                 Chapter(
                                     "Стихи",
-                                    TextSegmenter.segmentFor(
-                                        joinPages(cleanedPages, effectivePreset),
-                                        effectivePreset,
-                                    ),
+                                    poetrySegments,
                                     page = 0,
+                                    images = pageImages(0, poetryOffsets, poetrySegments, perPageImages),
                                 ),
                             )
                         }
                     }
-                    else -> chaptersFromHeadings(document, cleanedPages, effectivePreset).ifEmpty {
-                        chaptersFromPages(cleanedPages, effectivePreset)
+                    else -> chaptersFromHeadings(
+                        document,
+                        cleanedPages,
+                        effectivePreset,
+                        perPageImages,
+                    ).ifEmpty {
+                        chaptersFromPages(cleanedPages, effectivePreset, perPageImages)
                     }
                 }
                 val withFootnotes = if (kite == null) {
@@ -108,12 +120,7 @@ class PdfParser : BookParser {
                 } else {
                     attachFootnotes(chapters, kite)
                 }
-                val withImages = if (assetsDir == null) {
-                    withFootnotes
-                } else {
-                    attachPageImages(withFootnotes, extractImages(document, assetsDir))
-                }
-                ParsedBook(title, author, withImages)
+                ParsedBook(title, author, withFootnotes)
             }
         } catch (_: Exception) {
             // Повреждённый, зашифрованный или недоступный PDF — вернём пустую книгу,
@@ -371,6 +378,7 @@ class PdfParser : BookParser {
         pages: List<String>,
         outline: List<OutlineEntry>,
         preset: TextPreset,
+        perPage: Map<Int, List<String>> = emptyMap(),
     ): List<Chapter> {
         val chapters = mutableListOf<Chapter>()
         var index = 0
@@ -392,10 +400,16 @@ class PdfParser : BookParser {
                 ?: pages.size
             val safeEnd = endPage.coerceAtMost(pages.size)
             if (startPage < safeEnd) {
-                val text = joinPages(pages.subList(startPage, safeEnd), preset)
+                val (text, offsets) = joinPagesWithOffsets(pages.subList(startPage, safeEnd), preset)
                 val segments = TextSegmenter.segmentFor(text, preset)
                 if (segments.isNotEmpty()) {
-                    chapters += Chapter(title, segments, depth, startPage)
+                    chapters += Chapter(
+                        title = title,
+                        segments = segments,
+                        depth = depth,
+                        page = startPage,
+                        images = pageImages(startPage, offsets, segments, perPage),
+                    )
                 }
             }
             index = next
@@ -403,16 +417,31 @@ class PdfParser : BookParser {
         return chapters
     }
 
-    private fun chaptersFromPages(pages: List<String>, preset: TextPreset): List<Chapter> =
+    private fun chaptersFromPages(
+        pages: List<String>,
+        preset: TextPreset,
+        perPage: Map<Int, List<String>> = emptyMap(),
+    ): List<Chapter> =
         pages.mapIndexedNotNull { index, text ->
             val segments = TextSegmenter.segmentFor(text, preset)
-            if (segments.isEmpty()) null else Chapter("Страница ${index + 1}", segments, page = index)
+            if (segments.isEmpty()) {
+                null
+            } else {
+                val files = perPage[index].orEmpty()
+                Chapter(
+                    title = "Страница ${index + 1}",
+                    segments = segments,
+                    page = index,
+                    images = files.map { ChapterImage(segments.lastIndex, it, "Иллюстрация") },
+                )
+            }
         }
 
     private fun chaptersFromHeadings(
         document: PDDocument,
         pages: List<String>,
         preset: TextPreset,
+        perPage: Map<Int, List<String>> = emptyMap(),
     ): List<Chapter> {
         val extractor = PdfLayoutExtractor()
         runCatching { extractor.getText(document) }
@@ -446,12 +475,16 @@ class PdfParser : BookParser {
                 ?: pages.size
             val safeEnd = endPage.coerceAtMost(pages.size)
             if (startPage < safeEnd) {
-                val segments = TextSegmenter.segmentFor(
-                    joinPages(pages.subList(startPage, safeEnd), preset),
-                    preset,
-                )
+                val (text, offsets) = joinPagesWithOffsets(pages.subList(startPage, safeEnd), preset)
+                val segments = TextSegmenter.segmentFor(text, preset)
                 if (segments.isNotEmpty()) {
-                    chapters += Chapter(title, segments, depth, startPage)
+                    chapters += Chapter(
+                        title = title,
+                        segments = segments,
+                        depth = depth,
+                        page = startPage,
+                        images = pageImages(startPage, offsets, segments, perPage),
+                    )
                 }
             }
             index = next
@@ -464,8 +497,16 @@ class PdfParser : BookParser {
      * («сек-» / «ретарем»), поэтому такой перенос соединяем. В стихах не трогаем:
      * там тире в конце строки может быть авторским.
      */
-    private fun joinPages(pages: List<String>, preset: TextPreset): String {
-        if (pages.size <= 1) return pages.joinToString("\n\n")
+    private fun joinPages(pages: List<String>, preset: TextPreset): String =
+        joinPagesWithOffsets(pages, preset).first
+
+    /**
+     * То же, что [joinPages], но ещё отдаёт смещение начала каждой страницы
+     * в склеенном тексте — по нему картинки ставятся на своё место.
+     */
+    private fun joinPagesWithOffsets(pages: List<String>, preset: TextPreset): Pair<String, IntArray> {
+        val offsets = IntArray(pages.size)
+        if (pages.isEmpty()) return "" to offsets
         val text = StringBuilder()
         pages.forEachIndexed { index, page ->
             if (index > 0) {
@@ -474,12 +515,54 @@ class PdfParser : BookParser {
                 val continues = continuesOnNextPage(pages[index - 1], page, preset)
                 text.append(if (continues) "\n" else "\n\n")
             }
+            offsets[index] = text.length
             text.append(page)
         }
-        if (preset == TextPreset.POETRY) return text.toString()
-        return CROSS_PAGE_HYPHEN.replace(text.toString()) { match ->
-            match.groupValues[1] + match.groupValues[2]
+        var result = text.toString()
+        if (preset != TextPreset.POETRY) {
+            val removed = ArrayList<Pair<Int, Int>>()
+            result = CROSS_PAGE_HYPHEN.replace(result) { match ->
+                removed += match.range.first to (match.value.length - match.groupValues[1].length - match.groupValues[2].length)
+                match.groupValues[1] + match.groupValues[2]
+            }
+            // Перенос сократил текст — сдвигаем смещения страниц после него.
+            removed.forEach { (at, count) ->
+                for (index in offsets.indices) {
+                    if (offsets[index] > at) offsets[index] -= count
+                }
+            }
         }
+        return result to offsets
+    }
+
+    /**
+     * Картинки страниц главы: ставим в конец страницы, на которой они стоят,
+     * а не в конец всей главы.
+     */
+    private fun pageImages(
+        startPage: Int,
+        pageOffsets: IntArray,
+        segments: List<String>,
+        perPage: Map<Int, List<String>>,
+    ): List<ChapterImage> {
+        if (perPage.isEmpty() || segments.isEmpty()) return emptyList()
+        val segmentStarts = IntArray(segments.size)
+        var acc = 0
+        segments.forEachIndexed { index, segment ->
+            segmentStarts[index] = acc
+            acc += segment.length
+        }
+        val images = ArrayList<ChapterImage>()
+        for (local in pageOffsets.indices) {
+            val files = perPage[startPage + local] ?: continue
+            val endOffset = if (local + 1 < pageOffsets.size) pageOffsets[local + 1] else Int.MAX_VALUE
+            var segment = -1
+            for (index in segments.indices) {
+                if (segmentStarts[index] < endOffset) segment = index else break
+            }
+            files.forEach { images += ChapterImage(segment, it, "Иллюстрация") }
+        }
+        return images
     }
 
     private fun continuesOnNextPage(previous: String, next: String, preset: TextPreset): Boolean {
@@ -617,30 +700,6 @@ class PdfParser : BookParser {
         opaque.recycle()
         name
     }.getOrNull()
-
-    /** Каждая картинка — в конец той главы, на странице которой она стоит. */
-    private fun attachPageImages(
-        chapters: List<Chapter>,
-        perPage: Map<Int, List<String>>,
-    ): List<Chapter> {
-        if (chapters.isEmpty() || perPage.isEmpty()) return chapters
-        val byChapter = mutableMapOf<Int, MutableList<ChapterImage>>()
-        perPage.toSortedMap().forEach { (page, files) ->
-            var target = 0
-            chapters.forEachIndexed { index, chapter ->
-                if (chapter.page.coerceAtLeast(0) <= page) target = index
-            }
-            val last = chapters[target].segments.lastIndex.coerceAtLeast(0)
-            files.forEach { file ->
-                byChapter.getOrPut(target) { mutableListOf() } +=
-                    ChapterImage(last, file, "Иллюстрация")
-            }
-        }
-        return chapters.mapIndexed { index, chapter ->
-            val images = byChapter[index] ?: return@mapIndexed chapter
-            chapter.copy(images = chapter.images + images)
-        }
-    }
 
     private companion object {
         const val MIN_IMAGE_PX = 80
