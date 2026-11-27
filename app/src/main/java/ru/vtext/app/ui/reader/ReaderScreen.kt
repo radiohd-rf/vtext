@@ -343,6 +343,13 @@ fun ReaderScreen(
             val insets = WindowInsets.safeDrawing.asPaddingValues()
             val contentTop = insets.calculateTopPadding() + 4.dp
             val contentBottom = insets.calculateBottomPadding() + PAGE_FOOTER_HEIGHT
+            // Верхняя полоса при скрытом интерфейсе должна быть визуально такой же,
+            // как подвал: сверху к ней добавляется строка состояния, снизу — панель
+            // навигации. Считаем здесь, пока инсеты ещё не потреблены
+            // windowInsetsPadding ниже по дереву.
+            val hiddenTopBand = (PAGE_FOOTER_HEIGHT +
+                insets.calculateBottomPadding() -
+                insets.calculateTopPadding()).coerceAtLeast(0.dp)
             val widthPx = constraints.maxWidth -
                 with(density) { insets.calculateLeftPadding(layoutDirection).roundToPx() } -
                 with(density) { insets.calculateRightPadding(layoutDirection).roundToPx() }
@@ -822,14 +829,7 @@ fun ReaderScreen(
                                 // прокрутке строки шли бы под счётчиком.
                                 // Верхнюю полосу считаем так, чтобы её видимая высота
                                 // совпадала с подвалом: сверху и снизу разные инсеты.
-                                top = if (uiVisible) {
-                                    0.dp
-                                } else {
-                                    (PAGE_FOOTER_HEIGHT +
-                                        insets.calculateBottomPadding() -
-                                        insets.calculateTopPadding())
-                                        .coerceAtLeast(0.dp)
-                                },
+                                top = if (uiVisible) 0.dp else hiddenTopBand,
                                 bottom = PAGE_FOOTER_HEIGHT,
                             ),
                     ) {
