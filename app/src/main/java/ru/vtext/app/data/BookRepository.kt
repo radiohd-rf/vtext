@@ -48,9 +48,27 @@ class BookRepository(private val context: Context) {
 
     suspend fun listBooks(): List<Book> = withContext(Dispatchers.IO) {
         root.listFiles()
-            ?.mapNotNull { dir -> readMeta(dir)?.let { withCover(dir, it) } }
+            ?.mapNotNull { dir -> readMeta(dir) }
             ?.sortedByDescending { it.addedAt }
             ?: emptyList()
+    }
+
+    /**
+     * Достаёт недостающие обложки в фоне. Раньше это делалось прямо в [listBooks]
+     * и первый показ библиотеки ждал рендер первых страниц PDF.
+     * @return true, если хоть одна обложка появилась
+     */
+    suspend fun ensureCovers(): Boolean = withContext(Dispatchers.IO) {
+        var changed = false
+        root.listFiles()?.forEach { dir ->
+            if (coverFile(dir) != null) return@forEach
+            val meta = readMeta(dir) ?: return@forEach
+            val format = meta.format ?: return@forEach
+            val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") }
+                ?: return@forEach
+            if (CoverExtractor.extract(format, source, dir) != null) changed = true
+        }
+        changed
     }
 
     suspend fun import(uri: Uri, preset: TextPreset = TextPreset.AUTO): Book = withContext(Dispatchers.IO) {
@@ -492,14 +510,6 @@ class BookRepository(private val context: Context) {
                 cloudModified = json.optString("cloudModified").ifBlank { null },
             )
         }.getOrNull()
-    }
-
-    private fun withCover(dir: File, book: Book): Book {
-        coverFile(dir)?.let { return book.copy(coverPath = it.absolutePath) }
-        val format = book.format ?: return book
-        val source = dir.listFiles()?.firstOrNull { it.name.startsWith("source.") } ?: return book
-        val cover = CoverExtractor.extract(format, source, dir) ?: return book
-        return book.copy(coverPath = cover.absolutePath)
     }
 
     private fun coverFile(dir: File): File? = File(dir, "cover").takeIf { it.isFile }

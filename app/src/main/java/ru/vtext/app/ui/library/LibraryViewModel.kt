@@ -113,23 +113,48 @@ class LibraryViewModel(
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
+    /** Перечитывание идёт; повторные запросы (их много при синке) склеиваем. */
+    private var refreshing = false
+    private var refreshAgain = false
+
     init {
         refresh()
     }
 
     fun refresh() {
+        if (refreshing) {
+            refreshAgain = true
+            return
+        }
+        refreshing = true
         viewModelScope.launch {
-            _state.update { it.copy(loading = true) }
-            val books = repository.listBooks()
-            val ids = books.mapTo(HashSet()) { it.id }
-            _state.update {
-                it.copy(
-                    loading = false,
-                    books = books,
-                    positions = readPositions(books),
-                    flags = bookFlagsStore.all(),
-                    selected = it.selected.filterTo(HashSet()) { id -> id in ids },
-                )
+            try {
+                // Спиннер только пока книг нет: при возврате в список он уже на экране.
+                _state.update { it.copy(loading = it.books.isEmpty()) }
+                val books = repository.listBooks()
+                val ids = books.mapTo(HashSet()) { it.id }
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        books = books,
+                        positions = readPositions(books),
+                        flags = bookFlagsStore.all(),
+                        selected = it.selected.filterTo(HashSet()) { id -> id in ids },
+                    )
+                }
+                // Обложки, которых ещё нет, достаём в фоне и тихо подставляем.
+                if (repository.ensureCovers()) {
+                    val updated = repository.listBooks()
+                    _state.update {
+                        it.copy(books = updated, positions = readPositions(updated))
+                    }
+                }
+            } finally {
+                refreshing = false
+                if (refreshAgain) {
+                    refreshAgain = false
+                    refresh()
+                }
             }
         }
     }
