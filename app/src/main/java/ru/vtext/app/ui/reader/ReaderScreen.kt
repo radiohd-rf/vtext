@@ -820,7 +820,16 @@ fun ReaderScreen(
                                 // Полосы уменьшают сам вьюпорт: contentPadding у списка
                                 // резервирует место только до/после текста, а при
                                 // прокрутке строки шли бы под счётчиком.
-                                top = if (uiVisible) 0.dp else PAGE_FOOTER_HEIGHT,
+                                // Верхнюю полосу считаем так, чтобы её видимая высота
+                                // совпадала с подвалом: сверху и снизу разные инсеты.
+                                top = if (uiVisible) {
+                                    0.dp
+                                } else {
+                                    (PAGE_FOOTER_HEIGHT +
+                                        insets.calculateBottomPadding() -
+                                        insets.calculateTopPadding())
+                                        .coerceAtLeast(0.dp)
+                                },
                                 bottom = PAGE_FOOTER_HEIGHT,
                             ),
                     ) {
