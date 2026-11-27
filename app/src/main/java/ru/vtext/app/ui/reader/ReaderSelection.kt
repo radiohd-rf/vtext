@@ -466,11 +466,19 @@ fun Modifier.textSelectionGestures(
         }
 
         // 3. Протяжка: тянем второй конец выделения, можно через абзацы.
+        // Пока палец не сдвинулся дальше slop, выделение не трогаем: иначе
+        // дрожание при отрыве обрезало бы выделенное предложение.
+        var dragging = false
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             change.consume()
             if (!change.pressed) break
+            val distance = (change.position - down.position).getDistance()
+            if (!dragging) {
+                if (distance <= viewConfiguration.touchSlop) continue
+                dragging = true
+            }
             val point = origin() + change.position
             val target = registry.at(point, block.chapter) ?: continue
             val pos = TextPos(target.segment, target.charOffset + target.offsetAt(point))
