@@ -9,6 +9,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import ru.vtext.app.data.Annotation
 import ru.vtext.app.data.AnnotationKind
@@ -356,36 +360,45 @@ class ReaderViewModel(
         _state.update { it.copy(annotations = annotationStore.remove(bookId, id)) }
     }
 
-    private fun buildItems(book: Book): List<ReaderItem> {
-        val items = ArrayList<ReaderItem>()
+    private suspend fun buildItems(book: Book): List<ReaderItem> {
         val assets = java.io.File(repository.bookDir(bookId), "epub-assets")
-        fun imageItem(chapterIndex: Int, image: ru.vtext.app.domain.model.ChapterImage) {
+        // Главы независимы: собираем их параллельно, порядок сохраняем.
+        return coroutineScope {
+            book.chapters.mapIndexed { index, chapter ->
+                async(Dispatchers.Default) { chapterItems(index, chapter, assets) }
+            }.awaitAll().flatten()
+        }
+    }
+
+    private fun chapterItems(
+        chapterIndex: Int,
+        chapter: ru.vtext.app.domain.model.Chapter,
+        assets: java.io.File,
+    ): List<ReaderItem> {
+        val items = ArrayList<ReaderItem>()
+        fun imageItem(image: ru.vtext.app.domain.model.ChapterImage) {
             val file = java.io.File(assets, image.file)
             if (file.isFile) {
                 items += ReaderItem.Image(chapterIndex, image.afterSegment, file.absolutePath, image.alt)
             }
         }
-        book.chapters.forEachIndexed { chapterIndex, chapter ->
-            if (chapter.title.isNotBlank()) {
-                items += ReaderItem.Header(chapterIndex, chapter.title)
-            }
-            chapter.images.filter { it.afterSegment < 0 }.forEach { imageItem(chapterIndex, it) }
-            chapter.segments.forEachIndexed { segmentIndex, segment ->
-                val (text, noteSpans) = NoteMarkup.render(
-                    TextMarkup.strip(
-                        NoteMarkup.prepare(segment) { SileroText.displayText(it) },
-                    ).trim(),
-                )
-                if (text.isNotEmpty()) {
-                    items += ReaderItem.Paragraph(chapterIndex, segmentIndex, text, noteSpans)
-                }
-                chapter.images.filter { it.afterSegment == segmentIndex }.forEach {
-                    imageItem(chapterIndex, it)
-                }
-            }
-            val last = chapter.segments.lastIndex
-            chapter.images.filter { it.afterSegment > last }.forEach { imageItem(chapterIndex, it) }
+        if (chapter.title.isNotBlank()) {
+            items += ReaderItem.Header(chapterIndex, chapter.title)
         }
+        chapter.images.filter { it.afterSegment < 0 }.forEach { imageItem(it) }
+        chapter.segments.forEachIndexed { segmentIndex, segment ->
+            val (text, noteSpans) = NoteMarkup.render(
+                TextMarkup.strip(
+                    NoteMarkup.prepare(segment) { SileroText.displayText(it) },
+                ).trim(),
+            )
+            if (text.isNotEmpty()) {
+                items += ReaderItem.Paragraph(chapterIndex, segmentIndex, text, noteSpans)
+            }
+            chapter.images.filter { it.afterSegment == segmentIndex }.forEach { imageItem(it) }
+        }
+        val last = chapter.segments.lastIndex
+        chapter.images.filter { it.afterSegment > last }.forEach { imageItem(it) }
         return items
     }
 
