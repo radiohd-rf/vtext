@@ -1111,13 +1111,23 @@ private fun paginate(
     for (item in items) {
         if (item.chapterIndex != chapterIndex) continue
         if (item is ReaderItem.Image) {
-            val imageHeight = imageHeightPx(item.path, textWidth, heightPx, density)
+            var imageHeight = imageHeightPx(item.path, textWidth, heightPx, density)
             val top = 8.dp
             val bottom = 8.dp
             val topPx = with(density) { top.roundToPx() }
             val bottomPx = with(density) { bottom.roundToPx() }
             val total = topPx + imageHeight + bottomPx
-            if (blocks.isNotEmpty() && used + total > pageHeight) flush()
+            if (blocks.isNotEmpty() && used + total > pageHeight) {
+                // Осталось меньше половины страницы — картинку не втискиваем,
+                // начинаем новую. Иначе поджимаем её под остаток, чтобы не
+                // оставлять полстраницы пустой.
+                val available = pageHeight - used - topPx - bottomPx
+                if (available > pageHeight * 0.45f) {
+                    imageHeight = available.roundToInt().coerceIn(1, imageHeight)
+                } else {
+                    flush()
+                }
+            }
             blocks += ReaderPageBlock(
                 text = item.alt,
                 isHeader = false,
