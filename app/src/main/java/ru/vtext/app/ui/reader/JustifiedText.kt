@@ -2,6 +2,7 @@ package ru.vtext.app.ui.reader
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -168,19 +169,22 @@ fun JustifiedText(
 ) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    var width by remember { mutableStateOf(0) }
-    val plan = remember(text, style, width, justify) {
-        val key = PlanKey(text, style, width, justify)
-        planCache.get(key) ?: buildTextPlan(text, style, width, measurer, justify)
-            .also { planCache.put(key, it) }
-    }
-    Box(
-        modifier
-            .fillMaxWidth()
-            .onSizeChanged { width = it.width }
-            .onGloballyPositioned { onPlan(plan, it.boundsInRoot()) }
-            .height(if (plan.height > 0f) with(density) { plan.height.toDp() } else 0.dp),
-    ) {        Canvas(Modifier.fillMaxWidth()) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        // Ширину берём из ограничений сразу: иначе первый кадр считается с
+        // width = 0, блок получает высоту 0 и текст «прыгает» на втором кадре.
+        val width = constraints.maxWidth
+        val plan = remember(text, style, width, justify) {
+            val key = PlanKey(text, style, width, justify)
+            planCache.get(key) ?: buildTextPlan(text, style, width, measurer, justify)
+                .also { planCache.put(key, it) }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { onPlan(plan, it.boundsInRoot()) }
+                .height(if (plan.height > 0f) with(density) { plan.height.toDp() } else 0.dp),
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
             // Фон пометок: от первого до последнего символа диапазона на строке.
             backgrounds.forEach { (range, bg) ->
                 if (range.last + 1 <= range.first) return@forEach
@@ -212,6 +216,7 @@ fun JustifiedText(
                     topLeft = Offset(run.x, run.top),
                     color = color,
                 )
+            }
             }
         }
     }
