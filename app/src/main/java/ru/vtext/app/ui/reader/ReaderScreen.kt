@@ -125,6 +125,8 @@ import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.Job
 import kotlin.math.abs
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -792,10 +794,6 @@ fun ReaderScreen(
                         ),
                 ) {
                 when {
-                    // Пока открыт редактор заметки, страницы не держим в дереве:
-                    // клавиатура меняет высоту окна, и любая перекладка страниц
-                    // в этот момент даёт фризы.
-                    noteDraft != null -> Box(Modifier.fillMaxSize())
                     state.loading -> Box(
                         Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
@@ -1123,16 +1121,26 @@ fun ReaderScreen(
         }
 
         noteDraft?.let { draft ->
-            NoteEditorScreen(
-                quoted = draft.quoted,
-                text = draft.text,
-                onTextChange = { value -> noteDraft = draft.copy(text = value) },
-                onCancel = { noteDraft = null },
-                onSave = {
-                    noteDraft = null
-                    viewModel.saveNote(draft.selection, draft.text)
-                },
-            )
+            // Редактор — в отдельном окне: клавиатура меняет высоту только его,
+            // читалка под ним не пересобирается.
+            Dialog(
+                onDismissRequest = { noteDraft = null },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false,
+                ),
+            ) {
+                NoteEditorScreen(
+                    quoted = draft.quoted,
+                    text = draft.text,
+                    onTextChange = { value -> noteDraft = draft.copy(text = value) },
+                    onCancel = { noteDraft = null },
+                    onSave = {
+                        noteDraft = null
+                        viewModel.saveNote(draft.selection, draft.text)
+                    },
+                )
+            }
         }
     }
 }
