@@ -346,8 +346,10 @@ fun ReaderScreen(
             // Верхняя полоса при скрытом интерфейсе должна быть визуально такой же,
             // как подвал: сверху к ней добавляется строка состояния, снизу — панель
             // навигации. Считаем здесь, пока инсеты ещё не потреблены
-            // windowInsetsPadding ниже по дереву.
-            val hiddenTopBand = (PAGE_FOOTER_HEIGHT +
+            // windowInsetsPadding ниже по дереву. На 12 dp меньше подвала — так
+            // верх не выглядит тяжелее низа.
+            val hiddenTopBand = (PAGE_FOOTER_HEIGHT -
+                12.dp +
                 insets.calculateBottomPadding() -
                 insets.calculateTopPadding()).coerceAtLeast(0.dp)
             val widthPx = constraints.maxWidth -
