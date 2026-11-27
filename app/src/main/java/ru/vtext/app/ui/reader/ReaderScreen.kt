@@ -365,6 +365,9 @@ fun ReaderScreen(
                 contentHeightPx,
                 pagingGeneration,
             ) {
+                // Пока открыт редактор заметки, клавиатура меняет высоту окна
+                // кадр за кадром — пересобирать главу на каждый кадр нельзя.
+                if (noteDraft != null) return@LaunchedEffect
                 if (style.scrollMode) {
                     pages = emptyList()
                     pagesChapter = -1
