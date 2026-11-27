@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Density
@@ -556,6 +557,16 @@ fun ReaderScreen(
                 }
             }
 
+            // Прогреваем картинки соседних страниц: иначе при листании они
+            // декодируются в момент показа и страница «промелькивает».
+            LaunchedEffect(pages, pageIndex) {
+                listOf(pageIndex - 2, pageIndex - 1, pageIndex + 1, pageIndex + 2).forEach { index ->
+                    pages.getOrNull(index)?.blocks?.forEach { block ->
+                        block.imagePath?.let { preloadBitmap(it) }
+                    }
+                }
+            }
+
             val onNote: (String) -> Unit = { label ->
                 // Метка сноски страницы — «p10-1», в заголовке показываем номер.
                 val display = if (label.contains('-')) label.substringAfterLast('-') else label
@@ -744,7 +755,7 @@ fun ReaderScreen(
                                         PageLayer(
                                             page = prev,
                                             style = style,
-                                            offsetX = -pageWidth + pageOffsetX,
+                                            offsetX = { -pageWidth + pageOffsetX },
                                             onNote = onNote,
                                             annotations = state.annotations,
                                             selection = selection,
@@ -757,7 +768,7 @@ fun ReaderScreen(
                                         PageLayer(
                                             page = next,
                                             style = style,
-                                            offsetX = pageWidth + pageOffsetX,
+                                            offsetX = { pageWidth + pageOffsetX },
                                             onNote = onNote,
                                             annotations = state.annotations,
                                             selection = selection,
@@ -769,7 +780,7 @@ fun ReaderScreen(
                                 PageLayer(
                                     page = current,
                                     style = style,
-                                    offsetX = pageOffsetX,
+                                    offsetX = { pageOffsetX },
                                     onNote = onNote,
                                     annotations = state.annotations,
                                     selection = selection,
@@ -1244,7 +1255,7 @@ private fun paginate(
 private fun PageLayer(
     page: ReaderPage,
     style: ReaderStyle,
-    offsetX: Float,
+    offsetX: () -> Float,
     onNote: (String) -> Unit,
     annotations: List<Annotation>,
     selection: ReaderSelection?,
@@ -1254,7 +1265,7 @@ private fun PageLayer(
     Box(
         Modifier
             .fillMaxSize()
-            .offset { IntOffset(offsetX.roundToInt(), 0) }
+            .graphicsLayer { translationX = offsetX() }
             .background(style.colors().background),
     ) {
         ReaderPageContent(page, style, onNote, annotations, selection, registry, anchors)
@@ -1399,16 +1410,51 @@ private fun ReaderImageItem(item: ReaderItem.Image, style: ReaderStyle) {
     }
 }
 
+/** Кэш декодированных картинок: без него каждая страница декодирует JPEG заново. */
+private val readerImageCache = object :
+    android.util.LruCache<String, Bitmap>(64 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+}
+
+private fun imageCacheKey(path: String, maxSide: Int): String = "$path@$maxSide"
+
+/** Декодирует картинку в фоне и кладёт в кэш (для прогрева соседних страниц). */
+private suspend fun preloadBitmap(path: String, maxSide: Int = 1200) {
+    val key = imageCacheKey(path, maxSide)
+    if (readerImageCache.get(key) != null) return
+    val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        decodeScaledBitmap(path, maxSide)
+    }
+    if (bitmap != null) readerImageCache.put(key, bitmap)
+}
+
 @Composable
 private fun ReaderImage(path: String, alt: String?, modifier: Modifier = Modifier) {
-    val bitmap = remember(path) { decodeScaledBitmap(path, 1600) }
-    if (bitmap != null) {
+    val cached = remember(path) { readerImageCache.get(imageCacheKey(path, 1200)) }
+    var bitmap by remember(path) { mutableStateOf(cached) }
+    LaunchedEffect(path) {
+        if (bitmap == null) {
+            val decoded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                decodeScaledBitmap(path, 1200)
+            }
+            if (decoded != null) {
+                readerImageCache.put(imageCacheKey(path, 1200), decoded)
+                bitmap = decoded
+            }
+        }
+    }
+    val current = bitmap
+    if (current != null) {
+        val image = remember(current) { current.asImageBitmap() }
         Image(
-            bitmap = bitmap.asImageBitmap(),
+            bitmap = image,
             contentDescription = alt,
             modifier = modifier,
             contentScale = ContentScale.Fit,
         )
+    } else {
+        // Место под картинку держим сразу, чтобы вёрстка не прыгала.
+        Box(modifier)
     }
 }
 
