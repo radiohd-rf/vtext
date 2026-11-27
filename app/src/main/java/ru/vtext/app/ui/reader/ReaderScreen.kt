@@ -221,6 +221,13 @@ fun ReaderScreen(
     var wantLastPage by remember { mutableStateOf(false) }
     /** Страницы собраны от начала главы (а не от места чтения посередине). */
     var pagesFromStart by remember { mutableStateOf(true) }
+    // Соседние страницы за границей главы: последняя у предыдущей и первая
+    // у следующей. Их показываем при протяжке, иначе страница «въезжает» только
+    // после отпускания пальца.
+    var boundaryPrev by remember { mutableStateOf<ReaderPage?>(null) }
+    var boundaryNext by remember { mutableStateOf<ReaderPage?>(null) }
+    /** Пока новая глава не собрана, показываем уже готовую страницу с границы. */
+    var holdPage by remember { mutableStateOf<ReaderPage?>(null) }
     var paginatedHeight by remember { mutableStateOf(0) }
     // Якорь страницы: абзац и смещение в нём, чтобы при пересборке не терять место.
     var anchorChapter by remember { mutableStateOf(-1) }
@@ -396,6 +403,7 @@ fun ReaderScreen(
                 pages = built
                 pagesChapter = state.chapterIndex
                 pagesFromStart = anchorSegment <= 0
+                holdPage = null
                 // Недокрученная анимация не должна сдвигать новую страницу.
                 pageOffsetX = 0f
                 val jumpToTarget = jumpChapter == state.chapterIndex && jumpSegment >= 0
@@ -443,6 +451,7 @@ fun ReaderScreen(
                     pageIndex += 1
                     applyPagePosition(pages.getOrNull(pageIndex))
                 } else if (state.chapterIndex < state.chapterCount - 1) {
+                    holdPage = boundaryNext
                     pages = emptyList()
                     pageIndex = 0
                     anchorChapter = state.chapterIndex + 1
@@ -463,6 +472,7 @@ fun ReaderScreen(
                 // раньше текста нет, сразу к предыдущей главе.
                 if (pageIndex == 0 && pagesFromStart && state.chapterIndex > 0) {
                     wantLastPage = true
+                    holdPage = boundaryPrev
                     viewModel.selectPosition(state.chapterIndex - 1, 0)
                     return
                 }
@@ -512,8 +522,13 @@ fun ReaderScreen(
                 }
             }
 
+            /** Страница за краем: сначала из списка, затем — из соседней главы. */
+            fun neighborPage(direction: Int): ReaderPage? =
+                pages.getOrNull(pageIndex + direction)
+                    ?: if (direction < 0) boundaryPrev else boundaryNext
+
             fun hasNeighbor(direction: Int): Boolean =
-                pages.getOrNull(pageIndex + direction) != null
+                neighborPage(direction) != null
 
             /** Листание тапом: страница уезжает целиком, затем меняется номер. */
             fun turnPage(direction: Int) {
@@ -583,6 +598,61 @@ fun ReaderScreen(
                     pages.getOrNull(index)?.blocks?.forEach { block ->
                         block.imagePath?.let { preloadBitmap(it) }
                     }
+                }
+            }
+
+            // Страницы за границей главы: последняя у предыдущей и первая
+            // у следующей. Собираем заранее, чтобы при свайпе они въезжали так же,
+            // как обычные соседние страницы.
+            LaunchedEffect(
+                state.chapterIndex,
+                pageIndex,
+                pages,
+                pagesFromStart,
+                style,
+                widthPx,
+                contentHeightPx,
+            ) {
+                if (style.scrollMode || pages.isEmpty()) {
+                    boundaryPrev = null
+                    boundaryNext = null
+                    return@LaunchedEffect
+                }
+                val atStart = pageIndex == 0
+                val atEnd = pageIndex == pages.lastIndex
+                boundaryPrev = if (atStart && pagesFromStart && state.chapterIndex > 0) {
+                    paginate(
+                        items = state.items,
+                        chapterIndex = state.chapterIndex - 1,
+                        style = style,
+                        verse = state.verse,
+                        measurer = measurer,
+                        widthPx = widthPx,
+                        heightPx = contentHeightPx,
+                        density = density,
+                    ).lastOrNull()
+                } else {
+                    null
+                }
+                boundaryNext = if (atEnd && state.chapterIndex < state.chapterCount - 1) {
+                    paginate(
+                        items = state.items,
+                        chapterIndex = state.chapterIndex + 1,
+                        style = style,
+                        verse = state.verse,
+                        measurer = measurer,
+                        widthPx = widthPx,
+                        heightPx = contentHeightPx,
+                        density = density,
+                    ).firstOrNull()
+                } else {
+                    null
+                }
+                boundaryPrev?.blocks?.forEach { block ->
+                    block.imagePath?.let { preloadBitmap(it) }
+                }
+                boundaryNext?.blocks?.forEach { block ->
+                    block.imagePath?.let { preloadBitmap(it) }
                 }
             }
 
@@ -767,42 +837,39 @@ fun ReaderScreen(
                         }
                     }
                     else -> {
-                        val current = pages.getOrNull(pageIndex)
+                        val current = pages.getOrNull(pageIndex) ?: holdPage
                         if (current != null) {
                             val pageWidth = widthPx.toFloat()
                             Box(Modifier.fillMaxSize()) {
                                 // Соседние страницы собираем заранее: раскладка и
                                 // картинки готовы до начала листания, поэтому при
-                                // протяжке страница не «промаргивает».
-                                run {
-                                    pages.getOrNull(pageIndex - 1)?.let { prev ->
-                                        PageLayer(
-                                            page = prev,
-                                            style = style,
-                                            offsetX = { -pageWidth + pageOffsetX },
-                                            onNote = onNote,
-                                            annotations = state.annotations,
-                                            selection = selection,
-                                            registry = blockRegistry,
-                                            anchors = selectionAnchors,
-                                            register = false,
-                                        )
-                                    }
+                                // протяжке страница не «промаргивает». За границей
+                                // главы берём готовую страницу соседней главы.
+                                neighborPage(-1)?.let { prev ->
+                                    PageLayer(
+                                        page = prev,
+                                        style = style,
+                                        offsetX = { -pageWidth + pageOffsetX },
+                                        onNote = onNote,
+                                        annotations = state.annotations,
+                                        selection = selection,
+                                        registry = blockRegistry,
+                                        anchors = selectionAnchors,
+                                        register = false,
+                                    )
                                 }
-                                run {
-                                    pages.getOrNull(pageIndex + 1)?.let { next ->
-                                        PageLayer(
-                                            page = next,
-                                            style = style,
-                                            offsetX = { pageWidth + pageOffsetX },
-                                            onNote = onNote,
-                                            annotations = state.annotations,
-                                            selection = selection,
-                                            registry = blockRegistry,
-                                            anchors = selectionAnchors,
-                                            register = false,
-                                        )
-                                    }
+                                neighborPage(1)?.let { next ->
+                                    PageLayer(
+                                        page = next,
+                                        style = style,
+                                        offsetX = { pageWidth + pageOffsetX },
+                                        onNote = onNote,
+                                        annotations = state.annotations,
+                                        selection = selection,
+                                        registry = blockRegistry,
+                                        anchors = selectionAnchors,
+                                        register = false,
+                                    )
                                 }
                                 PageLayer(
                                     page = current,
