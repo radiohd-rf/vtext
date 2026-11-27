@@ -51,6 +51,15 @@ data class TextPos(val segment: Int, val offset: Int)
 data class ReaderSelection(val chapter: Int, val start: TextPos, val end: TextPos) {
     val empty: Boolean
         get() = start.segment == end.segment && start.offset == end.offset
+
+    /** Попадает ли позиция внутрь выделения. */
+    fun contains(segment: Int, offset: Int): Boolean {
+        val afterStart = segment > start.segment ||
+            (segment == start.segment && offset >= start.offset)
+        val beforeEnd = segment < end.segment ||
+            (segment == end.segment && offset < end.offset)
+        return afterStart && beforeEnd
+    }
 }
 
 /** Упорядочивает две точки: выделение всегда идёт от начала текста к концу. */
@@ -381,15 +390,26 @@ fun Modifier.textSelectionGestures(
 ): Modifier = pointerInput(registry) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-        // Выделение уже есть: одиночный тап его снимает.
-        if (selection() != null) {
+        // Выделение уже есть: тап внутри него не снимает, тап вне — снимает.
+        val active = selection()
+        if (active != null) {
             var moved = false
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 if ((change.position - down.position).getDistance() > 8f) moved = true
                 if (!change.pressed) {
-                    if (!moved) onSelect(null)
+                    if (!moved) {
+                        val point = origin() + down.position
+                        val block = registry.at(point)
+                        val inside = block != null &&
+                            block.chapter == active.chapter &&
+                            active.contains(
+                                block.segment,
+                                block.charOffset + block.offsetAt(point),
+                            )
+                        if (!inside) onSelect(null)
+                    }
                     change.consume()
                     return@awaitEachGesture
                 }
