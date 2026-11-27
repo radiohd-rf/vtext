@@ -76,8 +76,6 @@ class TextBlock(
     val text: String,
     val layout: TextLayoutResult,
     val bounds: Rect,
-    /** Строки растянуты по ширине: позиции из раскладки надо сдвигать. */
-    val justified: Boolean = false,
 ) {
     /** Порядковый номер регистрации: свежий блок важнее устаревшего. */
     var seq: Long = 0L
@@ -89,15 +87,7 @@ class TextBlock(
             (point.x - bounds.left).coerceIn(0f, layout.size.width.toFloat()),
             (point.y - bounds.top).coerceIn(0f, layout.size.height.toFloat()),
         )
-        val raw = layout.getOffsetForPosition(local).coerceIn(0, length)
-        if (!justified || length == 0) return raw
-        val line = layout.getLineForVerticalPosition(local.y)
-        val from = layout.getLineStart(line)
-        val to = layout.getLineEnd(line, visibleEnd = true)
-        if (to <= from) return raw
-        return (from..to).minByOrNull { index ->
-            kotlin.math.abs(layout.getCursorRect(index).left + justifyShift(line, index) - local.x)
-        } ?: raw
+        return layout.getOffsetForPosition(local).coerceIn(0, length)
     }
 
     /** Слово под точкой: диапазон [from, to) в координатах фрагмента. */
@@ -137,9 +127,8 @@ class TextBlock(
     }
 
     /**
-     * Край выделения в координатах экрана: x берём из каретки (она знает про
-     * выравнивание по ширине), y — из строки самого символа, чтобы на границе
-     * строки ручка не уезжала на соседнюю.
+     * Край выделения в координатах экрана: x — из каретки, y — из строки самого
+     * символа, чтобы на границе строки ручка не уезжала на соседнюю.
      */
     fun edge(offset: Int, isEnd: Boolean): Rect {
         if (length <= 0) {
@@ -148,34 +137,10 @@ class TextBlock(
         val local = offset.coerceIn(0, length)
         val char = if (isEnd) (local - 1).coerceIn(0, length - 1) else local.coerceIn(0, length - 1)
         val line = layout.getLineForOffset(char)
-        val x = layout.getCursorRect(local).left + if (justified) justifyShift(line, char) else 0f
+        val x = layout.getCursorRect(local).left
         val top = layout.getLineTop(line)
         val bottom = layout.getLineBottom(line)
         return Rect(x, top, x, bottom).translate(bounds.left, bounds.top)
-    }
-
-    /**
-     * Поправка на выравнивание по ширине: раскладка отдаёт позиции до
-     * растягивания, а рисуется строка уже растянутой. Лишняя ширина делится
-     * поровну между пробелами, поэтому символ сдвигается на долю пробелов до него.
-     */
-    private fun justifyShift(line: Int, char: Int): Float {
-        if (line >= layout.lineCount - 1) return 0f
-        val from = layout.getLineStart(line)
-        val to = layout.getLineEnd(line, visibleEnd = true)
-        if (to <= from) return 0f
-        val extra = layout.size.width - layout.getLineRight(line)
-        if (extra <= 0.5f) return 0f
-        var total = 0
-        var before = 0
-        for (index in from until to) {
-            if (text.getOrNull(index) == ' ') {
-                total++
-                if (index < char) before++
-            }
-        }
-        if (total == 0) return 0f
-        return extra * before / total
     }
 }
 

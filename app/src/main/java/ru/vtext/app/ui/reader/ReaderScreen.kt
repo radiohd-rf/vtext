@@ -124,6 +124,7 @@ import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.Job
 import kotlin.math.abs
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -1042,7 +1043,6 @@ private fun bodyTextStyle(style: ReaderStyle): TextStyle = TextStyle(
     fontFamily = style.font.family,
     fontSize = style.fontSizeSp.sp,
     lineHeight = (style.fontSizeSp * style.lineSpacing.multiplier).sp,
-    textAlign = if (style.justify) TextAlign.Justify else TextAlign.Start,
 )
 
 /** Кусок текста на странице: заголовок или абзац (возможно, обрезанный). */
@@ -1303,7 +1303,6 @@ private fun ReaderPageContent(
                         text = block.text,
                         layout = result,
                         bounds = holder.bounds,
-                        justified = style.justify,
                     )
                 }
                 fun publish(target: TextBlock) {
@@ -1329,6 +1328,13 @@ private fun ReaderPageContent(
                 DisposableEffect(key) {
                     onDispose { registry.remove(key) }
                 }
+                val blockStyle = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style)
+                val stops = rememberJustifiedSpaces(
+                    text = block.text,
+                    style = blockStyle,
+                    width = layout.value?.size?.width ?: 0,
+                    enabled = style.justify && !block.isHeader,
+                )
                 Text(
                     text = styledText(
                         text = block.text,
@@ -1339,6 +1345,7 @@ private fun ReaderPageContent(
                         selected = selection?.rangeIn(segment, block.charOffset, block.text.length),
                         markColor = colors.mark,
                         selectionColor = colors.selection,
+                        stops = stops,
                     ),
                     onTextLayout = {
                         holder.layout = it
@@ -1355,7 +1362,7 @@ private fun ReaderPageContent(
                         }
                         .noteTap(block.notes, layout, onNote),
                     color = colors.text,
-                    style = if (block.isHeader) headerTextStyle(style) else bodyTextStyle(style),
+                    style = blockStyle,
                 )
             }
         }
@@ -1421,6 +1428,47 @@ private fun decodeScaledBitmap(path: String, maxSide: Int): Bitmap? {
 
 private data class NoteSheetState(val label: String, val note: NoteRef?)
 
+/**
+ * Выравнивание по ширине без `TextAlign.Justify`: каждый пробел строки получает
+ * межсловный интервал через letterSpacing. Раскладка сама учитывает его, поэтому
+ * подсветка, ручки и выбор слова совпадают с буквами. Строки считаются по
+ * отдельной раскладке без интервалов тем же стилем и шириной.
+ */
+@Composable
+private fun rememberJustifiedSpaces(
+    text: String,
+    style: TextStyle,
+    width: Int,
+    enabled: Boolean,
+): List<Pair<Int, TextUnit>> {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    return remember(text, style, width, enabled) {
+        if (!enabled || width <= 0 || text.isEmpty()) return@remember emptyList()
+        val natural = measurer.measure(
+            text = AnnotatedString(text),
+            style = style,
+            constraints = Constraints(maxWidth = width),
+        )
+        val stops = ArrayList<Pair<Int, TextUnit>>()
+        // Последняя строка абзаца и строки, оборванные переводом строки, не растягиваем.
+        for (line in 0 until natural.lineCount - 1) {
+            val start = natural.getLineStart(line)
+            val end = natural.getLineEnd(line)
+            if (end <= start || text[end - 1] == '\n') continue
+            var visible = natural.getLineEnd(line, visibleEnd = true)
+            while (visible > start && text[visible - 1] == ' ') visible--
+            val spaces = (start until visible).filter { text[it] == ' ' }
+            if (spaces.isEmpty()) continue
+            val extra = width - natural.getLineRight(line) - 1f
+            if (extra <= 0f) continue
+            val add = with(density) { (extra / spaces.size).toSp() }
+            spaces.forEach { stops += it to add }
+        }
+        stops
+    }
+}
+
 /** Текст со ссылками: диапазоны [NoteSpan] окрашиваем цветом акцента. */
 private fun styledText(
     text: String,
@@ -1431,12 +1479,16 @@ private fun styledText(
     selected: IntRange? = null,
     markColor: Color = Color.Unspecified,
     selectionColor: Color = Color.Unspecified,
+    stops: List<Pair<Int, TextUnit>> = emptyList(),
 ): AnnotatedString {
-    if (notes.isEmpty() && quotes.isEmpty() && noteMarks.isEmpty() && selected == null) {
+    if (notes.isEmpty() && quotes.isEmpty() && noteMarks.isEmpty() && selected == null && stops.isEmpty()) {
         return AnnotatedString(text)
     }
     return buildAnnotatedString {
         append(text)
+        stops.forEach { (index, space) ->
+            addStyle(SpanStyle(letterSpacing = space), index, index + 1)
+        }
         // Текущее выделение — фон, под ним сохранённые цитаты (тоже фон).
         selected?.let { range ->
             addStyle(SpanStyle(background = selectionColor), range.first, range.last + 1)
@@ -1658,7 +1710,7 @@ private fun ReaderParagraph(
     fun currentBlock(): TextBlock? {
         val result = holder.layout ?: return null
         if (holder.bounds == Rect.Zero) return null
-        return TextBlock(chapterIndex, segmentIndex, 0, text, result, holder.bounds, justified = style.justify)
+        return TextBlock(chapterIndex, segmentIndex, 0, text, result, holder.bounds)
     }
     fun publish(block: TextBlock) {
         val current = selection ?: return
@@ -1681,6 +1733,12 @@ private fun ReaderParagraph(
     DisposableEffect(key) {
         onDispose { registry.remove(key) }
     }
+    val stops = rememberJustifiedSpaces(
+        text = text,
+        style = bodyTextStyle(style),
+        width = layout.value?.size?.width ?: 0,
+        enabled = style.justify,
+    )
     Text(
         text = styledText(
             text = text,
@@ -1691,6 +1749,7 @@ private fun ReaderParagraph(
             selected = selection?.rangeIn(segmentIndex, 0, text.length),
             markColor = colors.mark,
             selectionColor = colors.selection,
+            stops = stops,
         ),
         onTextLayout = {
             holder.layout = it
