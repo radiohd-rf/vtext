@@ -417,7 +417,9 @@ fun ReaderScreen(
             }
 
             fun firstBlock(page: ReaderPage?): ReaderPageBlock? =
-                page?.blocks?.firstOrNull { !it.isHeader } ?: page?.blocks?.firstOrNull()
+                page?.blocks?.firstOrNull { !it.isHeader && it.imagePath == null }
+                    ?: page?.blocks?.firstOrNull { !it.isHeader }
+                    ?: page?.blocks?.firstOrNull()
 
             fun applyPagePosition(page: ReaderPage?) {
                 val block = firstBlock(page) ?: return
@@ -470,11 +472,21 @@ fun ReaderScreen(
                 // Заголовок главы в начале страницы не считается текстом:
                 // сравниваем с первым абзацем страницы.
                 val pageStart = full.getOrNull(anchorPage)?.blocks
-                    ?.firstOrNull { it.segmentIndex != null }
+                    ?.firstOrNull { it.segmentIndex != null && it.imagePath == null }
                 val anchorAtPageStart = pageStart != null &&
                     (pageStart.segmentIndex ?: -1) == anchorSegment &&
                     pageStart.charOffset == anchorOffset
-                if (anchorPage >= 0 && !anchorAtPageStart) {
+                if (pageIndex == 0 && anchorPage == 0 && state.chapterIndex > 0) {
+                    // Мы уже на первой странице главы — сразу к предыдущей,
+                    // иначе первый «назад» только перерисовывал ту же страницу.
+                    pages = emptyList()
+                    pageIndex = 0
+                    anchorChapter = state.chapterIndex - 1
+                    anchorSegment = 0
+                    anchorOffset = 0
+                    wantLastPage = true
+                    viewModel.selectPosition(state.chapterIndex - 1, 0)
+                } else if (anchorPage >= 0 && !anchorAtPageStart) {
                     // Текущая страница началась с середины полной страницы —
                     // показываем её с начала и запоминаем это место.
                     pages = full
