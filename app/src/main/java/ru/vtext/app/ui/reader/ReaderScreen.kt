@@ -476,17 +476,7 @@ fun ReaderScreen(
                 val anchorAtPageStart = pageStart != null &&
                     (pageStart.segmentIndex ?: -1) == anchorSegment &&
                     pageStart.charOffset == anchorOffset
-                if (pageIndex == 0 && anchorPage == 0 && state.chapterIndex > 0) {
-                    // Мы уже на первой странице главы — сразу к предыдущей,
-                    // иначе первый «назад» только перерисовывал ту же страницу.
-                    pages = emptyList()
-                    pageIndex = 0
-                    anchorChapter = state.chapterIndex - 1
-                    anchorSegment = 0
-                    anchorOffset = 0
-                    wantLastPage = true
-                    viewModel.selectPosition(state.chapterIndex - 1, 0)
-                } else if (anchorPage >= 0 && !anchorAtPageStart) {
+                if (anchorPage >= 0 && !anchorAtPageStart) {
                     // Текущая страница началась с середины полной страницы —
                     // показываем её с начала и запоминаем это место.
                     pages = full
@@ -535,9 +525,16 @@ fun ReaderScreen(
             }
 
             /** Отпускание пальца: доводим страницу или возвращаем на место. */
-            fun settleTurn(offset: Float, velocityX: Float, width: Float) {
-                val flip = abs(offset) > width * 0.25f || abs(velocityX) > width * 2.5f
+            fun settleTurn(offset: Float, rawDrag: Float, velocityX: Float, width: Float) {
                 val direction = if (offset < 0f || (offset == 0f && velocityX < 0f)) 1 else -1
+                // На границе главы соседней страницы нет: страница идёт с
+                // сопротивлением, поэтому порог считаем по ходу пальца, иначе
+                // перевернуть можно только свайпом во всю ширину экрана.
+                val flip = if (hasNeighbor(direction)) {
+                    abs(offset) > width * 0.25f || abs(velocityX) > width * 2.5f
+                } else {
+                    abs(rawDrag) > width * 0.1f || abs(velocityX) > width * 1.6f
+                }
                 pageTurnJob?.cancel()
                 pageTurnJob = scope.launch {
                     if (flip && !hasNeighbor(direction)) {
@@ -671,8 +668,9 @@ fun ReaderScreen(
                                 if (dragging) {
                                     dragX += change.positionChange().x
                                     val direction = if (dragX < 0) 1 else -1
-                                    // За краем главы — тянется с сопротивлением.
-                                    val value = if (hasNeighbor(direction)) dragX else dragX * 0.25f
+                                    // За краем главы страница идёт с сопротивлением,
+                                    // но переворот считается по ходу пальца.
+                                    val value = if (hasNeighbor(direction)) dragX else dragX * 0.55f
                                     pageOffsetX = dragBase + value
                                     change.consume()
                                 }
@@ -687,6 +685,7 @@ fun ReaderScreen(
                             } else {
                                 settleTurn(
                                     offset = pageOffsetX,
+                                    rawDrag = dragX,
                                     velocityX = tracker.calculateVelocity().x,
                                     width = size.width.toFloat(),
                                 )
