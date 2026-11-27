@@ -219,6 +219,8 @@ fun ReaderScreen(
     var pagesChapter by remember { mutableStateOf(-1) }
     var pageIndex by remember { mutableStateOf(0) }
     var wantLastPage by remember { mutableStateOf(false) }
+    /** Страницы собраны от начала главы (а не от места чтения посередине). */
+    var pagesFromStart by remember { mutableStateOf(true) }
     var paginatedHeight by remember { mutableStateOf(0) }
     // Якорь страницы: абзац и смещение в нём, чтобы при пересборке не терять место.
     var anchorChapter by remember { mutableStateOf(-1) }
@@ -393,6 +395,7 @@ fun ReaderScreen(
                 )
                 pages = built
                 pagesChapter = state.chapterIndex
+                pagesFromStart = anchorSegment <= 0
                 // Недокрученная анимация не должна сдвигать новую страницу.
                 pageOffsetX = 0f
                 val jumpToTarget = jumpChapter == state.chapterIndex && jumpSegment >= 0
@@ -454,6 +457,13 @@ fun ReaderScreen(
                 if (pageIndex > 0) {
                     pageIndex -= 1
                     applyPagePosition(pages.getOrNull(pageIndex))
+                    return
+                }
+                // Страницы собраны от начала главы и мы на первой — значит
+                // раньше текста нет, сразу к предыдущей главе.
+                if (pageIndex == 0 && pagesFromStart && state.chapterIndex > 0) {
+                    wantLastPage = true
+                    viewModel.selectPosition(state.chapterIndex - 1, 0)
                     return
                 }
                 // Список мог начинаться с текущего места — пересобираем главу
