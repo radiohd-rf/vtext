@@ -54,6 +54,8 @@ data class LibraryUiState(
     val sort: LibrarySort = LibrarySort.RECENT,
     val filter: LibraryFilter = LibraryFilter.ALL,
     val selected: Set<String> = emptySet(),
+    /** Локальные книги, для которых в фоне собирается EPUB. */
+    val preparing: Set<String> = emptySet(),
     val error: String? = null,
 ) {
     /** Книги после поиска, фильтра и сортировки — то, что видно в списке. */
@@ -149,6 +151,14 @@ class LibraryViewModel(
                         it.copy(books = updated, positions = readPositions(updated))
                     }
                 }
+                // Дособираем EPUB локальным книгам, добавленным раньше (по одной).
+                repository.pendingLocalPrepare(limit = 1).forEach { id ->
+                    _state.update { it.copy(preparing = it.preparing + id) }
+                    runCatching { repository.loadBook(id) }
+                    _state.update { it.copy(preparing = it.preparing - id) }
+                    val updated = repository.listBooks()
+                    _state.update { it.copy(books = updated, positions = readPositions(updated)) }
+                }
             } finally {
                 refreshing = false
                 if (refreshAgain) {
@@ -164,9 +174,11 @@ class LibraryViewModel(
         viewModelScope.launch {
             _state.update { it.copy(importing = true, error = null) }
             var lastError: String? = null
+            val importedIds = mutableListOf<String>()
             for (uri in uris) {
                 try {
-                    repository.import(uri, preset)
+                    val imported = repository.import(uri, preset)
+                    importedIds += imported.id
                 } catch (error: Exception) {
                     lastError = error.message ?: "Не удалось импортировать книгу"
                 }
@@ -179,8 +191,18 @@ class LibraryViewModel(
                     books = books,
                     positions = readPositions(books),
                     flags = bookFlagsStore.all(),
+                    preparing = importedIds.toSet(),
                     error = lastError,
                 )
+            }
+            // EPUB собираем в фоне: копия исходника удалится после сборки.
+            importedIds.forEach { id ->
+                runCatching { repository.loadBook(id) }
+                _state.update { it.copy(preparing = it.preparing - id) }
+            }
+            val updated = repository.listBooks()
+            _state.update {
+                it.copy(books = updated, positions = readPositions(updated))
             }
         }
     }

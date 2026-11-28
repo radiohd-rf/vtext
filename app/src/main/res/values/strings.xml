@@ -68,6 +68,7 @@
     <string name="bookmarks">Закладки</string>
     <string name="bookmarks_empty">Закладок пока нет</string>
     <string name="bookmark_add">Добавить закладку</string>
+    <string name="book_preparing">Подготовка…</string>
     <string name="bookmark_added">Закладка уже стоит</string>
     <string name="bookmark_position">Глава %1$d, фрагмент %2$d</string>
 

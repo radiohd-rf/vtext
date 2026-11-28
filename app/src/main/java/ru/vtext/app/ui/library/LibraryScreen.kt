@@ -298,6 +298,7 @@ fun LibraryScreen(
                         positions = state.positions,
                         flags = state.flags,
                         selected = state.selected.takeIf { state.selecting },
+                        preparing = state.preparing,
                         onOpen = { id ->
                             val target = state.visibleBooks.firstOrNull { it.id == id }
                             viewModel.markOpened(id)
@@ -1038,6 +1039,7 @@ private fun BookList(
     positions: Map<String, ReadingPosition>,
     flags: Map<String, BookFlags>,
     selected: Set<String>?,
+    preparing: Set<String> = emptySet(),
     onOpen: (String) -> Unit,
     onLongPress: (Book) -> Unit,
     onToggleSelection: (String) -> Unit,
@@ -1054,6 +1056,7 @@ private fun BookList(
                 flags = flags[book.id] ?: BookFlags(),
                 selected = selected?.contains(book.id),
                 selecting = selected != null,
+                preparing = book.id in preparing,
                 onClick = {
                     if (selected != null) onToggleSelection(book.id) else onOpen(book.id)
                 },
@@ -1077,6 +1080,7 @@ private fun BookRow(
     flags: BookFlags,
     selected: Boolean?,
     selecting: Boolean,
+    preparing: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -1178,6 +1182,13 @@ private fun BookRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 BookKindBadge(book)
+                if (preparing) {
+                    Text(
+                        text = stringResource(R.string.book_preparing),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (flags.favorite) {
                     Icon(
                         Icons.Default.Favorite,

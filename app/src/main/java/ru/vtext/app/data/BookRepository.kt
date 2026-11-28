@@ -54,6 +54,24 @@ class BookRepository(private val context: Context) {
     }
 
     /**
+     * Локальные не-EPUB книги, у которых ещё лежит исходник, но EPUB не собран:
+     * их стоит дособрать в фоне, после чего копия исходника удаляется.
+     */
+    suspend fun pendingLocalPrepare(limit: Int = 1): List<String> = withContext(Dispatchers.IO) {
+        listBooks()
+            .asSequence()
+            .filter { it.cloudKey == null && it.format != null && it.format != BookFormat.EPUB }
+            .filter { book ->
+                val dir = bookDir(book.id)
+                val hasSource = dir.listFiles()?.any { it.name.startsWith("source.") } == true
+                hasSource && !File(dir, "book.epub").isFile
+            }
+            .map { it.id }
+            .take(limit)
+            .toList()
+    }
+
+    /**
      * Достаёт недостающие обложки в фоне. Раньше это делалось прямо в [listBooks]
      * и первый показ библиотеки ждал рендер первых страниц PDF.
      * @return true, если хоть одна обложка появилась
@@ -325,6 +343,15 @@ class BookRepository(private val context: Context) {
                 val referenced = chapters.flatMap { it.images }.map { it.file }.toSet()
                 File(dir, "epub-assets").listFiles()?.forEach { file ->
                     if (file.name !in referenced) file.delete()
+                }
+            }
+            // Локальной книге исходник больше не нужен: читалка работает с EPUB.
+            // У облачных копию оставляем — она и есть локальная версия файла.
+            if (format != BookFormat.EPUB && meta.cloudKey == null && compiledEpub.isFile) {
+                runCatching {
+                    dir.listFiles()?.filter { it.name.startsWith("source.") }?.forEach {
+                        it.delete()
+                    }
                 }
             }
             val book = meta.copy(
